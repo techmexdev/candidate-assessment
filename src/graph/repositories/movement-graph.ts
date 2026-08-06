@@ -18,11 +18,6 @@ import type {
 import { RESOLVABLE_CONCEPT_KINDS } from "../../domain/contracts/movement-graph";
 import type {
   GraphAuthority,
-  LegacyConceptCandidate,
-  LegacyMovementEdgeKind,
-  LegacyMovementGraphRepository,
-  LegacyMovementGraphSnapshot,
-  LegacyMovementNode,
   MovementGraphAssertion,
   MovementGraphEdgeAssertion,
   MovementGraphNodeAssertion,
@@ -212,25 +207,5 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
       assertions.push(assertion);
     }
     return this.result(assertions);
-  }
-}
-
-/** Transitional U3-to-U5 resolver bridge. It is not a graph authority. */
-export class LegacyMovementResolverBridge implements LegacyMovementGraphRepository {
-  private readonly nodesById: Map<string, LegacyMovementNode>;
-  constructor(private readonly graph: LegacyMovementGraphSnapshot) { this.nodesById = new Map(graph.nodes.map((node) => [node.id, node])); }
-  snapshot() { return this.graph; }
-  getNode(id: string) { return this.nodesById.get(id); }
-  getAnatomyDescendants() { return []; }
-  getRelated(id: string, kind: LegacyMovementEdgeKind) { return this.graph.edges.filter((edge) => edge.from === id && edge.kind === kind).map((edge) => this.nodesById.get(edge.to)).filter((node): node is LegacyMovementNode => Boolean(node)); }
-  findEquivalentExercises() { return []; }
-  findConceptCandidates(query: string, kind?: LegacyMovementNode["kind"]): LegacyConceptCandidate[] {
-    const normalized = normalizeConceptText(query);
-    return this.graph.nodes.filter((node) => !kind || node.kind === kind).flatMap((node) => {
-      const aliases = [node.label, ...node.aliases]; const exact = aliases.find((alias) => normalizeConceptText(alias) === normalized);
-      if (exact) return [{ node, matchedAlias: exact, exact: true, score: 1 }];
-      const best = aliases.map((alias) => ({ alias, score: tokenScore(query, alias) })).sort((a, b) => b.score - a.score || a.alias.localeCompare(b.alias))[0];
-      return best && best.score > 0 ? [{ node, matchedAlias: best.alias, exact: false, score: best.score }] : [];
-    }).sort((a, b) => b.score - a.score || a.node.id.localeCompare(b.node.id));
   }
 }

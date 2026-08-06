@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "graph:seed": "tsx scripts/seed-movement-graph.ts seed",
+    "graph:inspect": "tsx scripts/seed-movement-graph.ts inspect",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test --grep @a11y",
     "test:visual": "playwright test --grep @visual",

@@ -45,17 +45,3 @@ export type LocalOnlyOntologyVerificationRecord = OntologyReviewRecordBase & {
 export type OntologyMappingRecord =
   | ReviewedOntologyMappingRecord
   | LocalOnlyOntologyVerificationRecord;
-
-/* Transitional manifest shape used only by the pre-U2 catalog ingestion. */
-export type LegacyOntologyMappingRecord = {
-  id: string;
-  sourceOntology: string;
-  sourceTerm: string;
-  sourceUri: string;
-  targetKind: "anatomy" | "condition" | "equipment" | "movement-pattern";
-  targetId: string;
-  relation: SkosMappingRelation;
-  confidence: number;
-  rationale: string;
-  revision: string;
-};

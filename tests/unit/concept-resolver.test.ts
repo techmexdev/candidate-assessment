@@ -5,6 +5,7 @@ import { decideConceptResolution } from "../../src/domain/policies/concept-resol
 import { resolveMovementConcepts } from "../../src/application/use-cases/resolve-movement-concepts";
 import { compileDefaultMovementGraph } from "../../src/graph/ingest/movement-clinical";
 import { InMemoryMovementGraphReadProvider } from "../../src/graph/repositories/movement-graph";
+import { translateLegacyMovementConceptId } from "../../src/domain/policies/legacy-movement-ids";
 
 function snapshot() {
   const result = compileDefaultMovementGraph();
@@ -15,6 +16,18 @@ function snapshot() {
 const injury = (text: string): ConceptMention => ({ text, kind: "joint", role: "injury", safetyCritical: true });
 
 describe("revision-pinned concept resolver", () => {
+  it("translates only reviewed legacy IDs and fails explicitly for unknown IDs", () => {
+    expect(translateLegacyMovementConceptId("anatomy:knee")).toEqual({
+      status: "translated",
+      legacyId: "anatomy:knee",
+      conceptId: "joint:knee",
+    });
+    expect(translateLegacyMovementConceptId("anatomy:not-real")).toEqual({
+      status: "unknown",
+      legacyId: "anatomy:not-real",
+    });
+  });
+
   it("retrieves from one canonical revision and keeps assertion provenance", async () => {
     const graph = snapshot();
     const provider = new InMemoryMovementGraphReadProvider([graph], { authority: "canonical" });

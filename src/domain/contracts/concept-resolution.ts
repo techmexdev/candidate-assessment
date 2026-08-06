@@ -1,7 +1,6 @@
 import {
   RESOLVABLE_CONCEPT_KINDS,
   type GraphAuthority,
-  type LegacyMovementNodeKind,
   type ResolvableConceptKind,
 } from "./movement-graph";
 
@@ -72,44 +71,3 @@ export type ConceptResolutionPolicy = {
   readonly clarificationFloor: number;
   readonly minimumMargin: number;
 };
-
-/* Transitional types consumed only by the legacy synchronous resolver. */
-export type LegacyConceptMention = {
-  text: string;
-  kind?: LegacyMovementNodeKind;
-  role: "target" | "equipment" | "injury" | "exclusion" | "preference";
-  safetyCritical: boolean;
-};
-
-export type LegacyCandidateSummary = {
-  conceptId: string;
-  label: string;
-  kind: LegacyMovementNodeKind;
-  matchedAlias: string;
-  confidence: number;
-};
-
-export type LegacyConceptResolution =
-  | {
-      status: "resolved";
-      mention: LegacyConceptMention;
-      conceptId: string;
-      method: ResolutionMethod;
-      confidence: number;
-      threshold: number;
-      matchedAlias: string;
-      alternatives: LegacyCandidateSummary[];
-      policyRevision: string;
-    }
-  | {
-      status: "clarify" | "unresolved";
-      mention: LegacyConceptMention;
-      reason: "ambiguous" | "below-threshold" | "no-candidate" | "invalid-input";
-      candidates: LegacyCandidateSummary[];
-      requiredConfidence: number;
-      policyRevision: string;
-    };
-
-export type LegacyConceptResolutionBatch =
-  | { status: "resolved"; resolutions: Extract<LegacyConceptResolution, { status: "resolved" }>[] }
-  | { status: "needs_clarification"; resolutions: LegacyConceptResolution[] };
