@@ -1,4 +1,4 @@
-import neo4j, { type Driver, type ManagedTransaction } from "neo4j-driver";
+import neo4j, { type BookmarkManager, type Driver, type ManagedTransaction } from "neo4j-driver";
 
 export const LOCAL_NEO4J_DEFAULTS = Object.freeze({
   uri: "neo4j://127.0.0.1:7687",
@@ -20,9 +20,10 @@ export type Neo4jQueryResult = { readonly records: readonly Neo4jRecord[] };
 export type Neo4jTransaction = {
   readonly run: (query: string, parameters?: Readonly<Record<string, unknown>>) => Promise<Neo4jQueryResult>;
 };
+export type Neo4jExecutionOptions = { readonly timeoutMs?: number };
 export type Neo4jClient = {
-  readonly executeRead: <T>(work: (transaction: Neo4jTransaction) => Promise<T>) => Promise<T>;
-  readonly executeWrite: <T>(work: (transaction: Neo4jTransaction) => Promise<T>) => Promise<T>;
+  readonly executeRead: <T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) => Promise<T>;
+  readonly executeWrite: <T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) => Promise<T>;
   readonly verifyConnectivity: () => Promise<void>;
   readonly close: () => Promise<void>;
 };
@@ -50,20 +51,35 @@ function resolvedConfig(config: Neo4jClientConfig) {
 }
 
 class DriverNeo4jClient implements Neo4jClient {
-  constructor(private readonly driver: Driver, private readonly database: string) {}
+  constructor(
+    private readonly driver: Driver,
+    private readonly database: string,
+    private readonly bookmarks: BookmarkManager,
+  ) {}
 
-  private async withSession<T>(mode: "read" | "write", work: (transaction: Neo4jTransaction) => Promise<T>) {
-    const session = this.driver.session({ database: this.database, defaultAccessMode: mode === "read" ? neo4j.session.READ : neo4j.session.WRITE });
+  private async withSession<T>(
+    mode: "read" | "write",
+    work: (transaction: Neo4jTransaction) => Promise<T>,
+    options: Neo4jExecutionOptions = {},
+  ) {
+    const session = this.driver.session({
+      database: this.database,
+      defaultAccessMode: mode === "read" ? neo4j.session.READ : neo4j.session.WRITE,
+      bookmarkManager: this.bookmarks,
+    });
     try {
       const callback = (transaction: ManagedTransaction) => work(transaction as unknown as Neo4jTransaction);
-      return mode === "read" ? await session.executeRead(callback) : await session.executeWrite(callback);
+      const transactionConfig = options.timeoutMs ? { timeout: options.timeoutMs } : undefined;
+      return mode === "read"
+        ? await session.executeRead(callback, transactionConfig)
+        : await session.executeWrite(callback, transactionConfig);
     } finally {
       await session.close();
     }
   }
 
-  executeRead<T>(work: (transaction: Neo4jTransaction) => Promise<T>) { return this.withSession("read", work); }
-  executeWrite<T>(work: (transaction: Neo4jTransaction) => Promise<T>) { return this.withSession("write", work); }
+  executeRead<T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) { return this.withSession("read", work, options); }
+  executeWrite<T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) { return this.withSession("write", work, options); }
   async verifyConnectivity() { await this.driver.verifyConnectivity(); }
   async close() { await this.driver.close(); }
 }
@@ -73,5 +89,5 @@ export function createNeo4jClient(config: Neo4jClientConfig = {}): Neo4jClient {
   const driver = neo4j.driver(resolved.uri, neo4j.auth.basic(resolved.username, resolved.password), {
     disableLosslessIntegers: true,
   });
-  return new DriverNeo4jClient(driver, resolved.database);
+  return new DriverNeo4jClient(driver, resolved.database, neo4j.bookmarkManager());
 }

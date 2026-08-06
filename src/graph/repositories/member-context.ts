@@ -542,6 +542,19 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
   }
 }
 
+/**
+ * Shared projection engine for canonical adapters. Callers must supply a
+ * snapshot that they loaded and integrity-checked from their own authority.
+ */
+export function createMemberContextReadHandle(
+  snapshot: MemberContextGraphSnapshot,
+  coachId: string,
+  authority: MemberContextAuthority,
+  cursorSecret: Buffer = randomBytes(32),
+): MemberContextReadHandle {
+  return new InMemoryMemberContextReadHandle(snapshot, coachId, authority, cursorSecret);
+}
+
 export type TrustedMemberContextScope = {
   readonly coachId: string;
   readonly memberId: string;

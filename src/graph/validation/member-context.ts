@@ -3,6 +3,7 @@ import type {
   MemberContextGraphSnapshot,
   MemberContextNodeKind,
 } from "../../domain/contracts/member-context";
+import { MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS } from "../../domain/contracts/member-context";
 import { MEMBER_CONTEXT_RELATIONSHIP_ENDPOINTS } from "../schema/member-context-schema";
 
 export type MemberContextValidationResult = { readonly valid: boolean; readonly errors: readonly string[] };
@@ -217,11 +218,20 @@ export function validateMemberContextSource(input: unknown): MemberContextValida
 
 export function validateMemberContextGraph(snapshot: MemberContextGraphSnapshot): MemberContextValidationResult {
   const errors: string[] = [];
+  const revisionScopedKinds = new Set<string>(MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS);
   const nodes = new Map<string, (typeof snapshot.nodes)[number]>();
   const assertions = new Set<string>();
   for (const node of snapshot.nodes) {
+    if (typeof node.semanticId !== "string" || !node.semanticId.trim()) {
+      errors.push(`missing semantic identity for ${node.kind}`);
+      continue;
+    }
     if (nodes.has(node.semanticId)) errors.push(`duplicate semantic identity ${node.semanticId}`);
     nodes.set(node.semanticId, node);
+    if (revisionScopedKinds.has(node.kind) && (!("assertionId" in node) || typeof node.assertionId !== "string" || !node.assertionId.trim())) {
+      errors.push(`missing assertion identity for ${node.semanticId}`);
+      continue;
+    }
     if ("assertionId" in node) {
       if (assertions.has(node.assertionId)) errors.push(`duplicate assertion identity ${node.assertionId}`);
       assertions.add(node.assertionId);
@@ -232,6 +242,11 @@ export function validateMemberContextGraph(snapshot: MemberContextGraphSnapshot)
     }
   }
   for (const edge of snapshot.relationships) {
+    if (typeof edge.semanticId !== "string" || !edge.semanticId.trim()) errors.push(`missing relationship semantic identity for ${edge.kind}`);
+    if (typeof edge.assertionId !== "string" || !edge.assertionId.trim()) {
+      errors.push(`missing relationship assertion identity for ${edge.semanticId || edge.kind}`);
+      continue;
+    }
     if (assertions.has(edge.assertionId)) errors.push(`duplicate assertion identity ${edge.assertionId}`);
     assertions.add(edge.assertionId);
     const from = nodes.get(edge.fromSemanticId);
