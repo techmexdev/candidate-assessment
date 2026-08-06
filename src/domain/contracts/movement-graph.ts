@@ -207,7 +207,12 @@ export type MovementGraphEdgeAssertion =
   | EdgeAssertion<"requires", "exercise", "equipment">
   | EdgeAssertion<"part-of", "muscle" | "joint" | "body-region", "joint" | "body-region">
   | EdgeAssertion<"variant-of", "exercise", "exercise">
-  | EdgeAssertion<"substitution-candidate-for", "exercise", "exercise">
+  | (EdgeAssertion<"substitution-candidate-for", "exercise", "exercise"> & {
+      readonly rank: number;
+      readonly preservedIntent: string;
+      readonly curator: string;
+      readonly reviewedAt: string;
+    })
   | EdgeAssertion<"has-constraint", "condition", "clinical-rule">
   | EdgeAssertion<"contraindicates", "clinical-rule", "movement-demand" | "movement-pattern" | "joint" | "body-region">
   | EdgeAssertion<"cautions", "clinical-rule", "movement-demand" | "movement-pattern" | "joint" | "body-region">
@@ -220,6 +225,7 @@ export type MovementGraphEdgeAssertion =
       readonly curator: string;
       readonly reviewedAt: string;
       readonly sourceRelease: string;
+      readonly sourceArtifactDigest: string;
     })
   | EdgeAssertion<"supported-by", "clinical-rule", "evidence-source">
   | EdgeAssertion<"in-revision", Exclude<MovementNodeKind, "graph-revision" | "ingestion-activity">, "graph-revision">

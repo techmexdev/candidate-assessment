@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import exercises from "../../data/exercises.json";
-import { buildMovementGraph } from "../../src/graph/ingest/exercises";
-import { InMemoryMovementGraphRepository } from "../../src/graph/repositories/movement-graph";
+import { buildLegacyMovementResolverGraph } from "../../src/graph/ingest/exercises";
+import { LegacyMovementResolverBridge } from "../../src/graph/repositories/movement-graph";
 import { resolveConcept, resolveConcepts } from "../../src/domain/policies/concept-resolution";
 
 describe("concept resolver", () => {
-  const repository = new InMemoryMovementGraphRepository(buildMovementGraph(exercises));
+  const repository = new LegacyMovementResolverBridge(buildLegacyMovementResolverGraph(exercises));
 
   it("resolves exact aliases at full confidence", () => {
     const result = resolveConcept(repository, { text: "knee", kind: "anatomy", role: "injury", safetyCritical: true });

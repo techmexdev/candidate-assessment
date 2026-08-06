@@ -126,7 +126,8 @@ function addEdge(edges: Map<string, LegacyMovementEdge>, value: LegacyMovementEd
   if (!edges.has(value.id)) edges.set(value.id, value);
 }
 
-export function buildMovementGraph(
+/** Transitional U3-to-U5 resolver fixture. The target compiler is movement-clinical.ts. */
+export function buildLegacyMovementResolverGraph(
   exercises: CatalogExercise[],
   revision = "movement-v1",
 ): LegacyMovementGraphSnapshot {
@@ -169,29 +170,9 @@ export function buildMovementGraph(
 
   const knee = node("anatomy", "knee", "curated-clinical-subset");
   const patellofemoral = node("anatomy", "patellofemoral joint", "curated-clinical-subset");
-  const condition = node("condition", "patellofemoral pain", "curated-clinical-subset");
   addNode(nodes, knee);
   addNode(nodes, patellofemoral);
-  addNode(nodes, condition);
   addEdge(edges, edge(patellofemoral.id, knee.id, "part-of", "curated-clinical-subset"));
-
-  for (const exercise of exercises) {
-    const exerciseNode = nodes.get(`exercise:${exercise.id}`)!;
-    if (exercise.movement_patterns.includes("lower push - split squat") || exercise.movement_patterns.includes("cardio - plyometric")) {
-      addEdge(edges, edge(condition.id, exerciseNode.id, "contraindicated-for", "curated-clinical-subset"));
-    }
-  }
-
-  for (const left of exercises) {
-    for (const right of exercises) {
-      if (left.id >= right.id) continue;
-      const samePattern = left.movement_patterns.some((pattern) => right.movement_patterns.includes(pattern));
-      const sharedMuscle = left.muscle_groups.some((muscle) => right.muscle_groups.includes(muscle));
-      if (!samePattern || !sharedMuscle) continue;
-      addEdge(edges, edge(`exercise:${left.id}`, `exercise:${right.id}`, "equivalent-to", "catalog-taxonomy"));
-      addEdge(edges, edge(`exercise:${right.id}`, `exercise:${left.id}`, "equivalent-to", "catalog-taxonomy"));
-    }
-  }
 
   return {
     revision,
@@ -199,5 +180,3 @@ export function buildMovementGraph(
     edges: [...edges.values()].sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
-
-export const defaultMovementGraph = buildMovementGraph(exercisesData);

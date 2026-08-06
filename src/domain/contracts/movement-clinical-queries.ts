@@ -1,5 +1,7 @@
 import type {
   ClinicalRuleEffect,
+  ClinicalRuleApplicability,
+  ClinicalRuleOverridePolicy,
   GraphAuthority,
   MovementGraphAssertion,
   ResolvableConceptKind,
@@ -66,6 +68,8 @@ export type ClinicalRuleFact = {
   readonly ruleConceptId: string;
   readonly ruleAssertionId: string;
   readonly effect: ClinicalRuleEffect;
+  readonly applicability: ClinicalRuleApplicability;
+  readonly overridePolicy: ClinicalRuleOverridePolicy;
   readonly targetConceptId: string;
   readonly pathAssertionIds: readonly string[];
   readonly mappingAssertionIds: readonly string[];
@@ -81,6 +85,10 @@ export type SubstitutionCandidateFact = {
   readonly exerciseConceptId: string;
   readonly exerciseAssertionId: string;
   readonly substitutionAssertionId: string;
+  readonly rank: number;
+  readonly preservedIntent: string;
+  readonly curator: string;
+  readonly reviewedAt: string;
 };
 
 export type SubstitutionCandidatesQuery = BoundedGraphQuery & {
