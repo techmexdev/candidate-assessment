@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test --grep @a11y",
     "test:visual": "playwright test --grep @visual",
+    "graph:seed:member": "tsx scripts/seed-member-context.ts",
     "check:isolation": "node scripts/check-production-isolation.mjs"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "eslint": "9.39.5",
     "eslint-config-next": "16.2.12",
     "typescript": "5.9.3",
+    "tsx": "4.23.8",
     "vitest": "4.1.10"
   }
 }

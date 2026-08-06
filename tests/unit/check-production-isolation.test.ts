@@ -84,4 +84,16 @@ describe("production isolation check", () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain("src/page.ts references prototype archive @prototype/bridge.js");
   });
+
+  it("rejects production imports from test fixture builders", async () => {
+    const result = await check(await fixture({
+      "src/graph/seed.ts": 'import { buildFixture } from "../../tests/fixtures/member-builder"; export const seed = buildFixture();',
+      "tests/fixtures/member-builder.ts": "export const buildFixture = () => ({ synthetic: true });",
+    }));
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(
+      "src/graph/seed.ts references test fixture builder ../../tests/fixtures/member-builder",
+    );
+  });
 });

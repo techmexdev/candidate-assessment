@@ -39,3 +39,16 @@ pnpm dev
 Quality gates are available through `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm test:a11y`, `pnpm test:visual`, and `pnpm build`.
 
 Adjustment, override, Copilot, version history, and publication are deterministic local demonstrations. They do not authenticate a coach, call a model, query Neo4j, persist changes, or deliver a workout. The broader graph-backed implementation remains defined in [`docs/plans/2026-08-05-001-feat-graph-backed-coach-dashboard-plan.md`](./docs/plans/2026-08-05-001-feat-graph-backed-coach-dashboard-plan.md).
+
+## Member Context knowledge graph
+
+The repository includes a revisioned, provenance-bearing Member Context graph seeded only from the tracked synthetic Jordan fixture. Start the pinned local Neo4j service, validate the seed without writes, publish it, and inspect the active revision from the repository root:
+
+```bash
+docker compose up -d neo4j
+pnpm graph:seed:member -- --dry-run
+pnpm graph:seed:member
+pnpm graph:seed:member -- --inspect
+```
+
+The graph is a bounded retrieval substrate, not a completed Copilot or clinical system. It does not support real member data, clinical validation, image analysis, model-authored Cypher, or direct client access to Neo4j. See [`docs/graph/member-context-schema.md`](./docs/graph/member-context-schema.md) for the complete schema, provenance and time rules, cross-graph boundary, publication lifecycle, application read port, and downstream pin-and-cite flow.

@@ -4,6 +4,7 @@ import process from "node:process";
 
 const root = await realpath(process.cwd());
 const prototypeRoot = await canonicalPath(path.join(root, "ui"));
+const testFixtureRoot = await canonicalPath(path.join(root, "tests", "fixtures"));
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".css"]);
 const resolutionExtensions = [...sourceExtensions, ".json"];
 const bannedText = [
@@ -159,10 +160,10 @@ function resolutionCandidates(candidate) {
   return candidates;
 }
 
-async function prototypeReference(file, specifier, aliases) {
+async function restrictedReference(file, specifier, aliases, restrictedRoot) {
   for (const candidate of candidatesForSpecifier(file, specifier, aliases)) {
     for (const resolvedCandidate of resolutionCandidates(candidate)) {
-      if (isWithin(await canonicalPath(resolvedCandidate), prototypeRoot)) return true;
+      if (isWithin(await canonicalPath(resolvedCandidate), restrictedRoot)) return true;
     }
   }
   return false;
@@ -183,8 +184,11 @@ for (const file of await productionFiles()) {
       : staticJavaScriptSpecifiers(source)
     : [];
   for (const specifier of specifiers) {
-    if (await prototypeReference(file, specifier, aliases)) {
+    if (await restrictedReference(file, specifier, aliases, prototypeRoot)) {
       failures.push(`${relativeFile} references prototype archive ${specifier}`);
+    }
+    if (await restrictedReference(file, specifier, aliases, testFixtureRoot)) {
+      failures.push(`${relativeFile} references test fixture builder ${specifier}`);
     }
   }
 }
@@ -193,5 +197,5 @@ if (failures.length > 0) {
   console.error(`Production isolation failed:\n${[...new Set(failures)].map((failure) => `- ${failure}`).join("\n")}`);
   process.exitCode = 1;
 } else {
-  console.log("Production isolation passed: production sources and inputs have no prototype runtime dependency.");
+  console.log("Production isolation passed: production sources and inputs have no prototype or test-fixture dependency.");
 }

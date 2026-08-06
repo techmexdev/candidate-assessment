@@ -1,29 +1,10 @@
 import { describe, expect, it } from "vitest";
 import jordan from "../../data/member-context.json";
-import {
-  buildMemberContextSnapshot,
-  compileMemberContextGraph,
-} from "../../src/graph/ingest/member-context";
+import { compileMemberContextGraph } from "../../src/graph/ingest/member-context";
 import { canonicalMemberContextDigest } from "../../src/graph/revisions/member-context";
 import { buildMemberContextFixture } from "../fixtures/member-context-builder";
 
 describe("member context graph", () => {
-  it("retains the accepted aggregate compatibility projection", () => {
-    const snapshot = buildMemberContextSnapshot(jordan, "dataset-v1");
-    const kinds = new Set(snapshot.evidence.map((evidence) => evidence.kind));
-
-    expect(snapshot.synthetic).toBe(true);
-    expect(snapshot.contextRevision).toMatch(/^context-/);
-    expect(snapshot.profile).toEqual(jordan.profile);
-    expect(snapshot.goals).toHaveLength(3);
-    expect(snapshot.workoutHistory).toHaveLength(4);
-    expect(snapshot.chatHistory).toHaveLength(4);
-    expect([...kinds]).toEqual(expect.arrayContaining([
-      "profile", "goal", "preference", "equipment", "injury", "workout", "adherence",
-      "biomarker", "lab", "message", "image", "coach-task", "churn-signal",
-    ]));
-  });
-
   it("compiles complete, atomic, provenance-bearing Jordan records exactly once", () => {
     const graph = compileMemberContextGraph(jordan);
     const byKind = (kind: (typeof graph.nodes)[number]["kind"]) => graph.nodes.filter((node) => node.kind === kind);

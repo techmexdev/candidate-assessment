@@ -1,5 +1,3 @@
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
 export type MemberProfile = {
   id: string;
   name: string;
@@ -79,67 +77,6 @@ export type MemberContextDocumentInput = Omit<MemberContextDocument, "chat_histo
     attachments?: { type: string; caption: string }[];
   }[];
 };
-
-export type EvidenceKind =
-  | "profile"
-  | "goal"
-  | "preference"
-  | "equipment"
-  | "injury"
-  | "workout"
-  | "adherence"
-  | "biomarker"
-  | "lab"
-  | "message"
-  | "image"
-  | "coach-task"
-  | "churn-signal";
-
-export type MemberEvidence = {
-  evidenceId: string;
-  memberId: string;
-  kind: EvidenceKind;
-  occurredAt: string;
-  recordedAt: string;
-  sourcePath: string;
-  sourceRevision: string;
-  synthetic: true;
-  value: JsonValue;
-};
-
-export type MemberContextSnapshot = {
-  memberId: string;
-  coachId: string;
-  datasetRevision: string;
-  contextRevision: string;
-  asOf: string;
-  timezone: string;
-  synthetic: true;
-  profile: MemberProfile;
-  goals: MemberGoal[];
-  preferences: MemberPreference;
-  equipmentAvailable: string[];
-  injuries: MemberInjury[];
-  workoutHistory: MemberWorkout[];
-  adherence: MemberContextDocument["adherence"];
-  biomarkers: MemberContextDocument["biomarkers"];
-  labs: MemberContextDocument["labs"];
-  chatHistory: MemberChatMessage[];
-  coachBrief: MemberContextDocument["coach_brief"];
-  evidence: MemberEvidence[];
-};
-
-export type MemberScope = { coachId: string; memberId: string };
-export type MemberContextResult =
-  | { status: "ready"; data: MemberContextSnapshot }
-  | { status: "empty"; message: string }
-  | { status: "denied"; message: string }
-  | { status: "unavailable"; message: string };
-
-/*
- * The aggregate types above are compatibility exports for the pre-graph
- * adapter. New code should use the revisioned graph contracts below.
- */
 
 export const MEMBER_CONTEXT_NODE_KINDS = [
   "member",
