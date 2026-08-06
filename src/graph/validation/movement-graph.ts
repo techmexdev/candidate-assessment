@@ -1,5 +1,11 @@
-import type { ClinicalRuleNodeAssertion, MovementGraphSnapshot } from "../../domain/contracts/movement-graph";
-import { ALLOWED_SKOS_RELATIONS, MOVEMENT_EDGE_ENDPOINTS, MOVEMENT_GRAPH_LIMITS } from "../schema/movement-schema";
+import type { MovementGraphSnapshot } from "../../domain/contracts/movement-graph";
+import {
+  ALLOWED_SKOS_RELATIONS,
+  CLINICAL_RULE_EFFECT_TARGET_EDGE,
+  CLINICAL_RULE_TARGET_EDGE_KINDS,
+  MOVEMENT_EDGE_ENDPOINTS,
+  MOVEMENT_GRAPH_LIMITS,
+} from "../schema/movement-schema";
 
 export type MovementGraphValidationErrorCode =
   | "duplicate_concept_id" | "duplicate_assertion_id" | "dangling_reference" | "invalid_endpoint"
@@ -31,19 +37,19 @@ export function validateMovementGraph(snapshot: MovementGraphSnapshot): Movement
         || node.applicability.severityBands.length === 0) add("incomplete_clinical_rule", `Incomplete clinical rule ${node.conceptId}`, node.assertionId);
     }
   }
-  const ruleTargetKinds: Record<ClinicalRuleNodeAssertion["effect"], string> = {
-    "hard-contraindication": "contraindicates", caution: "cautions", "down-rank": "downranks",
-  };
-  for (const edge of snapshot.edges as readonly any[]) {
+  for (const edge of snapshot.edges) {
+    const edgeKind = edge.kind as string;
+    const fromKind = edge.fromKind as string;
+    const toKind = edge.toKind as string;
     if (assertions.has(edge.assertionId)) add("duplicate_assertion_id", `Duplicate assertion ${edge.assertionId}`, edge.assertionId);
     assertions.add(edge.assertionId);
     if (edge.graphRevisionId !== snapshot.graphRevisionId) add("mixed_revision", `Edge ${edge.assertionId} has another revision`, edge.assertionId);
-    if (edge.kind === "contraindicated-for" || (edge.fromKind === "condition" && edge.toKind === "exercise")) {
+    if (edgeKind === "contraindicated-for" || (fromKind === "condition" && toKind === "exercise")) {
       add("forbidden_direct_clinical_edge", "Direct condition-to-exercise clinical assertions are forbidden", edge.assertionId);
       continue;
     }
-    const endpoint = MOVEMENT_EDGE_ENDPOINTS[edge.kind as keyof typeof MOVEMENT_EDGE_ENDPOINTS];
-    if (!endpoint || !(endpoint.from as readonly string[]).includes(edge.fromKind) || !(endpoint.to as readonly string[]).includes(edge.toKind)) add("invalid_endpoint", `Invalid endpoints for ${edge.kind}`, edge.assertionId);
+    const endpoint = MOVEMENT_EDGE_ENDPOINTS[edgeKind as keyof typeof MOVEMENT_EDGE_ENDPOINTS];
+    if (!endpoint || !(endpoint.from as readonly string[]).includes(fromKind) || !(endpoint.to as readonly string[]).includes(toKind)) add("invalid_endpoint", `Invalid endpoints for ${edge.kind}`, edge.assertionId);
     const from = concepts.get(edge.fromConceptId);
     const to = concepts.get(edge.toConceptId);
     if (!from || !to) add("dangling_reference", `Dangling reference on ${edge.assertionId}`, edge.assertionId);
@@ -55,15 +61,15 @@ export function validateMovementGraph(snapshot: MovementGraphSnapshot): Movement
         || !required(edge.sourceRelease) || !required(edge.sourceArtifactDigest) || !ontology || !required(ontology.code)
         || !required(ontology.conceptUri) || !required(ontology.sourceRelease)) add("incomplete_mapping", `Incomplete mapping ${edge.assertionId}`, edge.assertionId);
     }
-    if (["contraindicates", "cautions", "downranks"].includes(edge.kind)) {
+    if ((CLINICAL_RULE_TARGET_EDGE_KINDS as readonly string[]).includes(edgeKind)) {
       const rule = from?.kind === "clinical-rule" ? from : undefined;
-      if (!rule || ruleTargetKinds[rule.effect] !== edge.kind) add("rule_effect_mismatch", `Rule effect does not match ${edge.kind}`, edge.assertionId);
+      if (!rule || CLINICAL_RULE_EFFECT_TARGET_EDGE[rule.effect] !== edge.kind) add("rule_effect_mismatch", `Rule effect does not match ${edge.kind}`, edge.assertionId);
     }
   }
   for (const node of snapshot.nodes.filter((item) => item.kind === "clinical-rule")) {
     const supported = snapshot.edges.some((edge) => edge.kind === "supported-by" && edge.fromConceptId === node.conceptId);
     const constraint = snapshot.edges.some((edge) => edge.kind === "has-constraint" && edge.toConceptId === node.conceptId);
-    const target = snapshot.edges.some((edge) => ["contraindicates", "cautions", "downranks"].includes(edge.kind) && edge.fromConceptId === node.conceptId);
+    const target = snapshot.edges.some((edge) => (CLINICAL_RULE_TARGET_EDGE_KINDS as readonly string[]).includes(edge.kind) && edge.fromConceptId === node.conceptId);
     if (!supported || !constraint || !target) add("incomplete_clinical_rule", `Broken clinical rule path ${node.conceptId}`, node.assertionId);
   }
   const children = new Map<string, string[]>();

@@ -1,11 +1,39 @@
 import { describe, expect, it } from "vitest";
-import type { MovementGraphSnapshot } from "../../src/domain/contracts/movement-graph";
+import type {
+  MovementGraphNodeAssertion,
+  MovementGraphSnapshot,
+} from "../../src/domain/contracts/movement-graph";
 import {
   compileDefaultMovementGraph,
   compileMovementGraph,
   movementGraphSources,
 } from "../../src/graph/ingest/movement-clinical";
-import { validateMovementGraph } from "../../src/graph/validation/movement-graph";
+import {
+  validateMovementGraph,
+  type MovementGraphValidationErrorCode,
+} from "../../src/graph/validation/movement-graph";
+
+type MutableNode = Record<string, unknown> & {
+  assertionId: string;
+  conceptId: string;
+  graphRevisionId: string;
+  kind: string;
+};
+type MutableEdge = Record<string, unknown> & {
+  assertionId: string;
+  graphRevisionId: string;
+  kind: string;
+  fromConceptId: string;
+  fromKind: string;
+  toConceptId: string;
+  toKind: string;
+};
+type MutableSnapshot = {
+  graphRevisionId: string;
+  nodes: MutableNode[];
+  edges: MutableEdge[];
+};
+type MutationCase = readonly [MovementGraphValidationErrorCode, (copy: MutableSnapshot) => void];
 
 function validSnapshot() {
   const result = compileDefaultMovementGraph();
@@ -14,12 +42,12 @@ function validSnapshot() {
   return result.snapshot;
 }
 
-function mutableCopy(snapshot: MovementGraphSnapshot): any {
-  return structuredClone(snapshot);
+function mutableCopy(snapshot: MovementGraphSnapshot): MutableSnapshot {
+  return structuredClone(snapshot) as unknown as MutableSnapshot;
 }
 
-function expectCode(snapshot: any, code: string) {
-  const report = validateMovementGraph(snapshot);
+function expectCode(snapshot: MutableSnapshot, code: MovementGraphValidationErrorCode) {
+  const report = validateMovementGraph(snapshot as unknown as MovementGraphSnapshot);
   expect(report.status).toBe("invalid");
   expect(report.errors.map((error) => error.code)).toContain(code);
 }
@@ -37,32 +65,39 @@ describe("movement graph compiler and validator", () => {
     expect(Object.isFrozen(first.snapshot)).toBe(true);
     expect(Object.isFrozen(first.snapshot.nodes)).toBe(true);
     expect(Object.isFrozen(first.snapshot.nodes[0]?.source)).toBe(true);
-    expect(() => (first.snapshot.nodes as any[]).push({})).toThrow();
+    expect(() => (first.snapshot.nodes as unknown as MovementGraphNodeAssertion[]).push({} as MovementGraphNodeAssertion)).toThrow();
   });
 
-  it.each([
-    ["duplicate_concept_id", (copy: any) => copy.nodes.push({ ...copy.nodes[0], assertionId: "assertion:duplicate-node" })],
-    ["duplicate_assertion_id", (copy: any) => copy.edges.push({ ...copy.edges[0], fromConceptId: copy.edges[1].fromConceptId, toConceptId: copy.edges[1].toConceptId })],
-    ["dangling_reference", (copy: any) => { copy.edges[0].toConceptId = "muscle:missing"; }],
-    ["invalid_endpoint", (copy: any) => { copy.edges[0].fromKind = "condition"; }],
-    ["forbidden_direct_clinical_edge", (copy: any) => copy.edges.push({ ...copy.edges[0], assertionId: "assertion:direct", kind: "contraindicated-for", fromKind: "condition", toKind: "exercise" })],
-    ["unsupported_mapping_relation", (copy: any) => { copy.edges.find((edge: any) => edge.kind === "maps-to").relation = "relatedMatch"; }],
-    ["incomplete_mapping", (copy: any) => { delete copy.edges.find((edge: any) => edge.kind === "maps-to").sourceArtifactDigest; }],
-    ["rule_effect_mismatch", (copy: any) => { copy.nodes.find((node: any) => node.kind === "clinical-rule" && node.effect === "hard-contraindication").effect = "caution"; }],
-    ["incomplete_clinical_rule", (copy: any) => { copy.nodes.find((node: any) => node.kind === "clinical-rule").reviewer = ""; }],
-    ["anatomy_cycle", (copy: any) => { const edge = copy.edges.find((item: any) => item.kind === "part-of"); copy.edges.push({ ...edge, assertionId: "assertion:cycle", fromConceptId: edge.toConceptId, fromKind: edge.toKind, toConceptId: edge.fromConceptId, toKind: edge.fromKind }); }],
-    ["mixed_revision", (copy: any) => { copy.edges[0].graphRevisionId = "graph:sha256:other"; }],
-    ["bounds_exceeded", (copy: any) => { copy.nodes = Array.from({ length: 513 }, (_, index) => ({ ...copy.nodes[0], conceptId: `exercise:overflow-${index}`, assertionId: `assertion:overflow-${index}` })); }],
-  ])("rejects %s", (code, mutate) => {
+  const mutationCases: readonly MutationCase[] = [
+    ["duplicate_concept_id", (copy) => copy.nodes.push({ ...copy.nodes[0]!, assertionId: "assertion:duplicate-node" })],
+    ["duplicate_assertion_id", (copy) => copy.edges.push({ ...copy.edges[0]!, fromConceptId: copy.edges[1]!.fromConceptId, toConceptId: copy.edges[1]!.toConceptId })],
+    ["dangling_reference", (copy) => { copy.edges[0]!.toConceptId = "muscle:missing"; }],
+    ["invalid_endpoint", (copy) => { copy.edges[0]!.fromKind = "condition"; }],
+    ["forbidden_direct_clinical_edge", (copy) => copy.edges.push({ ...copy.edges[0]!, assertionId: "assertion:direct", kind: "contraindicated-for", fromKind: "condition", toKind: "exercise" })],
+    ["unsupported_mapping_relation", (copy) => { copy.edges.find((edge) => edge.kind === "maps-to")!.relation = "relatedMatch"; }],
+    ["incomplete_mapping", (copy) => { delete copy.edges.find((edge) => edge.kind === "maps-to")!.sourceArtifactDigest; }],
+    ["rule_effect_mismatch", (copy) => { copy.nodes.find((node) => node.kind === "clinical-rule" && node.effect === "hard-contraindication")!.effect = "caution"; }],
+    ["incomplete_clinical_rule", (copy) => { copy.nodes.find((node) => node.kind === "clinical-rule")!.reviewer = ""; }],
+    ["anatomy_cycle", (copy) => {
+      const edge = copy.edges.find((item) => item.kind === "part-of")!;
+      copy.edges.push({ ...edge, assertionId: "assertion:cycle", fromConceptId: edge.toConceptId, fromKind: edge.toKind, toConceptId: edge.fromConceptId, toKind: edge.fromKind });
+    }],
+    ["mixed_revision", (copy) => { copy.edges[0]!.graphRevisionId = "graph:sha256:other"; }],
+    ["bounds_exceeded", (copy) => { copy.nodes = Array.from({ length: 513 }, (_, index) => ({ ...copy.nodes[0]!, conceptId: `exercise:overflow-${index}`, assertionId: `assertion:overflow-${index}` })); }],
+  ];
+
+  it.each(mutationCases)("rejects %s", (code, mutate) => {
     const copy = mutableCopy(validSnapshot());
     mutate(copy);
     expectCode(copy, code);
   });
 
   it("returns a typed report and never a partial snapshot for invalid sources", () => {
-    const sources = structuredClone(movementGraphSources) as any;
-    sources.mappings.records.find((record: any) => record.status === "local-only").source_code = "invented";
-    const result = compileMovementGraph(sources);
+    const sources = structuredClone(movementGraphSources) as unknown as {
+      mappings: { records: Array<Record<string, unknown> & { status: string }> };
+    };
+    sources.mappings.records.find((record) => record.status === "local-only")!.source_code = "invented";
+    const result = compileMovementGraph(sources as unknown as typeof movementGraphSources);
     expect(result.status).toBe("invalid");
     if (result.status === "invalid") expect(result.report.errors.map((error) => error.code)).toContain("invalid_local_only_mapping");
     expect("snapshot" in result).toBe(false);

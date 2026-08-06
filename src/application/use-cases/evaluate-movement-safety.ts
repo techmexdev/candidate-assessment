@@ -86,13 +86,25 @@ export async function evaluateMovementSafetyWithHandle(
 
   const exerciseResult = await handle.getExerciseConstraintFacts({ exerciseConceptId: request.exerciseConceptId, maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxExerciseFacts });
   if (exerciseResult.status !== "ok") return fail(request, failureReason(exerciseResult.failure, "unresolved_exercise"), handle);
+  return evaluateMovementSafetyFactsWithHandle(handle, request, exerciseResult.data);
+}
+
+export async function evaluateMovementSafetyFactsWithHandle(
+  handle: MovementGraphReadHandle,
+  request: MovementSafetyRequest,
+  exercise: ExerciseConstraintFact,
+): Promise<MovementSafetyResult> {
+  if (handle.authority !== "canonical") return fail(request, "non_authoritative_graph", handle);
+  if (!request.exerciseConceptId || request.conditions.length > MOVEMENT_SAFETY_QUERY_LIMITS.maxConditions) return fail(request, "invalid_input", handle);
+  if (exercise.exerciseConceptId !== request.exerciseConceptId) return fail(request, "unresolved_exercise", handle);
+
   const evaluations = [];
   for (const context of request.conditions) {
     const rulesResult = await handle.getClinicalRuleFacts({ conditionConceptId: context.conditionConceptId, maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxRules });
     if (rulesResult.status !== "ok") return fail(request, failureReason(rulesResult.failure, "unresolved_condition"), handle);
     const matchedPaths: MatchedClinicalRulePath[] = [];
     for (const rule of rulesResult.data) {
-      const matched = await matchRuleToExercise(handle, exerciseResult.data, rule);
+      const matched = await matchRuleToExercise(handle, exercise, rule);
       if (matched && "status" in matched) return matched;
       if (matched) matchedPaths.push(matched);
     }
@@ -101,8 +113,8 @@ export async function evaluateMovementSafetyWithHandle(
   return decideMovementSafety({
     graphRevisionId: handle.graphRevisionId,
     authority: handle.authority,
-    exerciseConceptId: exerciseResult.data.exerciseConceptId,
-    exerciseAssertionId: exerciseResult.data.exerciseAssertionId,
+    exerciseConceptId: exercise.exerciseConceptId,
+    exerciseAssertionId: exercise.exerciseAssertionId,
     evaluations,
   });
 }

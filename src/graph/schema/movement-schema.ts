@@ -1,4 +1,8 @@
-import type { MovementEdgeKind, MovementNodeKind } from "../../domain/contracts/movement-graph";
+import type {
+  ClinicalRuleEffect,
+  MovementEdgeKind,
+  MovementNodeKind,
+} from "../../domain/contracts/movement-graph";
 
 export const MOVEMENT_GRAPH_SCHEMA_VERSION = "movement-clinical-schema:1";
 export const MOVEMENT_GRAPH_COMPILER_VERSION = "movement-clinical-compiler:1";
@@ -26,3 +30,13 @@ export const MOVEMENT_EDGE_ENDPOINTS = Object.freeze({
 } satisfies Record<MovementEdgeKind, { readonly from: readonly MovementNodeKind[]; readonly to: readonly MovementNodeKind[] }>);
 
 export const ALLOWED_SKOS_RELATIONS = Object.freeze(["exactMatch", "closeMatch", "broadMatch", "narrowMatch"] as const);
+
+export const CLINICAL_RULE_EFFECT_TARGET_EDGE = Object.freeze({
+  "hard-contraindication": "contraindicates",
+  caution: "cautions",
+  "down-rank": "downranks",
+} satisfies Record<ClinicalRuleEffect, Extract<MovementEdgeKind, "contraindicates" | "cautions" | "downranks">>);
+
+export const CLINICAL_RULE_TARGET_EDGE_KINDS = Object.freeze(
+  Object.values(CLINICAL_RULE_EFFECT_TARGET_EDGE),
+);

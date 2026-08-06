@@ -5,7 +5,7 @@ import type {
   MovementSubstitutionPolicyCandidate,
 } from "../../domain/policies/movement-substitution";
 import { rankMovementSubstitutes } from "../../domain/policies/movement-substitution";
-import { evaluateMovementSafetyWithHandle } from "./evaluate-movement-safety";
+import { evaluateMovementSafetyFactsWithHandle } from "./evaluate-movement-safety";
 
 export const MOVEMENT_SUBSTITUTION_LIMITS = Object.freeze({ maxCandidates: 16, maxEquipment: 32, maxExclusions: 32, maxExerciseFacts: 32 });
 
@@ -56,11 +56,11 @@ export async function findMovementSubstitutes(
   for (const review of selectedReviews) {
     const facts = await handle.getExerciseConstraintFacts({ exerciseConceptId: review.exerciseConceptId, maxResults: MOVEMENT_SUBSTITUTION_LIMITS.maxExerciseFacts });
     if (facts.status !== "ok") continue;
-    const safety = await evaluateMovementSafetyWithHandle(handle, {
+    const safety = await evaluateMovementSafetyFactsWithHandle(handle, {
       graphRevisionId: handle.graphRevisionId,
       exerciseConceptId: review.exerciseConceptId,
       conditions: request.conditions,
-    });
+    }, facts.data);
     candidates.push({ review, requiredEquipment: facts.data.relations.filter((relation) => relation.kind === "requires"), safety });
   }
   return rankMovementSubstitutes({

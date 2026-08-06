@@ -30,10 +30,9 @@ const validationStrings = (errors: readonly { code: string; assertionId?: string
 const unavailable = <T>(error: unknown): PublicationResult<T> => ({ status: "failed", failure: { code: "publication_unavailable", message: error instanceof Error ? error.message : "Neo4j publication failed" } });
 
 async function existingStage(transaction: Neo4jTransaction, request: StageRevisionRequest): Promise<PublicationResult<StagedRevision> | undefined> {
-  const found = await transaction.run(MOVEMENT_CYPHER.findRevision, { revisionId: request.snapshot.graphRevisionId });
-  if (found.records.length === 0) return undefined;
   const stored = await readCanonicalMovementSnapshot(transaction, request.snapshot.graphRevisionId);
-  if (!stored || canonicalJson(stored) !== canonicalJson(request.snapshot)) {
+  if (!stored) return undefined;
+  if (canonicalJson(stored) !== canonicalJson(request.snapshot)) {
     return { status: "failed", failure: { code: "immutable_payload_conflict", graphRevisionId: request.snapshot.graphRevisionId } };
   }
   return { status: "ok", data: { publicationAttemptId: attemptIdFor(request.snapshot.graphRevisionId, request.canonicalDigest), graphRevisionId: request.snapshot.graphRevisionId, state: "already_staged" } };

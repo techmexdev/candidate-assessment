@@ -24,7 +24,10 @@ import type {
   MovementGraphSnapshot,
 } from "../../domain/contracts/movement-graph";
 import { normalizeConceptText } from "../../domain/policies/text-normalization";
-import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../schema/movement-schema";
+import {
+  CLINICAL_RULE_TARGET_EDGE_KINDS,
+  MOVEMENT_GRAPH_QUERY_LIMITS,
+} from "../schema/movement-schema";
 
 const byAssertionId = (left: { assertionId: string }, right: { assertionId: string }) => left.assertionId.localeCompare(right.assertionId);
 const resolvableKinds = new Set<string>(RESOLVABLE_CONCEPT_KINDS);
@@ -148,7 +151,9 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
     for (const constraint of (this.edgesByFrom.get(condition.conceptId) ?? []).filter((edge) => edge.kind === "has-constraint")) {
       const rule = this.nodesById.get(constraint.toConceptId);
       if (!rule || rule.kind !== "clinical-rule") return this.failure({ code: "broken_assertion", assertionId: constraint.assertionId });
-      const targets = (this.edgesByFrom.get(rule.conceptId) ?? []).filter((edge) => ["contraindicates", "cautions", "downranks"].includes(edge.kind));
+      const targets = (this.edgesByFrom.get(rule.conceptId) ?? []).filter((edge) => (
+        CLINICAL_RULE_TARGET_EDGE_KINDS as readonly string[]
+      ).includes(edge.kind));
       for (const targetEdge of targets) {
         if (query.targetConceptIds && !query.targetConceptIds.includes(targetEdge.toConceptId)) continue;
         const target = this.nodesById.get(targetEdge.toConceptId);
