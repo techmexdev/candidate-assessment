@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "fixture_id": "jordan",
+      "member_id": "mbr_01HX9JORDAN",
+      "coach_id": "coach_01HXSAM",
+      "synthetic_note": "Synthetic, fictional sample member for the take-home. No real person or PHI. Use only as seed data."
+    }
+  ]
+}

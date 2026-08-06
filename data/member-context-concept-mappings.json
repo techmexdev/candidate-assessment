@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "reviewed_by": "movement-domain-curator",
+  "reviewed_at": "2026-08-06",
+  "records": [
+    { "source_kind": "equipment", "source_text": "Dumbbell", "stable_concept_id": "equipment:dumbbell", "status": "reviewed" },
+    { "source_kind": "equipment", "source_text": "Kettlebell", "stable_concept_id": "equipment:kettlebell", "status": "reviewed" },
+    { "source_kind": "equipment", "source_text": "Yoga Mat", "stable_concept_id": "equipment:yoga-mat", "status": "reviewed" },
+    { "source_kind": "equipment", "source_text": "Resistance Band - Loop", "stable_concept_id": "equipment:resistance-band-loop", "status": "reviewed" },
+    { "source_kind": "equipment", "source_text": "Flat Bench", "stable_concept_id": "equipment:flat-bench", "status": "reviewed" },
+    { "source_kind": "injury-joint", "source_text": "knee", "stable_concept_id": "joint:knee", "status": "reviewed" },
+    { "source_kind": "injury-condition", "source_text": "Patellofemoral pain", "stable_concept_id": "condition:patellofemoral-pain-syndrome", "status": "reviewed" }
+  ]
+}

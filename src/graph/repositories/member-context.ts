@@ -1,10 +1,62 @@
 import type {
   EvidenceKind,
+  MemberContextGraphSnapshot,
   MemberContextResult,
   MemberContextSnapshot,
   MemberEvidence,
   MemberScope,
 } from "../../domain/contracts/member-context";
+import type { InMemoryMemberContextPublisher } from "../publication/in-memory-member-context-publisher";
+
+export type TrustedMemberContextScope = {
+  readonly coachId: string;
+  readonly memberId: string;
+  readonly authorizationId: string;
+};
+
+export type MemberContextGraphRepositoryResult =
+  | { readonly status: "ready"; readonly data: MemberContextGraphSnapshot }
+  | { readonly status: "empty"; readonly message: string }
+  | { readonly status: "denied"; readonly message: string }
+  | { readonly status: "unavailable"; readonly message: string };
+
+export type InMemoryMemberContextGraphRepositoryOptions = {
+  readonly authorize: (scope: TrustedMemberContextScope) => boolean;
+};
+
+export class InMemoryMemberContextGraphRepository {
+  private available = true;
+
+  constructor(
+    private readonly publisher: InMemoryMemberContextPublisher,
+    private readonly options: InMemoryMemberContextGraphRepositoryOptions,
+  ) {}
+
+  setAvailable(available: boolean): void {
+    this.available = available;
+  }
+
+  getActive(scope: TrustedMemberContextScope): MemberContextGraphRepositoryResult {
+    if (!this.options.authorize(scope)) return { status: "denied", message: "Trusted scope does not authorize this member." };
+    if (!this.available) return { status: "unavailable", message: "Member context repository is unavailable." };
+    const revisionId = this.publisher.getActiveRevisionId(scope.memberId);
+    if (!revisionId) return { status: "empty", message: "No active member context revision." };
+    return this.getAuthorizedRevision(scope.memberId, revisionId);
+  }
+
+  getRevision(scope: TrustedMemberContextScope, contextRevisionId: string): MemberContextGraphRepositoryResult {
+    if (!this.options.authorize(scope)) return { status: "denied", message: "Trusted scope does not authorize this member." };
+    if (!this.available) return { status: "unavailable", message: "Member context repository is unavailable." };
+    return this.getAuthorizedRevision(scope.memberId, contextRevisionId);
+  }
+
+  private getAuthorizedRevision(memberId: string, contextRevisionId: string): MemberContextGraphRepositoryResult {
+    const snapshot = this.publisher.getRevision(memberId, contextRevisionId);
+    return snapshot
+      ? { status: "ready", data: snapshot }
+      : { status: "empty", message: "Member context revision is unavailable." };
+  }
+}
 
 export class InMemoryMemberContextRepository {
   private readonly snapshots = new Map<string, Map<string, MemberContextSnapshot>>();

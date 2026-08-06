@@ -525,6 +525,7 @@ type RelationshipAssertion<
   readonly source: AssertionSource;
   readonly classification: AssertionClassification;
   readonly temporal: AssertionTemporal;
+  readonly sourceOrder?: number;
   readonly synthetic: boolean;
 };
 

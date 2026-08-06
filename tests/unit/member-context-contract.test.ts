@@ -86,6 +86,7 @@ describe("Member Context graph contract", () => {
 
     expectTypeOf<MemberContextGraphNode["kind"]>().toEqualTypeOf<(typeof MEMBER_CONTEXT_NODE_KINDS)[number]>();
     expectTypeOf<MemberContextGraphRelationship["kind"]>().toEqualTypeOf<(typeof MEMBER_CONTEXT_RELATIONSHIP_KINDS)[number]>();
+    expectTypeOf<MemberContextGraphRelationship["sourceOrder"]>().toEqualTypeOf<number | undefined>();
     expectTypeOf<WritableKeys<MemberContextGraphNode>>().toEqualTypeOf<never>();
     expectTypeOf<WritableKeys<MemberContextGraphRelationship>>().toEqualTypeOf<never>();
   });
