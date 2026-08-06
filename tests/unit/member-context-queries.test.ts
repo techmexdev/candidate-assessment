@@ -69,6 +69,17 @@ describe("member context bounded query provider", () => {
     expect(summary.data.goalAssertionIds).toHaveLength(3);
     expect(summary.evidenceIds).toContain(summary.data.profileAssertionId);
 
+    const oneFactSummary = await handle.getSummary({ limit: 1, timeoutMs: 100 });
+    expect(oneFactSummary).toMatchObject({
+      status: "ready",
+      data: {
+        profileAssertionId: summary.data.profileAssertionId,
+        goalAssertionIds: [],
+        riskAssessmentAssertionId: null,
+      },
+      evidenceIds: [summary.data.profileAssertionId],
+    });
+
     const labs = await handle.getEvidence({ domains: ["labs"], limit: 30, timeoutMs: 100 });
     expect(labs).toMatchObject({ status: "ready", contextRevisionId: snapshot.contextRevisionId });
     if (labs.status !== "ready") throw new Error(labs.status);
@@ -157,7 +168,7 @@ describe("member context bounded query provider", () => {
     }] });
   });
 
-  it("preserves source message order and returns metadata-only attachment citations", async () => {
+  it("returns messages in exact timestamp chronology and metadata-only attachment citations", async () => {
     const { handle } = await setup();
     const conversation = await handle.getConversation({
       window: { fromInclusive: "2026-05-01", toExclusive: "2026-07-01" },
@@ -165,15 +176,15 @@ describe("member context bounded query provider", () => {
       timeoutMs: 100,
     });
     expect(conversation).toMatchObject({ status: "ready", data: { messages: [
-      { senderRole: "member", text: jordan.chat_history[0].text },
-      { senderRole: "coach", text: jordan.chat_history[1].text },
-      { senderRole: "member", text: jordan.chat_history[2].text },
-      { senderRole: "member", text: jordan.chat_history[3].text },
+      { senderRole: "member", text: jordan.chat_history[3].text, temporal: { effectiveAt: jordan.chat_history[3].ts } },
+      { senderRole: "member", text: jordan.chat_history[2].text, temporal: { effectiveAt: jordan.chat_history[2].ts } },
+      { senderRole: "member", text: jordan.chat_history[0].text, temporal: { effectiveAt: jordan.chat_history[0].ts } },
+      { senderRole: "coach", text: jordan.chat_history[1].text, temporal: { effectiveAt: jordan.chat_history[1].ts } },
     ] } });
     if (conversation.status !== "ready") throw new Error(conversation.status);
-    expect(conversation.data.messages[3].attachmentEvidenceIds).toHaveLength(1);
-    expect(conversation.data.messages[3].attachments).toEqual([expect.objectContaining({
-      evidenceId: conversation.data.messages[3].attachmentEvidenceIds[0],
+    expect(conversation.data.messages[0].attachmentEvidenceIds).toHaveLength(1);
+    expect(conversation.data.messages[0].attachments).toEqual([expect.objectContaining({
+      evidenceId: conversation.data.messages[0].attachmentEvidenceIds[0],
       kind: "media-attachment",
       mediaType: "image",
       caption: "Home setup photo (synthetic placeholder)",
@@ -181,8 +192,8 @@ describe("member context bounded query provider", () => {
       assetStatus: "metadata-only",
       analysisStatus: "not-analyzed",
     })]);
-    expect(conversation.data.messages[3].attachments[0]).not.toHaveProperty("assetUrl");
-    const attachmentId = conversation.data.messages[3].attachmentEvidenceIds[0];
+    expect(conversation.data.messages[0].attachments[0]).not.toHaveProperty("assetUrl");
+    const attachmentId = conversation.data.messages[0].attachmentEvidenceIds[0];
     const citation = await handle.getCitations({ evidenceIds: [attachmentId], limit: 2, timeoutMs: 100 });
     expect(citation).toMatchObject({ status: "ready", data: [{ classification: "source-statement" }] });
   });
@@ -193,6 +204,16 @@ describe("member context bounded query provider", () => {
     expect(brief).toMatchObject({ status: "ready" });
     if (brief.status !== "ready") throw new Error(brief.status);
     expect(brief.data.taskEvidenceIds).toHaveLength(2);
+    const oneFactBrief = await handle.getCoachBrief({ generatedFor: "2026-06-04", limit: 1, timeoutMs: 100 });
+    expect(oneFactBrief).toMatchObject({
+      status: "ready",
+      data: {
+        briefEvidenceId: brief.data.briefEvidenceId,
+        taskEvidenceIds: [],
+        assessmentEvidenceId: null,
+      },
+      evidenceIds: [brief.data.briefEvidenceId],
+    });
     const related = await handle.getRelatedEvidence({
       evidenceId: brief.data.assessmentEvidenceId!,
       maxDepth: 1,
@@ -275,6 +296,25 @@ describe("member context bounded query provider", () => {
     expect(await historical.handle.getSummary({ limit: 10, timeoutMs: 100 }))
       .toMatchObject({ status: "ready", contextRevisionId: snapshot.contextRevisionId });
     await expect(retrieve({ ...access, contextRevisionId: "member-context:sha256:guessed" }))
-      .resolves.toEqual({ status: "empty", memberId: jordan.profile.id, message: "Member context is unavailable." });
+      .resolves.toEqual({
+        status: "stale",
+        requestedRevisionId: "member-context:sha256:guessed",
+        activeRevisionId: second.contextRevisionId,
+      });
+
+    const unsealed = compileMemberContextGraph(buildMemberContextFixture((document) => { document.biomarkers.hrv_ms += 2; }));
+    const staged = await publisher.stage({
+      snapshot: unsealed,
+      canonicalDigest: canonicalMemberContextDigest(unsealed),
+      nodeCount: unsealed.nodes.length,
+      relationshipCount: unsealed.relationships.length,
+    });
+    if (staged.status !== "ok") throw new Error(staged.failure.code);
+    await expect(retrieve({ ...access, contextRevisionId: unsealed.contextRevisionId }))
+      .resolves.toEqual({
+        status: "stale",
+        requestedRevisionId: unsealed.contextRevisionId,
+        activeRevisionId: second.contextRevisionId,
+      });
   });
 });

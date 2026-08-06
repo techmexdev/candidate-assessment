@@ -12,6 +12,7 @@ import { InMemoryMemberContextReadProvider } from "../../src/graph/repositories/
 import { createNeo4jMemberContextReadProvider } from "../../src/graph/repositories/neo4j-member-context";
 import { MEMBER_CONTEXT_CYPHER } from "../../src/graph/cypher/member-context";
 import { buildMemberContextFixture } from "../fixtures/member-context-builder";
+import { assertLocalNeo4jTestUri, resetMemberContextTestGraph } from "./member-context-neo4j-test-support";
 
 const config = {
   uri: process.env.NEO4J_URI ?? "neo4j://127.0.0.1:7687",
@@ -28,8 +29,25 @@ const requestFor = (snapshot: MemberContextGraphSnapshot) => ({
   relationshipCount: snapshot.relationships.length,
 });
 
+function countReadTransactions(delegate: Neo4jClient) {
+  let reads = 0;
+  const executeRead: Neo4jClient["executeRead"] = async (work, options) => {
+    reads += 1;
+    return delegate.executeRead(work, options);
+  };
+  return {
+    client: {
+      executeRead,
+      executeWrite: delegate.executeWrite,
+      verifyConnectivity: delegate.verifyConnectivity,
+      close: delegate.close,
+    } satisfies Neo4jClient,
+    reads: () => reads,
+  };
+}
+
 async function clearDatabase(client: Neo4jClient) {
-  await client.executeWrite(async (transaction) => { await transaction.run("MATCH (node) DETACH DELETE node"); });
+  await resetMemberContextTestGraph(client, config.uri);
   await setupMemberContextNeo4jSchema(client);
 }
 
@@ -80,6 +98,80 @@ describe.sequential("Neo4j member context persistence", () => {
     expect(names.filter((name) => typeof name === "string" && name.startsWith("member_context_"))).toHaveLength(8);
   });
 
+  it("refuses Member Context cleanup against a non-local Neo4j host", () => {
+    expect(() => assertLocalNeo4jTestUri("neo4j+s://graph.example.com:7687"))
+      .toThrow(/refuse destructive setup against non-local Neo4j host/);
+  });
+
+  it("resets Member Context data without deleting Movement namespace data", async () => {
+    await client.executeWrite(async (transaction) => {
+      await transaction.run(`
+        CREATE (:MovementConcept {
+          graphRevisionId: $movementRevisionId,
+          conceptId: $leftId,
+          assertionId: $leftAssertionId
+        })-[:MOVEMENT_EDGE {
+          graphRevisionId: $movementRevisionId,
+          assertionId: $relationshipAssertionId
+        }]->(:MovementConcept {
+          graphRevisionId: $movementRevisionId,
+          conceptId: $rightId,
+          assertionId: $rightAssertionId
+        })
+        CREATE (:MemberContextFact {sentinelId: $memberContextId})
+      `, {
+        movementRevisionId: "member-reset:movement-revision",
+        leftId: "member-reset:left",
+        leftAssertionId: "member-reset:left-assertion",
+        rightId: "member-reset:right",
+        rightAssertionId: "member-reset:right-assertion",
+        relationshipAssertionId: "member-reset:relationship-assertion",
+        memberContextId: "member-reset:member-context",
+      });
+    });
+
+    try {
+      await resetMemberContextTestGraph(client, config.uri);
+      const survivor = await client.executeRead(async (transaction) => {
+        const result = await transaction.run(`
+          MATCH (left:MovementConcept {graphRevisionId: $movementRevisionId, conceptId: $leftId})
+            -[relationship:MOVEMENT_EDGE]->
+            (right:MovementConcept {graphRevisionId: $movementRevisionId, conceptId: $rightId})
+          OPTIONAL MATCH (memberContext:MemberContextFact {sentinelId: $memberContextId})
+          RETURN count(DISTINCT left) AS leftNodes,
+            count(DISTINCT right) AS rightNodes,
+            count(DISTINCT relationship) AS relationships,
+            count(DISTINCT memberContext) AS memberContextNodes
+        `, {
+          movementRevisionId: "member-reset:movement-revision",
+          leftId: "member-reset:left",
+          rightId: "member-reset:right",
+          memberContextId: "member-reset:member-context",
+        });
+        const record = result.records[0];
+        return {
+          leftNodes: Number(record?.get("leftNodes")),
+          rightNodes: Number(record?.get("rightNodes")),
+          relationships: Number(record?.get("relationships")),
+          memberContextNodes: Number(record?.get("memberContextNodes")),
+        };
+      });
+      expect(survivor).toEqual({
+        leftNodes: 1,
+        rightNodes: 1,
+        relationships: 1,
+        memberContextNodes: 0,
+      });
+    } finally {
+      await client.executeWrite(async (transaction) => {
+        await transaction.run(`
+          MATCH (sentinel:MovementConcept {graphRevisionId: $movementRevisionId})
+          DETACH DELETE sentinel
+        `, { movementRevisionId: "member-reset:movement-revision" });
+      });
+    }
+  });
+
   it("rejects missing required fact properties that Community composite constraints cannot catch", async () => {
     const malformed = structuredClone(compileMemberContextGraph(jordan));
     const observation = malformed.nodes.find((node) => node.kind === "observation");
@@ -112,7 +204,8 @@ describe.sequential("Neo4j member context persistence", () => {
     await memoryPublisher.validate({ publicationAttemptId: memoryStage.data.publicationAttemptId });
     await memoryPublisher.activate({ memberId: snapshot.memberId, contextRevisionId: snapshot.contextRevisionId, expectedPriorRevisionId: null, actorId: "seed:test" });
 
-    const neoOpened = await openThroughApplication(createNeo4jMemberContextReadProvider(client), snapshot);
+    const neoProvider = createNeo4jMemberContextReadProvider(client);
+    const neoOpened = await openThroughApplication(neoProvider, snapshot);
     const memoryOpened = await createRetrieveMemberContext({
       memberContext: new InMemoryMemberContextReadProvider(memoryPublisher, { authority: "canonical" }),
       authorizeMemberContext: () => true,
@@ -135,8 +228,39 @@ describe.sequential("Neo4j member context persistence", () => {
 
     const firstPage = await neoOpened.handle.getEvidence({ domains: ["labs"], limit: 2, timeoutMs: 1_000 });
     if (firstPage.status !== "ready" || !firstPage.nextCursor) throw new Error("expected persisted cursor");
-    await expect(neoOpened.handle.getEvidence({ domains: ["labs"], limit: 2, timeoutMs: 1_000, cursor: firstPage.nextCursor }))
+    const reopened = await openThroughApplication(neoProvider, snapshot);
+    if (reopened.status !== "ready") throw new Error("expected reopened revision");
+    const secondPage = await reopened.handle.getEvidence({
+      domains: ["labs"],
+      limit: 2,
+      timeoutMs: 1_000,
+      cursor: firstPage.nextCursor,
+    });
+    expect(secondPage).toMatchObject({ status: "ready" });
+    if (secondPage.status !== "ready") throw new Error("expected second persisted page");
+    expect(secondPage.data.map((fact) => fact.evidenceId))
+      .not.toEqual(firstPage.data.map((fact) => fact.evidenceId));
+  });
+
+  it("validates query bounds and serves the pinned snapshot without another database read", async () => {
+    const snapshot = compileMemberContextGraph(jordan);
+    const publisher = await seal(client, snapshot);
+    await publisher.activate({
+      memberId: snapshot.memberId,
+      contextRevisionId: snapshot.contextRevisionId,
+      expectedPriorRevisionId: null,
+      actorId: "seed:test",
+    });
+    const counted = countReadTransactions(client);
+    const opened = await openThroughApplication(createNeo4jMemberContextReadProvider(counted.client), snapshot);
+    if (opened.status !== "ready") throw new Error("expected readable revision");
+    const readsAfterOpen = counted.reads();
+
+    await expect(opened.handle.getEvidence({ domains: ["labs"], limit: 2, timeoutMs: 0 }))
+      .resolves.toMatchObject({ status: "invalid", code: "invalid-bound" });
+    await expect(opened.handle.getSummary({ limit: 10, timeoutMs: 1_000 }))
       .resolves.toMatchObject({ status: "ready" });
+    expect(counted.reads()).toBe(readsAfterOpen);
   });
 
   it("anchors every open to opaque trusted scope and never falls back to fixture data", async () => {
@@ -152,7 +276,17 @@ describe.sequential("Neo4j member context persistence", () => {
     await expect(retrieve({ coachId: jordan.profile.coach_id, memberId: snapshot.memberId, authorizationId: "wrong" }))
       .resolves.toEqual({ status: "denied", message: "Member context is unavailable." });
     await expect(retrieve({ coachId: jordan.profile.coach_id, memberId: "mbr_guessed", authorizationId: "grant:jordan", contextRevisionId: snapshot.contextRevisionId }))
-      .resolves.toMatchObject({ status: "empty", memberId: "mbr_guessed" });
+      .resolves.toEqual({ status: "stale", requestedRevisionId: snapshot.contextRevisionId, activeRevisionId: null });
+    await expect(retrieve({
+      coachId: jordan.profile.coach_id,
+      memberId: snapshot.memberId,
+      authorizationId: "grant:jordan",
+      contextRevisionId: "member-context:sha256:missing",
+    })).resolves.toEqual({
+      status: "stale",
+      requestedRevisionId: "member-context:sha256:missing",
+      activeRevisionId: snapshot.contextRevisionId,
+    });
   });
 
   it("rolls back a mid-write failure and leaves a post-commit stage unsealed", async () => {

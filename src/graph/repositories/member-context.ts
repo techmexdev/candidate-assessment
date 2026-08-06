@@ -77,10 +77,14 @@ function temporalSortKey(node: MemberContextRevisionScopedNode): string {
   }
 }
 
+function compareCodePoints(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function compareEvidence(left: MemberContextRevisionScopedNode, right: MemberContextRevisionScopedNode): number {
-  return temporalSortKey(left).localeCompare(temporalSortKey(right))
+  return compareCodePoints(temporalSortKey(left), temporalSortKey(right))
     || (("sourceOrder" in left ? left.sourceOrder : 0) - ("sourceOrder" in right ? right.sourceOrder : 0))
-    || left.assertionId.localeCompare(right.assertionId);
+    || compareCodePoints(left.assertionId, right.assertionId);
 }
 
 function evidenceProjectionBase(node: MemberContextRevisionScopedNode) {
@@ -183,19 +187,36 @@ export class InMemoryMemberContextReadProvider implements MemberContextReadProvi
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", message: "Member context is unavailable." };
     if (!this.available) return { status: "unavailable", message: "Member context is unavailable." };
-    return this.openClaimsRevision(claims, contextRevisionId);
+    return this.openClaimsRevision(claims, contextRevisionId, {
+      activeRevisionId: this.publisher.getActiveRevisionId(claims.memberId),
+    });
   }
 
   private async openClaimsRevision(
     claims: Readonly<{ coachId: string; memberId: string }>,
     contextRevisionId: string,
+    explicitRevision?: Readonly<{ activeRevisionId: string | null }>,
   ): Promise<MemberContextReadOpenResult> {
     const inspection = await this.publisher.inspect(claims.memberId, contextRevisionId);
     if (inspection.status !== "ok" || !["active", "sealed"].includes(inspection.data.state)) {
+      if (explicitRevision) {
+        return {
+          status: "stale",
+          requestedRevisionId: contextRevisionId,
+          activeRevisionId: explicitRevision.activeRevisionId,
+        };
+      }
       return { status: "empty", memberId: claims.memberId, message: "Member context is unavailable." };
     }
     const snapshot = this.publisher.getRevision(claims.memberId, contextRevisionId);
     if (!snapshot || snapshot.memberId !== claims.memberId) {
+      if (explicitRevision) {
+        return {
+          status: "stale",
+          requestedRevisionId: contextRevisionId,
+          activeRevisionId: explicitRevision.activeRevisionId,
+        };
+      }
       return { status: "empty", memberId: claims.memberId, message: "Member context is unavailable." };
     }
     return {
@@ -372,13 +393,17 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     if (query.cursor !== undefined) return this.invalid("invalid-cursor", "Summary queries do not use cursors.");
     const profile = this.revisionNodes.find((node) => node.kind === "member-profile");
     if (!profile) return this.empty("Member summary is unavailable.");
-    const goals = this.revisionNodes.filter((node) => node.kind === "goal").sort(compareEvidence).slice(0, Math.max(0, bounds.limit - 2));
     const assessment = this.revisionNodes.filter((node) => node.kind === "churn-assessment").sort(compareEvidence).at(-1) ?? null;
-    const evidenceIds = [profile.assertionId, ...goals.map((node) => node.assertionId), ...(assessment ? [assessment.assertionId] : [])];
+    const includedAssessment = bounds.limit > 1 ? assessment : null;
+    const goals = this.revisionNodes
+      .filter((node) => node.kind === "goal")
+      .sort(compareEvidence)
+      .slice(0, bounds.limit - 1 - (includedAssessment ? 1 : 0));
+    const evidenceIds = [profile.assertionId, ...goals.map((node) => node.assertionId), ...(includedAssessment ? [includedAssessment.assertionId] : [])];
     return this.ready({
       profileAssertionId: profile.assertionId,
       goalAssertionIds: goals.map((node) => node.assertionId),
-      riskAssessmentAssertionId: assessment?.assertionId ?? null,
+      riskAssessmentAssertionId: includedAssessment?.assertionId ?? null,
     }, evidenceIds);
   }
 
@@ -442,7 +467,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     const messages = this.revisionNodes
       .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "message" }> => node.kind === "message" && messageIds.has(node.semanticId))
       .filter((node) => isInWindow(node, query.window))
-      .sort((left, right) => left.sourceOrder - right.sourceOrder || compareEvidence(left, right));
+      .sort(compareEvidence);
     const fingerprint = JSON.stringify({ conversationId: conversation.assertionId, window: query.window });
     const page = this.paginate("conversation", fingerprint, query, messages);
     if (page.status !== "ready") return page as MemberContextQueryResult<ConversationProjection>;
@@ -476,16 +501,17 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     const childEdges = this.snapshot.relationships.filter((edge) => edge.fromSemanticId === brief.semanticId);
     const taskIds = new Set(childEdges.filter((edge) => edge.kind === "HAS_TASK").map((edge) => edge.toSemanticId));
     const assessmentId = childEdges.find((edge) => edge.kind === "HAS_ASSESSMENT")?.toSemanticId;
+    const assessment = assessmentId ? this.nodesBySemanticId.get(assessmentId) : undefined;
+    const includedAssessment = bounds.limit > 1 ? assessment : undefined;
     const tasks = this.revisionNodes
       .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "coach-task" }> => node.kind === "coach-task" && taskIds.has(node.semanticId))
       .sort((left, right) => left.sourceOrder - right.sourceOrder || compareEvidence(left, right))
-      .slice(0, Math.max(0, bounds.limit - 2));
-    const assessment = assessmentId ? this.nodesBySemanticId.get(assessmentId) : undefined;
-    const evidenceIds = [brief.assertionId, ...tasks.map((node) => node.assertionId), ...(assessment ? [assessment.assertionId] : [])];
+      .slice(0, bounds.limit - 1 - (includedAssessment ? 1 : 0));
+    const evidenceIds = [brief.assertionId, ...tasks.map((node) => node.assertionId), ...(includedAssessment ? [includedAssessment.assertionId] : [])];
     return this.ready({
       briefEvidenceId: brief.assertionId,
       taskEvidenceIds: tasks.map((node) => node.assertionId),
-      assessmentEvidenceId: assessment?.assertionId ?? null,
+      assessmentEvidenceId: includedAssessment?.assertionId ?? null,
     }, evidenceIds);
   }
 

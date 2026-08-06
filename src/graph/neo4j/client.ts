@@ -7,6 +7,15 @@ export const LOCAL_NEO4J_DEFAULTS = Object.freeze({
   database: "neo4j",
 });
 
+/**
+ * Driver-level guardrails for schema and publication transactions. Member
+ * retrieval applies its stricter, query-specific 5 second maximum separately.
+ */
+export const NEO4J_TRANSACTION_TIMEOUTS = Object.freeze({
+  defaultMs: 30_000,
+  maxMs: 120_000,
+});
+
 export type Neo4jClientConfig = {
   readonly uri?: string;
   readonly username?: string;
@@ -30,6 +39,16 @@ export type Neo4jClient = {
 
 function isLocalHost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+function resolveTransactionTimeout(timeoutMs: number | undefined): number {
+  const resolved = timeoutMs ?? NEO4J_TRANSACTION_TIMEOUTS.defaultMs;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > NEO4J_TRANSACTION_TIMEOUTS.maxMs) {
+    throw new Error(
+      `Neo4j transaction timeout must be an integer between 1 and ${NEO4J_TRANSACTION_TIMEOUTS.maxMs} milliseconds`,
+    );
+  }
+  return resolved;
 }
 
 function resolvedConfig(config: Neo4jClientConfig) {
@@ -62,6 +81,7 @@ class DriverNeo4jClient implements Neo4jClient {
     work: (transaction: Neo4jTransaction) => Promise<T>,
     options: Neo4jExecutionOptions = {},
   ) {
+    const timeout = resolveTransactionTimeout(options.timeoutMs);
     const session = this.driver.session({
       database: this.database,
       defaultAccessMode: mode === "read" ? neo4j.session.READ : neo4j.session.WRITE,
@@ -69,7 +89,7 @@ class DriverNeo4jClient implements Neo4jClient {
     });
     try {
       const callback = (transaction: ManagedTransaction) => work(transaction as unknown as Neo4jTransaction);
-      const transactionConfig = options.timeoutMs ? { timeout: options.timeoutMs } : undefined;
+      const transactionConfig = { timeout };
       return mode === "read"
         ? await session.executeRead(callback, transactionConfig)
         : await session.executeWrite(callback, transactionConfig);

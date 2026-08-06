@@ -7,6 +7,7 @@ import { setupMemberContextNeo4jSchema } from "../../src/graph/neo4j/member-cont
 import { createNeo4jMemberContextPublisher } from "../../src/graph/publication/neo4j-member-context-publisher";
 import { canonicalMemberContextDigest } from "../../src/graph/revisions/member-context";
 import { buildMemberContextFixture } from "../fixtures/member-context-builder";
+import { resetMemberContextTestGraph } from "./member-context-neo4j-test-support";
 
 const config = { uri: process.env.NEO4J_URI ?? "neo4j://127.0.0.1:7687", username: process.env.NEO4J_USERNAME ?? "neo4j", password: process.env.NEO4J_PASSWORD ?? "movement-graph-local-test", database: process.env.NEO4J_DATABASE ?? "neo4j", environment: "test" as const };
 const requestFor = (snapshot: MemberContextGraphSnapshot) => ({ snapshot, canonicalDigest: canonicalMemberContextDigest(snapshot), nodeCount: snapshot.nodes.length, relationshipCount: snapshot.relationships.length });
@@ -14,7 +15,7 @@ const requestFor = (snapshot: MemberContextGraphSnapshot) => ({ snapshot, canoni
 describe.sequential("Neo4j member context activation", () => {
   let client: Neo4jClient;
   beforeAll(async () => { client = createNeo4jClient(config); await client.verifyConnectivity(); await setupMemberContextNeo4jSchema(client); });
-  beforeEach(async () => { await client.executeWrite(async (transaction) => { await transaction.run("MATCH (node) DETACH DELETE node"); }); await setupMemberContextNeo4jSchema(client); });
+  beforeEach(async () => { await resetMemberContextTestGraph(client, config.uri); await setupMemberContextNeo4jSchema(client); });
   afterAll(async () => client.close());
 
   async function seal(snapshot: MemberContextGraphSnapshot) {

@@ -1,8 +1,10 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const root = await realpath(process.cwd());
+const checkerFile = await realpath(fileURLToPath(import.meta.url));
 const prototypeRoot = await canonicalPath(path.join(root, "ui"));
 const testFixtureRoot = await canonicalPath(path.join(root, "tests", "fixtures"));
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".css"]);
@@ -17,7 +19,7 @@ const bannedText = [
   "fonts.googleapis.com",
   "ui/uploads",
 ];
-const sourceDirectories = ["src", "app", "pages", "components"];
+const sourceDirectories = ["src", "app", "pages", "components", "scripts"];
 
 async function canonicalPath(candidate) {
   try {
@@ -174,8 +176,10 @@ const failures = [];
 for (const file of await productionFiles()) {
   const source = await readFile(file, "utf8");
   const relativeFile = path.relative(root, file);
-  for (const text of bannedText) {
-    if (source.includes(text)) failures.push(`${relativeFile} contains ${text}`);
+  if (await canonicalPath(file) !== checkerFile) {
+    for (const text of bannedText) {
+      if (source.includes(text)) failures.push(`${relativeFile} contains ${text}`);
+    }
   }
 
   const specifiers = isSourceFile(file)

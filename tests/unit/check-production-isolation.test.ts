@@ -96,4 +96,16 @@ describe("production isolation check", () => {
       "src/graph/seed.ts references test fixture builder ../../tests/fixtures/member-builder",
     );
   });
+
+  it("rejects operational script imports from test fixture builders", async () => {
+    const result = await check(await fixture({
+      "scripts/seed-member.ts": 'import { buildFixture } from "../tests/fixtures/member-builder"; buildFixture();',
+      "tests/fixtures/member-builder.ts": "export const buildFixture = () => ({ synthetic: true });",
+    }));
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(
+      "scripts/seed-member.ts references test fixture builder ../tests/fixtures/member-builder",
+    );
+  });
 });

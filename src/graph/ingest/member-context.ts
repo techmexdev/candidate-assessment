@@ -19,6 +19,7 @@ import {
 } from "../revisions/member-context";
 import {
   MemberContextValidationError,
+  isMovementClinicalStableConceptId,
   validateMemberContextGraph,
   validateMemberContextSource,
 } from "../validation/member-context";
@@ -47,10 +48,13 @@ function reviewedMapping(sourceKind: string, sourceText: string): DomainConceptR
     candidate.status === "reviewed" && candidate.source_kind === sourceKind && candidate.source_text === sourceText
   ));
   if (!record) return undefined;
+  if (!isMovementClinicalStableConceptId(record.stable_concept_id)) {
+    throw new MemberContextValidationError(["concept mappings reviewed stable_concept_id is invalid"]);
+  }
   return {
     state: "reviewed",
     graph: "movement-clinical",
-    stableConceptId: record.stable_concept_id as Extract<DomainConceptReference, { state: "reviewed"; graph: "movement-clinical" }>["stableConceptId"],
+    stableConceptId: record.stable_concept_id,
     reviewedBy: conceptMappings.reviewed_by,
     reviewedAt: conceptMappings.reviewed_at,
     sourceArtifactDigest: mappingArtifactDigest,

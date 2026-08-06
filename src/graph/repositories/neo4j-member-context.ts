@@ -1,24 +1,10 @@
+import { randomBytes } from "node:crypto";
 import neo4j from "neo4j-driver";
 import { inspectAuthorizedMemberContextScope } from "../../application/use-cases/retrieve-member-context";
 import type {
   AuthorizedMemberContextScope,
-  CitationLookupQuery,
-  CitationProjection,
-  CoachBriefProjection,
-  CoachBriefQuery,
-  ConversationProjection,
-  ConversationQuery,
-  EvidenceQuery,
-  LongitudinalPointProjection,
-  LongitudinalSeriesQuery,
-  MemberContextQueryResult,
-  MemberContextReadHandle,
   MemberContextReadOpenResult,
   MemberContextReadProvider,
-  MemberEvidenceProjection,
-  MemberSummaryProjection,
-  RelatedEvidenceQuery,
-  SummaryQuery,
 } from "../../domain/contracts/member-context-queries";
 import type {
   MemberContextGraphNode,
@@ -77,85 +63,17 @@ type SealMetadata = {
   readonly relationshipCount: number;
 };
 
-class Neo4jMemberContextReadHandle implements MemberContextReadHandle {
-  readonly authority = "canonical" as const;
-  readonly memberId: string;
-  readonly coachId: string;
-  readonly contextRevisionId: string;
-
-  constructor(
-    private readonly client: Neo4jClient,
-    private readonly seal: SealMetadata,
-    private readonly canonicalHandle: MemberContextReadHandle,
-  ) {
-    this.memberId = canonicalHandle.memberId;
-    this.coachId = canonicalHandle.coachId;
-    this.contextRevisionId = canonicalHandle.contextRevisionId;
-  }
-
-  private unavailable<T>(): MemberContextQueryResult<T> {
-    return {
-      status: "unavailable",
-      memberId: this.memberId,
-      contextRevisionId: this.contextRevisionId,
-      authority: this.authority,
-      evidenceIds: [],
-      message: genericMessage,
+type OpenedRevision =
+  | { readonly activeRevisionId: string | null }
+  | {
+      readonly activeRevisionId: string | null;
+      readonly seal: SealMetadata;
+      readonly snapshot: MemberContextGraphSnapshot;
     };
-  }
-
-  private async withIntegrity<T>(
-    timeoutMs: number,
-    operation: (handle: MemberContextReadHandle) => Promise<MemberContextQueryResult<T>>,
-  ): Promise<MemberContextQueryResult<T>> {
-    try {
-      const snapshot = await this.client.executeRead(
-        (transaction) => readCanonicalMemberContextSnapshot(transaction, this.memberId, this.contextRevisionId),
-        timeoutMs > 0 ? { timeoutMs } : undefined,
-      );
-      if (!snapshot
-        || snapshot.nodes.length !== this.seal.nodeCount
-        || snapshot.relationships.length !== this.seal.relationshipCount
-        || canonicalMemberContextDigest(snapshot) !== this.seal.canonicalDigest
-        || !validateMemberContextGraph(snapshot).valid) {
-        return this.unavailable();
-      }
-      return operation(this.canonicalHandle);
-    } catch {
-      return this.unavailable();
-    }
-  }
-
-  getSummary(query: SummaryQuery): Promise<MemberContextQueryResult<MemberSummaryProjection>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getSummary(query));
-  }
-
-  getEvidence(query: EvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getEvidence(query));
-  }
-
-  getLongitudinalSeries(query: LongitudinalSeriesQuery): Promise<MemberContextQueryResult<readonly LongitudinalPointProjection[]>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getLongitudinalSeries(query));
-  }
-
-  getConversation(query: ConversationQuery): Promise<MemberContextQueryResult<ConversationProjection>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getConversation(query));
-  }
-
-  getCoachBrief(query: CoachBriefQuery): Promise<MemberContextQueryResult<CoachBriefProjection>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getCoachBrief(query));
-  }
-
-  getRelatedEvidence(query: RelatedEvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getRelatedEvidence(query));
-  }
-
-  getCitations(query: CitationLookupQuery): Promise<MemberContextQueryResult<readonly CitationProjection[]>> {
-    return this.withIntegrity(query.timeoutMs, (handle) => handle.getCitations(query));
-  }
-}
 
 class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
+  private readonly cursorSecret = randomBytes(32);
+
   constructor(private readonly client: Neo4jClient) {}
 
   async openActive(scope: AuthorizedMemberContextScope): Promise<MemberContextReadOpenResult> {
@@ -167,7 +85,7 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
         return text(result.records[0]?.get("activeRevisionId"));
       });
       return contextRevisionId
-        ? this.openClaimsRevision(claims, contextRevisionId)
+        ? this.openClaimsRevision(claims, contextRevisionId, false)
         : { status: "empty", memberId: claims.memberId, message: genericMessage };
     } catch {
       return { status: "unavailable", message: genericMessage };
@@ -180,42 +98,56 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
   ): Promise<MemberContextReadOpenResult> {
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", message: genericMessage };
-    return this.openClaimsRevision(claims, contextRevisionId);
+    return this.openClaimsRevision(claims, contextRevisionId, true);
   }
 
   private async openClaimsRevision(
     claims: Readonly<{ coachId: string; memberId: string }>,
     contextRevisionId: string,
+    explicitRevision: boolean,
   ): Promise<MemberContextReadOpenResult> {
     try {
-      const opened = await this.client.executeRead(async (transaction) => {
+      const opened = await this.client.executeRead<OpenedRevision>(async (transaction) => {
+        const activeRevisionId = explicitRevision
+          ? text((await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, {
+            memberId: claims.memberId,
+          })).records[0]?.get("activeRevisionId")) ?? null
+          : null;
         const sealResult = await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
           memberId: claims.memberId,
           contextRevisionId,
         });
         const record = sealResult.records[0];
         const canonicalDigest = text(record?.get("canonicalDigest"));
-        if (!record || !canonicalDigest) return undefined;
+        if (!record || !canonicalDigest) return { activeRevisionId };
         const seal: SealMetadata = {
           canonicalDigest,
           nodeCount: Number(record.get("nodeCount")),
           relationshipCount: Number(record.get("relationshipCount")),
         };
         const snapshot = await readCanonicalMemberContextSnapshot(transaction, claims.memberId, contextRevisionId);
-        return snapshot ? { seal, snapshot } : undefined;
+        return snapshot ? { activeRevisionId, seal, snapshot } : { activeRevisionId };
       });
-      if (!opened
-        || opened.snapshot.memberId !== claims.memberId
+      if (!("snapshot" in opened)) {
+        return explicitRevision
+          ? { status: "stale", requestedRevisionId: contextRevisionId, activeRevisionId: opened.activeRevisionId }
+          : { status: "empty", memberId: claims.memberId, message: genericMessage };
+      }
+      if (opened.snapshot.memberId !== claims.memberId
         || opened.snapshot.nodes.length !== opened.seal.nodeCount
         || opened.snapshot.relationships.length !== opened.seal.relationshipCount
         || canonicalMemberContextDigest(opened.snapshot) !== opened.seal.canonicalDigest
         || !validateMemberContextGraph(opened.snapshot).valid) {
-        return { status: "empty", memberId: claims.memberId, message: genericMessage };
+        return { status: "unavailable", message: genericMessage };
       }
-      const canonicalHandle = createMemberContextReadHandle(opened.snapshot, claims.coachId, "canonical");
       return {
         status: "ready",
-        handle: new Neo4jMemberContextReadHandle(this.client, opened.seal, canonicalHandle),
+        handle: createMemberContextReadHandle(
+          opened.snapshot,
+          claims.coachId,
+          "canonical",
+          this.cursorSecret,
+        ),
       };
     } catch {
       return { status: "unavailable", message: genericMessage };

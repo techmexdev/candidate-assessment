@@ -5,6 +5,7 @@ import { setupMemberContextNeo4jSchema } from "../../src/graph/neo4j/member-cont
 import { createNeo4jMemberContextPublisher } from "../../src/graph/publication/neo4j-member-context-publisher";
 import { runMemberContextSeed } from "../../scripts/seed-member-context";
 import { buildMemberContextFixture } from "../fixtures/member-context-builder";
+import { resetMemberContextTestGraph } from "./member-context-neo4j-test-support";
 
 const config = {
   uri: process.env.NEO4J_URI ?? "neo4j://127.0.0.1:7687",
@@ -23,7 +24,7 @@ describe.sequential("member context seed", () => {
     await setupMemberContextNeo4jSchema(client);
   });
   beforeEach(async () => {
-    await client.executeWrite(async (transaction) => transaction.run("MATCH (node) DETACH DELETE node"));
+    await resetMemberContextTestGraph(client, config.uri);
     await setupMemberContextNeo4jSchema(client);
   });
   afterAll(async () => client.close());
