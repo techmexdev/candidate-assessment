@@ -1,0 +1,23 @@
+services:
+  neo4j:
+    image: neo4j:2026.06-community
+    environment:
+      NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-movement-graph-local-test}"
+      MOVEMENT_NEO4J_USERNAME: "${NEO4J_USERNAME:-neo4j}"
+      MOVEMENT_NEO4J_PASSWORD: "${NEO4J_PASSWORD:-movement-graph-local-test}"
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "cypher-shell -a neo4j://127.0.0.1:7687 -u $${MOVEMENT_NEO4J_USERNAME} -p $${MOVEMENT_NEO4J_PASSWORD} 'RETURN 1'"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    volumes:
+      - movement-neo4j-data:/data
+
+volumes:
+  movement-neo4j-data:

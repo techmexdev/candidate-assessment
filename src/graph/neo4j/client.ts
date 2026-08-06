@@ -1,0 +1,77 @@
+import neo4j, { type Driver, type ManagedTransaction } from "neo4j-driver";
+
+export const LOCAL_NEO4J_DEFAULTS = Object.freeze({
+  uri: "neo4j://127.0.0.1:7687",
+  username: "neo4j",
+  password: "movement-graph-local-test",
+  database: "neo4j",
+});
+
+export type Neo4jClientConfig = {
+  readonly uri?: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly database?: string;
+  readonly environment?: string;
+};
+
+export type Neo4jRecord = { readonly get: (key: string) => unknown };
+export type Neo4jQueryResult = { readonly records: readonly Neo4jRecord[] };
+export type Neo4jTransaction = {
+  readonly run: (query: string, parameters?: Readonly<Record<string, unknown>>) => Promise<Neo4jQueryResult>;
+};
+export type Neo4jClient = {
+  readonly executeRead: <T>(work: (transaction: Neo4jTransaction) => Promise<T>) => Promise<T>;
+  readonly executeWrite: <T>(work: (transaction: Neo4jTransaction) => Promise<T>) => Promise<T>;
+  readonly verifyConnectivity: () => Promise<void>;
+  readonly close: () => Promise<void>;
+};
+
+function isLocalHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+function resolvedConfig(config: Neo4jClientConfig) {
+  const environment = config.environment ?? process.env.NODE_ENV ?? "production";
+  const allowsSyntheticDefaults = ["test", "development", "local"].includes(environment);
+  const uri = config.uri ?? (allowsSyntheticDefaults ? LOCAL_NEO4J_DEFAULTS.uri : undefined);
+  const username = config.username ?? (allowsSyntheticDefaults ? LOCAL_NEO4J_DEFAULTS.username : undefined);
+  const password = config.password ?? (allowsSyntheticDefaults ? LOCAL_NEO4J_DEFAULTS.password : undefined);
+  const database = config.database ?? LOCAL_NEO4J_DEFAULTS.database;
+  if (!uri || !username || !password) throw new Error("Neo4j credentials and URI must be explicitly configured outside test/local environments");
+  if (!allowsSyntheticDefaults && password === LOCAL_NEO4J_DEFAULTS.password) throw new Error("Synthetic local Neo4j credentials are forbidden outside test/local environments");
+
+  let parsed: URL;
+  try { parsed = new URL(uri); } catch { throw new Error("Neo4j URI is invalid"); }
+  if (!isLocalHost(parsed.hostname) && !["neo4j+s:", "bolt+s:"].includes(parsed.protocol)) {
+    throw new Error("Non-local Neo4j hosts require an encrypted neo4j+s or bolt+s URI");
+  }
+  return { uri, username, password, database };
+}
+
+class DriverNeo4jClient implements Neo4jClient {
+  constructor(private readonly driver: Driver, private readonly database: string) {}
+
+  private async withSession<T>(mode: "read" | "write", work: (transaction: Neo4jTransaction) => Promise<T>) {
+    const session = this.driver.session({ database: this.database, defaultAccessMode: mode === "read" ? neo4j.session.READ : neo4j.session.WRITE });
+    try {
+      const callback = (transaction: ManagedTransaction) => work(transaction as unknown as Neo4jTransaction);
+      return mode === "read" ? await session.executeRead(callback) : await session.executeWrite(callback);
+    } finally {
+      await session.close();
+    }
+  }
+
+  executeRead<T>(work: (transaction: Neo4jTransaction) => Promise<T>) { return this.withSession("read", work); }
+  executeWrite<T>(work: (transaction: Neo4jTransaction) => Promise<T>) { return this.withSession("write", work); }
+  async verifyConnectivity() { await this.driver.verifyConnectivity(); }
+  async close() { await this.driver.close(); }
+}
+
+export function createNeo4jClient(config: Neo4jClientConfig = {}): Neo4jClient {
+  const resolved = resolvedConfig(config);
+  const driver = neo4j.driver(resolved.uri, neo4j.auth.basic(resolved.username, resolved.password), {
+    disableLosslessIntegers: true,
+  });
+  return new DriverNeo4jClient(driver, resolved.database);
+}
