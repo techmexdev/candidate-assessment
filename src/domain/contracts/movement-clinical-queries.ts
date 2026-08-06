@@ -2,6 +2,7 @@ import type {
   ClinicalRuleEffect,
   ClinicalRuleApplicability,
   ClinicalRuleOverridePolicy,
+  ExerciseAttributes,
   GraphAuthority,
   MovementGraphAssertion,
   ResolvableConceptKind,
@@ -43,6 +44,8 @@ export type ConceptCandidateFact = {
   readonly matchedAlias: string;
   readonly exact: boolean;
   readonly score: number;
+  readonly groundingStatus: "active-mapping" | "deprecated-mapping" | "local-only";
+  readonly mappingAssertionIds: readonly string[];
 };
 
 export type ResolveConceptCandidatesQuery = BoundedGraphQuery & {
@@ -71,9 +74,29 @@ export type ClinicalRuleFact = {
   readonly applicability: ClinicalRuleApplicability;
   readonly overridePolicy: ClinicalRuleOverridePolicy;
   readonly targetConceptId: string;
+  readonly targetKind: "movement-demand" | "movement-pattern" | "joint" | "body-region";
   readonly pathAssertionIds: readonly string[];
   readonly mappingAssertionIds: readonly string[];
   readonly evidenceAssertionIds: readonly string[];
+};
+
+export type ExerciseConstraintRelationFact = {
+  readonly kind: "has-demand" | "expresses" | "stresses" | "requires";
+  readonly targetConceptId: string;
+  readonly targetKind: "movement-demand" | "movement-pattern" | "joint" | "body-region" | "equipment";
+  readonly targetAssertionId: string;
+  readonly edgeAssertionId: string;
+};
+
+export type ExerciseConstraintFact = {
+  readonly exerciseConceptId: string;
+  readonly exerciseAssertionId: string;
+  readonly attributes: ExerciseAttributes;
+  readonly relations: readonly ExerciseConstraintRelationFact[];
+};
+
+export type ExerciseConstraintFactsQuery = BoundedGraphQuery & {
+  readonly exerciseConceptId: string;
 };
 
 export type ClinicalRuleFactsQuery = BoundedGraphQuery & {
@@ -111,6 +134,9 @@ export type MovementGraphReadHandle = {
   readonly getClinicalRuleFacts: (
     query: ClinicalRuleFactsQuery,
   ) => Promise<GraphQueryResult<readonly ClinicalRuleFact[]>>;
+  readonly getExerciseConstraintFacts: (
+    query: ExerciseConstraintFactsQuery,
+  ) => Promise<GraphQueryResult<ExerciseConstraintFact>>;
   readonly getSubstitutionCandidates: (
     query: SubstitutionCandidatesQuery,
   ) => Promise<GraphQueryResult<readonly SubstitutionCandidateFact[]>>;

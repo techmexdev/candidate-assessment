@@ -28,6 +28,8 @@ export type CandidateSummary = {
   readonly kind: ResolvableConceptKind;
   readonly matchedAlias: string;
   readonly confidence: number;
+  readonly groundingStatus: "active-mapping" | "deprecated-mapping" | "local-only";
+  readonly mappingAssertionIds: readonly string[];
 };
 
 type ResolutionContext = {
@@ -46,12 +48,14 @@ export type ConceptResolution =
       readonly confidence: number;
       readonly threshold: number;
       readonly matchedAlias: string;
+      readonly groundingStatus: "active-mapping" | "local-only";
+      readonly mappingAssertionIds: readonly string[];
       readonly alternatives: readonly CandidateSummary[];
     })
   | (ResolutionContext & {
       readonly status: "clarify" | "unresolved";
       readonly mention: ConceptMention;
-      readonly reason: "ambiguous" | "below-threshold" | "no-candidate" | "invalid-input" | "graph-unavailable";
+      readonly reason: "ambiguous" | "below-threshold" | "no-candidate" | "invalid-input" | "graph-unavailable" | "non-authoritative" | "deprecated-mapping";
       readonly candidates: readonly CandidateSummary[];
       readonly requiredConfidence: number;
     });

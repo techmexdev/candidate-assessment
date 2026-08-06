@@ -60,6 +60,21 @@ describe("in-memory movement graph read contract", () => {
     if (substitutions.status === "ok") expect(substitutions.data).toHaveLength(3);
   });
 
+  it("returns bounded deterministic exercise constraint facts", async () => {
+    const { handle } = await openHandle();
+    const exerciseConceptId = "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09";
+    const result = await handle.getExerciseConstraintFacts({ exerciseConceptId, maxResults: 20 });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.exerciseConceptId).toBe(exerciseConceptId);
+    expect(result.data.relations.some((fact) => fact.kind === "has-demand" && fact.targetConceptId === "movement-demand:deep-loaded-knee-flexion")).toBe(true);
+    expect(result.data.relations).toEqual([...result.data.relations].sort((left, right) => left.kind.localeCompare(right.kind) || left.targetConceptId.localeCompare(right.targetConceptId) || left.edgeAssertionId.localeCompare(right.edgeAssertionId)));
+    await expect(handle.getExerciseConstraintFacts({ exerciseConceptId: "exercise:missing", maxResults: 20 }))
+      .resolves.toMatchObject({ status: "failed", failure: { code: "unresolved_concept" } });
+    await expect(handle.getExerciseConstraintFacts({ exerciseConceptId, maxResults: 1 }))
+      .resolves.toMatchObject({ status: "failed", failure: { code: "traversal_limit_exceeded" } });
+  });
+
   it("fails closed for invalid queries, unresolved concepts, and caps", async () => {
     const { handle } = await openHandle();
     await expect(handle.getAnatomyPaths({ conceptId: "joint:knee", includeSelf: true, maxDepth: 0, maxResults: 10 }))
@@ -76,10 +91,10 @@ describe("in-memory movement graph read contract", () => {
 
   it("pins an opened handle when the provider active pointer changes", async () => {
     const first = snapshot();
-    const second = structuredClone(first) as any;
-    second.graphRevisionId = "graph:sha256:alternate";
-    second.nodes.forEach((node: any) => { node.graphRevisionId = second.graphRevisionId; });
-    second.edges.forEach((edge: any) => { edge.graphRevisionId = second.graphRevisionId; });
+    const second = structuredClone(first);
+    Object.assign(second, { graphRevisionId: "graph:sha256:alternate" });
+    second.nodes.forEach((node) => { Object.assign(node, { graphRevisionId: second.graphRevisionId }); });
+    second.edges.forEach((edge) => { Object.assign(edge, { graphRevisionId: second.graphRevisionId }); });
     Object.freeze(second);
     const provider = new InMemoryMovementGraphReadProvider([first, second], { activeRevisionId: first.graphRevisionId });
     const opened = await provider.openActive();

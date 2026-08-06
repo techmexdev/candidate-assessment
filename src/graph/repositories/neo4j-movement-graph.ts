@@ -2,6 +2,7 @@ import type {
   AssertionLookupQuery,
   AnatomyPathsQuery,
   ClinicalRuleFactsQuery,
+  ExerciseConstraintFactsQuery,
   GraphQueryResult,
   MovementGraphReadHandle,
   MovementGraphReadOpenResult,
@@ -65,6 +66,7 @@ class Neo4jMovementGraphReadHandle implements MovementGraphReadHandle {
   resolveConceptCandidates(query: ResolveConceptCandidatesQuery) { return this.withCanonicalHandle((handle) => handle.resolveConceptCandidates(query)); }
   getAnatomyPaths(query: AnatomyPathsQuery) { return this.withCanonicalHandle((handle) => handle.getAnatomyPaths(query)); }
   getClinicalRuleFacts(query: ClinicalRuleFactsQuery) { return this.withCanonicalHandle((handle) => handle.getClinicalRuleFacts(query)); }
+  getExerciseConstraintFacts(query: ExerciseConstraintFactsQuery) { return this.withCanonicalHandle((handle) => handle.getExerciseConstraintFacts(query)); }
   getSubstitutionCandidates(query: SubstitutionCandidatesQuery) { return this.withCanonicalHandle((handle) => handle.getSubstitutionCandidates(query)); }
   getAssertions(query: AssertionLookupQuery) { return this.withCanonicalHandle((handle) => handle.getAssertions(query)); }
 }

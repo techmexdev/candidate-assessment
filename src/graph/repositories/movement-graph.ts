@@ -5,6 +5,8 @@ import type {
   ClinicalRuleFact,
   ClinicalRuleFactsQuery,
   ConceptCandidateFact,
+  ExerciseConstraintFact,
+  ExerciseConstraintFactsQuery,
   GraphQueryResult,
   MovementGraphReadHandle,
   MovementGraphReadOpenResult,
@@ -13,6 +15,7 @@ import type {
   SubstitutionCandidateFact,
   SubstitutionCandidatesQuery,
 } from "../../domain/contracts/movement-clinical-queries";
+import { RESOLVABLE_CONCEPT_KINDS } from "../../domain/contracts/movement-graph";
 import type {
   GraphAuthority,
   LegacyConceptCandidate,
@@ -29,6 +32,7 @@ import { normalizeConceptText } from "../../domain/policies/text-normalization";
 import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../schema/movement-schema";
 
 const byAssertionId = (left: { assertionId: string }, right: { assertionId: string }) => left.assertionId.localeCompare(right.assertionId);
+const resolvableKinds = new Set<string>(RESOLVABLE_CONCEPT_KINDS);
 function tokenScore(query: string, candidate: string) {
   const queryTokens = new Set(normalizeConceptText(query).split(" ").filter(Boolean));
   const candidateTokens = new Set(normalizeConceptText(candidate).split(" ").filter(Boolean));
@@ -96,12 +100,20 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
     if (!this.validateBounds(query) || !normalizeConceptText(query.text) || query.kinds.length === 0) return this.failure({ code: "invalid_query", message: "A non-empty query, kind list, and valid bounds are required" });
     const normalized = normalizeConceptText(query.text);
     const facts = this.snapshot.nodes.flatMap((node): ConceptCandidateFact[] => {
-      if (!query.kinds.includes(node.kind as any) || !("aliases" in node)) return [];
-      const aliases = [node.label, ...node.aliases];
+      if (!resolvableKinds.has(node.kind) || !query.kinds.includes(node.kind as ConceptCandidateFact["kind"])) return [];
+      const kind = node.kind as ConceptCandidateFact["kind"];
+      const aliases = [node.label, ...("aliases" in node ? node.aliases : [])];
+      const mappingEdges = (this.edgesByFrom.get(node.conceptId) ?? []).filter((edge): edge is Extract<MovementGraphEdgeAssertion, { kind: "maps-to" }> => edge.kind === "maps-to");
+      const activeMapping = mappingEdges.some((edge) => {
+        const target = this.nodesById.get(edge.toConceptId);
+        return target?.kind === "ontology-concept" && target.status === "active";
+      });
+      const groundingStatus = activeMapping ? "active-mapping" : mappingEdges.length > 0 ? "deprecated-mapping" : "local-only";
+      const mappingAssertionIds = mappingEdges.map((edge) => edge.assertionId).sort();
       const exact = aliases.filter((alias) => normalizeConceptText(alias) === normalized).sort()[0];
-      if (exact) return [{ conceptId: node.conceptId, assertionId: node.assertionId, kind: node.kind as any, label: node.label, matchedAlias: exact, exact: true, score: 1 }];
+      if (exact) return [{ conceptId: node.conceptId, assertionId: node.assertionId, kind, label: node.label, matchedAlias: exact, exact: true, score: 1, groundingStatus, mappingAssertionIds }];
       const best = aliases.map((alias) => ({ alias, score: tokenScore(query.text, alias) })).sort((a, b) => b.score - a.score || a.alias.localeCompare(b.alias))[0];
-      return best && best.score > 0 ? [{ conceptId: node.conceptId, assertionId: node.assertionId, kind: node.kind as any, label: node.label, matchedAlias: best.alias, exact: false, score: best.score }] : [];
+      return best && best.score > 0 ? [{ conceptId: node.conceptId, assertionId: node.assertionId, kind, label: node.label, matchedAlias: best.alias, exact: false, score: best.score, groundingStatus, mappingAssertionIds }] : [];
     }).sort((a, b) => b.score - a.score || a.conceptId.localeCompare(b.conceptId));
     if (facts.length > query.maxResults) return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth ?? 1, maxResults: query.maxResults });
     return this.result(facts);
@@ -148,12 +160,34 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
         if (!target) return this.failure({ code: "broken_assertion", assertionId: targetEdge.assertionId });
         const evidenceEdges = (this.edgesByFrom.get(rule.conceptId) ?? []).filter((edge) => edge.kind === "supported-by");
         const mappingEdges = [condition.conceptId, target.conceptId].flatMap((id) => (this.edgesByFrom.get(id) ?? []).filter((edge) => edge.kind === "maps-to"));
-        facts.push({ conditionConceptId: condition.conceptId, conditionAssertionId: condition.assertionId, ruleConceptId: rule.conceptId, ruleAssertionId: rule.assertionId, effect: rule.effect, applicability: rule.applicability, overridePolicy: rule.overridePolicy, targetConceptId: target.conceptId, pathAssertionIds: [condition.assertionId, constraint.assertionId, rule.assertionId, targetEdge.assertionId, target.assertionId], mappingAssertionIds: mappingEdges.map((edge) => edge.assertionId).sort(), evidenceAssertionIds: evidenceEdges.flatMap((edge) => [edge.assertionId, this.nodesById.get(edge.toConceptId)?.assertionId].filter((id): id is string => Boolean(id))).sort() });
+        facts.push({ conditionConceptId: condition.conceptId, conditionAssertionId: condition.assertionId, ruleConceptId: rule.conceptId, ruleAssertionId: rule.assertionId, effect: rule.effect, applicability: rule.applicability, overridePolicy: rule.overridePolicy, targetConceptId: target.conceptId, targetKind: target.kind as ClinicalRuleFact["targetKind"], pathAssertionIds: [condition.assertionId, constraint.assertionId, rule.assertionId, targetEdge.assertionId, target.assertionId], mappingAssertionIds: mappingEdges.map((edge) => edge.assertionId).sort(), evidenceAssertionIds: evidenceEdges.flatMap((edge) => [edge.assertionId, this.nodesById.get(edge.toConceptId)?.assertionId].filter((id): id is string => Boolean(id))).sort() });
       }
     }
     facts.sort((a, b) => a.ruleConceptId.localeCompare(b.ruleConceptId) || a.targetConceptId.localeCompare(b.targetConceptId));
     if (facts.length > query.maxResults) return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth ?? 2, maxResults: query.maxResults });
     return this.result(facts);
+  }
+
+  async getExerciseConstraintFacts(query: ExerciseConstraintFactsQuery): Promise<GraphQueryResult<ExerciseConstraintFact>> {
+    if (!this.validateBounds(query)) return this.failure({ code: "invalid_query", message: "Exercise facts query bounds are invalid" });
+    const exercise = this.nodesById.get(query.exerciseConceptId);
+    if (!exercise || exercise.kind !== "exercise") return this.failure({ code: "unresolved_concept", conceptId: query.exerciseConceptId });
+    const relations = (this.edgesByFrom.get(exercise.conceptId) ?? []).flatMap((edge): ExerciseConstraintFact["relations"][number][] => {
+      if (!["has-demand", "expresses", "stresses", "requires"].includes(edge.kind)) return [];
+      const target = this.nodesById.get(edge.toConceptId);
+      if (!target) return [];
+      return [{
+        kind: edge.kind as ExerciseConstraintFact["relations"][number]["kind"],
+        targetConceptId: target.conceptId,
+        targetKind: target.kind as ExerciseConstraintFact["relations"][number]["targetKind"],
+        targetAssertionId: target.assertionId,
+        edgeAssertionId: edge.assertionId,
+      }];
+    }).sort((left, right) => left.kind.localeCompare(right.kind)
+      || left.targetConceptId.localeCompare(right.targetConceptId)
+      || left.edgeAssertionId.localeCompare(right.edgeAssertionId));
+    if (relations.length > query.maxResults) return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth ?? 1, maxResults: query.maxResults });
+    return this.result({ exerciseConceptId: exercise.conceptId, exerciseAssertionId: exercise.assertionId, attributes: exercise.attributes, relations });
   }
 
   async getSubstitutionCandidates(query: SubstitutionCandidatesQuery): Promise<GraphQueryResult<readonly SubstitutionCandidateFact[]>> {

@@ -95,6 +95,7 @@ describe.sequential("Neo4j movement graph persistence", () => {
       (handle: typeof neoOpened.handle) => handle.resolveConceptCandidates({ text: "knee", kinds: ["joint"], maxResults: 10 }),
       (handle: typeof neoOpened.handle) => handle.getAnatomyPaths({ conceptId: "joint:knee", includeSelf: true, maxDepth: 4, maxResults: 10 }),
       (handle: typeof neoOpened.handle) => handle.getClinicalRuleFacts({ conditionConceptId: "condition:patellofemoral-pain-syndrome", maxResults: 10 }),
+      (handle: typeof neoOpened.handle) => handle.getExerciseConstraintFacts({ exerciseConceptId: "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09", maxResults: 20 }),
       (handle: typeof neoOpened.handle) => handle.getSubstitutionCandidates({ exerciseConceptId: "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09", maxResults: 10 }),
       (handle: typeof neoOpened.handle) => handle.getAssertions({ assertionIds: [snapshot.nodes[0]!.assertionId, snapshot.edges[0]!.assertionId], maxResults: 10 }),
     ];
