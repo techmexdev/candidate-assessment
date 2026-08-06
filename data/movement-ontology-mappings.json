@@ -1,0 +1,62 @@
+[
+  {
+    "id": "mapping-snomed-knee",
+    "sourceOntology": "SNOMED CT",
+    "sourceTerm": "Knee joint",
+    "sourceUri": "https://evsexplore.semantics.cancer.gov/evsexplore/concept/snomedct_us/",
+    "targetKind": "anatomy",
+    "targetId": "anatomy:knee",
+    "relation": "closeMatch",
+    "confidence": 0.94,
+    "rationale": "The local anatomy node represents the knee joint used by the synthetic exercise catalog.",
+    "revision": "ontology-subset-v1"
+  },
+  {
+    "id": "mapping-snomed-patellofemoral",
+    "sourceOntology": "SNOMED CT",
+    "sourceTerm": "Patellofemoral joint",
+    "sourceUri": "https://evsexplore.semantics.cancer.gov/evsexplore/concept/snomedct_us/",
+    "targetKind": "anatomy",
+    "targetId": "anatomy:patellofemoral-joint",
+    "relation": "closeMatch",
+    "confidence": 0.9,
+    "rationale": "The modeled descendant makes the knee injury scenario traversable without importing the full clinical ontology.",
+    "revision": "ontology-subset-v1"
+  },
+  {
+    "id": "mapping-ope-kettlebell",
+    "sourceOntology": "OPE",
+    "sourceTerm": "Kettlebell",
+    "sourceUri": "https://bioportal.bioontology.org/ontologies/OPE",
+    "targetKind": "equipment",
+    "targetId": "equipment:kettlebell",
+    "relation": "exactMatch",
+    "confidence": 0.98,
+    "rationale": "The catalog equipment term is directly aligned to the OPE equipment concept.",
+    "revision": "ontology-subset-v1"
+  },
+  {
+    "id": "mapping-ope-squat",
+    "sourceOntology": "OPE",
+    "sourceTerm": "Lower push squat",
+    "sourceUri": "https://bioportal.bioontology.org/ontologies/OPE",
+    "targetKind": "movement-pattern",
+    "targetId": "movement-pattern:lower-push-squat",
+    "relation": "closeMatch",
+    "confidence": 0.9,
+    "rationale": "The catalog movement taxonomy is aligned to the exercise ontology at the pattern level.",
+    "revision": "ontology-subset-v1"
+  },
+  {
+    "id": "mapping-copper-context",
+    "sourceOntology": "COPPER",
+    "sourceTerm": "Contextualised and personalised exercise recommendation",
+    "sourceUri": "https://bioportal.bioontology.org/ontologies/COPPER",
+    "targetKind": "movement-pattern",
+    "targetId": "movement-pattern:personalized-context",
+    "relation": "closeMatch",
+    "confidence": 0.82,
+    "rationale": "The local concept records that contextual member signals affect recommendation ranking without making COPPER the safety authority.",
+    "revision": "ontology-subset-v1"
+  }
+]
