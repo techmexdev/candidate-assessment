@@ -105,26 +105,55 @@ export type MemberSummaryProjection = {
   readonly riskAssessmentAssertionId: string | null;
 };
 
-export type MemberEvidenceProjection = {
+type MemberEvidenceProjectionBase<K extends MemberContextRevisionScopedNode["kind"]> = {
   readonly evidenceId: string;
   readonly semanticId: string;
   readonly assertionId: string;
-  readonly kind: MemberContextRevisionScopedNode["kind"];
+  readonly kind: K;
+  readonly source: AssertionSource;
   readonly classification: AssertionClassification;
   readonly temporal: AssertionTemporal;
 };
 
-export type LongitudinalPointProjection = MemberEvidenceProjection & {
+export type ObservationEvidenceProjection = MemberEvidenceProjectionBase<"observation"> & {
   readonly metric: string;
   readonly value: string | number | boolean | null;
   readonly unit: string;
   readonly sourceOrder: number;
 };
 
-export type MessageProjection = MemberEvidenceProjection & {
+export type LabPanelEvidenceProjection = MemberEvidenceProjectionBase<"lab-panel"> & {
+  readonly panelType: "blood" | "dexa" | "other";
+  readonly label: string;
+  readonly sourceOrder: number;
+};
+
+export type MediaAttachmentEvidenceProjection = MemberEvidenceProjectionBase<"media-attachment"> & {
+  readonly mediaType: string;
+  readonly caption: string;
+  readonly sourceOrder: number;
+  readonly assetStatus: "metadata-only";
+  readonly analysisStatus: "not-analyzed";
+};
+
+type SpecializedEvidenceKind = "observation" | "lab-panel" | "media-attachment";
+type BasicMemberEvidenceProjection = {
+  [Kind in Exclude<MemberContextRevisionScopedNode["kind"], SpecializedEvidenceKind>]: MemberEvidenceProjectionBase<Kind>;
+}[Exclude<MemberContextRevisionScopedNode["kind"], SpecializedEvidenceKind>];
+
+export type MemberEvidenceProjection =
+  | BasicMemberEvidenceProjection
+  | ObservationEvidenceProjection
+  | LabPanelEvidenceProjection
+  | MediaAttachmentEvidenceProjection;
+
+export type LongitudinalPointProjection = ObservationEvidenceProjection;
+
+export type MessageProjection = Extract<MemberEvidenceProjection, { readonly kind: "message" }> & {
   readonly senderRole: "member" | "coach";
   readonly text: string;
   readonly attachmentEvidenceIds: readonly string[];
+  readonly attachments: readonly MediaAttachmentEvidenceProjection[];
 };
 
 export type ConversationProjection = {

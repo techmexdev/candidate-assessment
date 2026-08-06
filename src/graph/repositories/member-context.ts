@@ -1,12 +1,550 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { inspectAuthorizedMemberContextScope } from "../../application/use-cases/retrieve-member-context";
+import type {
+  AuthorizedMemberContextScope,
+  BoundedMemberContextQuery,
+  CitationLookupQuery,
+  CitationProjection,
+  CoachBriefProjection,
+  CoachBriefQuery,
+  ConversationProjection,
+  ConversationQuery,
+  EvidenceQuery,
+  LabPanelEvidenceProjection,
+  LongitudinalPointProjection,
+  LongitudinalSeriesQuery,
+  MemberContextEvidenceDomain,
+  MemberContextQueryResult,
+  MemberContextReadHandle,
+  MemberContextReadOpenResult,
+  MemberContextReadProvider,
+  MemberContextTimeWindow,
+  MemberEvidenceProjection,
+  MediaAttachmentEvidenceProjection,
+  MemberSummaryProjection,
+  MessageProjection,
+  ObservationEvidenceProjection,
+  RelatedEvidenceQuery,
+  SummaryQuery,
+} from "../../domain/contracts/member-context-queries";
 import type {
   EvidenceKind,
+  MemberContextAuthority,
   MemberContextGraphSnapshot,
+  MemberContextRevisionScopedNode,
   MemberContextResult,
   MemberContextSnapshot,
   MemberEvidence,
   MemberScope,
 } from "../../domain/contracts/member-context";
 import type { InMemoryMemberContextPublisher } from "../publication/in-memory-member-context-publisher";
+
+export const MEMBER_CONTEXT_QUERY_DEFAULTS = Object.freeze({ limit: 25, timeoutMs: 1_000 });
+export const MEMBER_CONTEXT_QUERY_MAXIMA = Object.freeze({ limit: 100, timeoutMs: 5_000, evidenceIds: 100 });
+const memberContextEvidenceDomains = new Set<MemberContextEvidenceDomain>([
+  "profile", "goals", "preferences", "equipment", "injuries", "workouts", "adherence",
+  "biomarkers", "labs", "conversations", "coach-brief", "churn",
+]);
+
+type ReadProviderOptions = {
+  readonly authority?: MemberContextAuthority;
+};
+
+type CursorPayload = {
+  readonly version: 1;
+  readonly operation: string;
+  readonly memberId: string;
+  readonly contextRevisionId: string;
+  readonly query: string;
+  readonly offset: number;
+};
+
+type Page<T> = { readonly status: "ready"; readonly data: readonly T[]; readonly nextCursor?: string };
+
+const relatedRelationshipKinds = new Set([
+  "MENTIONS_EXERCISE",
+  "CONTAINS_MEASUREMENT",
+  "CONTAINS_MESSAGE",
+  "HAS_ATTACHMENT",
+  "HAS_TASK",
+  "HAS_ASSESSMENT",
+  "HAS_REASON",
+  "SUPPORTED_BY",
+  "WAS_DERIVED_FROM",
+]);
+
+function temporalSortKey(node: MemberContextRevisionScopedNode): string {
+  switch (node.temporal.precision) {
+    case "exact-timestamp": return `0:${new Date(node.temporal.effectiveAt).toISOString()}`;
+    case "date": return `1:${node.temporal.effectiveOn}`;
+    case "relative-order": return `2:${String(node.temporal.sourceOrder).padStart(10, "0")}`;
+    case "unknown": return "3:";
+  }
+}
+
+function compareEvidence(left: MemberContextRevisionScopedNode, right: MemberContextRevisionScopedNode): number {
+  return temporalSortKey(left).localeCompare(temporalSortKey(right))
+    || (("sourceOrder" in left ? left.sourceOrder : 0) - ("sourceOrder" in right ? right.sourceOrder : 0))
+    || left.assertionId.localeCompare(right.assertionId);
+}
+
+function evidenceProjectionBase(node: MemberContextRevisionScopedNode) {
+  return {
+    evidenceId: node.assertionId,
+    semanticId: node.semanticId,
+    assertionId: node.assertionId,
+    kind: node.kind,
+    source: node.source,
+    classification: node.classification,
+    temporal: node.temporal,
+  };
+}
+
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "observation" }>,
+): ObservationEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "lab-panel" }>,
+): LabPanelEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "media-attachment" }>,
+): MediaAttachmentEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "message" }>,
+): Extract<MemberEvidenceProjection, { kind: "message" }>;
+function projectEvidence(node: MemberContextRevisionScopedNode): MemberEvidenceProjection;
+function projectEvidence(node: MemberContextRevisionScopedNode): MemberEvidenceProjection {
+  const base = evidenceProjectionBase(node);
+  if (node.kind === "observation") {
+    return { ...base, kind: node.kind, metric: node.metric, value: node.value, unit: node.unit, sourceOrder: node.sourceOrder };
+  }
+  if (node.kind === "lab-panel") {
+    return { ...base, kind: node.kind, panelType: node.panelType, label: node.label, sourceOrder: node.sourceOrder };
+  }
+  if (node.kind === "media-attachment") {
+    return {
+      ...base,
+      kind: node.kind,
+      mediaType: node.mediaType,
+      caption: node.caption,
+      sourceOrder: node.sourceOrder,
+      assetStatus: node.assetStatus,
+      analysisStatus: node.analysisStatus,
+    };
+  }
+  return base as MemberEvidenceProjection;
+}
+
+function isValidWindow(window: MemberContextTimeWindow): boolean {
+  if (!window || typeof window.fromInclusive !== "string" || typeof window.toExclusive !== "string") return false;
+  const from = Date.parse(window.fromInclusive);
+  const to = Date.parse(window.toExclusive);
+  return Number.isFinite(from) && Number.isFinite(to) && from < to;
+}
+
+function isInWindow(node: MemberContextRevisionScopedNode, window: MemberContextTimeWindow): boolean {
+  const value = node.temporal.precision === "exact-timestamp"
+    ? Date.parse(node.temporal.effectiveAt)
+    : node.temporal.precision === "date"
+      ? Date.parse(`${node.temporal.effectiveOn}T00:00:00.000Z`)
+      : Number.NaN;
+  return Number.isFinite(value) && value >= Date.parse(window.fromInclusive) && value < Date.parse(window.toExclusive);
+}
+
+function isEvidenceId(value: unknown): value is string {
+  return typeof value === "string" && /^assertion:[a-f0-9]{16}$/.test(value);
+}
+
+export class InMemoryMemberContextReadProvider implements MemberContextReadProvider {
+  private available = true;
+  private readonly authority: MemberContextAuthority;
+  private readonly cursorSecret = randomBytes(32);
+
+  constructor(
+    private readonly publisher: InMemoryMemberContextPublisher,
+    options: ReadProviderOptions = {},
+  ) {
+    this.authority = options.authority ?? "fixture";
+  }
+
+  /** Infrastructure/test fault-injection hook; absent from the application port. */
+  setAvailable(available: boolean): void {
+    this.available = available;
+  }
+
+  async openActive(scope: AuthorizedMemberContextScope): Promise<MemberContextReadOpenResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", message: "Member context is unavailable." };
+    if (!this.available) return { status: "unavailable", message: "Member context is unavailable." };
+    const revisionId = this.publisher.getActiveRevisionId(claims.memberId);
+    if (!revisionId) return { status: "empty", memberId: claims.memberId, message: "Member context is unavailable." };
+    return this.openClaimsRevision(claims, revisionId);
+  }
+
+  async openRevision(
+    scope: AuthorizedMemberContextScope,
+    contextRevisionId: string,
+  ): Promise<MemberContextReadOpenResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", message: "Member context is unavailable." };
+    if (!this.available) return { status: "unavailable", message: "Member context is unavailable." };
+    return this.openClaimsRevision(claims, contextRevisionId);
+  }
+
+  private async openClaimsRevision(
+    claims: Readonly<{ coachId: string; memberId: string }>,
+    contextRevisionId: string,
+  ): Promise<MemberContextReadOpenResult> {
+    const inspection = await this.publisher.inspect(claims.memberId, contextRevisionId);
+    if (inspection.status !== "ok" || !["active", "sealed"].includes(inspection.data.state)) {
+      return { status: "empty", memberId: claims.memberId, message: "Member context is unavailable." };
+    }
+    const snapshot = this.publisher.getRevision(claims.memberId, contextRevisionId);
+    if (!snapshot || snapshot.memberId !== claims.memberId) {
+      return { status: "empty", memberId: claims.memberId, message: "Member context is unavailable." };
+    }
+    return {
+      status: "ready",
+      handle: new InMemoryMemberContextReadHandle(
+        snapshot,
+        claims.coachId,
+        this.authority,
+        this.cursorSecret,
+      ),
+    };
+  }
+}
+
+class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
+  readonly memberId: string;
+  readonly coachId: string;
+  readonly contextRevisionId: string;
+  readonly authority: MemberContextAuthority;
+  private readonly revisionNodes: readonly MemberContextRevisionScopedNode[];
+  private readonly nodesByEvidenceId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
+  private readonly nodesBySemanticId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
+  private readonly labMeasurementIds: ReadonlySet<string>;
+
+  constructor(
+    private readonly snapshot: MemberContextGraphSnapshot,
+    coachId: string,
+    authority: MemberContextAuthority,
+    private readonly cursorSecret: Buffer,
+  ) {
+    this.memberId = snapshot.memberId;
+    this.coachId = coachId;
+    this.contextRevisionId = snapshot.contextRevisionId;
+    this.authority = authority;
+    this.revisionNodes = snapshot.nodes.filter((node): node is MemberContextRevisionScopedNode => "assertionId" in node);
+    this.nodesByEvidenceId = new Map(this.revisionNodes.map((node) => [node.assertionId, node]));
+    this.nodesBySemanticId = new Map(this.revisionNodes.map((node) => [node.semanticId, node]));
+    this.labMeasurementIds = new Set(snapshot.relationships
+      .filter((edge) => edge.kind === "CONTAINS_MEASUREMENT")
+      .map((edge) => edge.toSemanticId));
+  }
+
+  private base(evidenceIds: readonly string[]) {
+    return {
+      memberId: this.memberId,
+      contextRevisionId: this.contextRevisionId,
+      authority: this.authority,
+      evidenceIds,
+    } as const;
+  }
+
+  private invalid<T>(code: "invalid-bound" | "invalid-cursor" | "invalid-window" | "invalid-evidence-id", message: string): MemberContextQueryResult<T> {
+    return { status: "invalid", ...this.base([]), code, message };
+  }
+
+  private empty<T>(message: string): MemberContextQueryResult<T> {
+    return { status: "empty", ...this.base([]), message };
+  }
+
+  private validateBounds<T>(query: BoundedMemberContextQuery): MemberContextQueryResult<T> | { limit: number } {
+    const runtime = query as Partial<BoundedMemberContextQuery>;
+    const limit = runtime.limit ?? MEMBER_CONTEXT_QUERY_DEFAULTS.limit;
+    const timeoutMs = runtime.timeoutMs ?? MEMBER_CONTEXT_QUERY_DEFAULTS.timeoutMs;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MEMBER_CONTEXT_QUERY_MAXIMA.limit
+      || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MEMBER_CONTEXT_QUERY_MAXIMA.timeoutMs) {
+      return this.invalid("invalid-bound", "Query limit or timeout is outside the supported bounds.");
+    }
+    return { limit };
+  }
+
+  private encodeCursor(payload: CursorPayload): string {
+    const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    const signature = createHmac("sha256", this.cursorSecret).update(encoded).digest("base64url");
+    return `${encoded}.${signature}`;
+  }
+
+  private decodeCursor(cursor: string): CursorPayload | undefined {
+    try {
+      if (cursor.length > 4_096) return undefined;
+      const [encoded, signature, extra] = cursor.split(".");
+      if (!encoded || !signature || extra) return undefined;
+      const expected = createHmac("sha256", this.cursorSecret).update(encoded).digest();
+      const actual = Buffer.from(signature, "base64url");
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return undefined;
+      const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as CursorPayload;
+      return payload.version === 1
+        && typeof payload.operation === "string"
+        && typeof payload.memberId === "string"
+        && typeof payload.contextRevisionId === "string"
+        && typeof payload.query === "string"
+        && Number.isInteger(payload.offset)
+        && payload.offset >= 0
+        ? payload
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private paginate<T>(
+    operation: string,
+    fingerprint: string,
+    query: BoundedMemberContextQuery,
+    values: readonly T[],
+  ): Page<T> | MemberContextQueryResult<readonly T[]> {
+    const bounds = this.validateBounds<readonly T[]>(query);
+    if (!("limit" in bounds)) return bounds;
+    let offset = 0;
+    if (query.cursor !== undefined) {
+      const cursor = this.decodeCursor(query.cursor);
+      if (!cursor
+        || cursor.operation !== operation
+        || cursor.memberId !== this.memberId
+        || cursor.contextRevisionId !== this.contextRevisionId
+        || cursor.query !== fingerprint) {
+        return this.invalid("invalid-cursor", "Cursor does not belong to this member-context query.");
+      }
+      offset = cursor.offset;
+    }
+    const data = values.slice(offset, offset + bounds.limit);
+    const nextOffset = offset + data.length;
+    return {
+      status: "ready",
+      data,
+      ...(nextOffset < values.length
+        ? { nextCursor: this.encodeCursor({
+          version: 1,
+          operation,
+          memberId: this.memberId,
+          contextRevisionId: this.contextRevisionId,
+          query: fingerprint,
+          offset: nextOffset,
+        }) }
+        : {}),
+    };
+  }
+
+  private ready<T>(data: T, evidenceIds: readonly string[], nextCursor?: string): MemberContextQueryResult<T> {
+    return { status: "ready", ...this.base(evidenceIds), data, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  private nodesForDomains(domains: readonly MemberContextEvidenceDomain[]): MemberContextRevisionScopedNode[] {
+    const selected = new Map<string, MemberContextRevisionScopedNode>();
+    const add = (node: MemberContextRevisionScopedNode) => selected.set(node.assertionId, node);
+    for (const node of this.revisionNodes) {
+      for (const domain of domains) {
+        const matches = domain === "profile" ? node.kind === "member-profile"
+          : domain === "goals" ? node.kind === "goal"
+          : domain === "preferences" ? node.kind === "preference"
+          : domain === "equipment" ? node.kind === "equipment-availability"
+          : domain === "injuries" ? node.kind === "injury-episode"
+          : domain === "workouts" ? node.kind === "workout-session" || node.kind === "exercise-mention"
+          : domain === "adherence" ? node.kind === "observation" && ["weekly-workout-completion", "adherence-trend"].includes(node.metric)
+          : domain === "biomarkers" ? node.kind === "observation"
+            && !this.labMeasurementIds.has(node.semanticId)
+            && !["weekly-workout-completion", "adherence-trend"].includes(node.metric)
+          : domain === "labs" ? node.kind === "lab-panel" || (node.kind === "observation" && this.labMeasurementIds.has(node.semanticId))
+          : domain === "conversations" ? ["conversation", "message", "media-attachment"].includes(node.kind)
+          : domain === "coach-brief" ? ["coach-brief", "coach-task"].includes(node.kind)
+          : domain === "churn" ? ["churn-assessment", "churn-reason"].includes(node.kind)
+          : false;
+        if (matches) add(node);
+      }
+    }
+    return [...selected.values()].sort(compareEvidence);
+  }
+
+  async getSummary(query: SummaryQuery): Promise<MemberContextQueryResult<MemberSummaryProjection>> {
+    const bounds = this.validateBounds<MemberSummaryProjection>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (query.cursor !== undefined) return this.invalid("invalid-cursor", "Summary queries do not use cursors.");
+    const profile = this.revisionNodes.find((node) => node.kind === "member-profile");
+    if (!profile) return this.empty("Member summary is unavailable.");
+    const goals = this.revisionNodes.filter((node) => node.kind === "goal").sort(compareEvidence).slice(0, Math.max(0, bounds.limit - 2));
+    const assessment = this.revisionNodes.filter((node) => node.kind === "churn-assessment").sort(compareEvidence).at(-1) ?? null;
+    const evidenceIds = [profile.assertionId, ...goals.map((node) => node.assertionId), ...(assessment ? [assessment.assertionId] : [])];
+    return this.ready({
+      profileAssertionId: profile.assertionId,
+      goalAssertionIds: goals.map((node) => node.assertionId),
+      riskAssessmentAssertionId: assessment?.assertionId ?? null,
+    }, evidenceIds);
+  }
+
+  async getEvidence(query: EvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {
+    if (!Array.isArray(query.domains) || query.domains.length === 0
+      || query.domains.length > memberContextEvidenceDomains.size
+      || query.domains.some((domain) => !memberContextEvidenceDomains.has(domain))) {
+      return this.invalid("invalid-bound", "Evidence domains are invalid or exceed the supported bound.");
+    }
+    if (query.window && !isValidWindow(query.window)) return this.invalid("invalid-window", "The requested time window is invalid.");
+    const nodes = this.nodesForDomains(query.domains).filter((node) => !query.window || isInWindow(node, query.window));
+    const fingerprint = JSON.stringify({ domains: [...new Set(query.domains)].sort(), window: query.window ?? null });
+    const page = this.paginate("evidence", fingerprint, query, nodes);
+    if (page.status !== "ready") return page;
+    if (page.data.length === 0) return this.empty("No evidence is available for the requested domain and window.");
+    const data = page.data.map(projectEvidence);
+    return this.ready(data, data.map((fact) => fact.evidenceId), page.nextCursor);
+  }
+
+  async getLongitudinalSeries(query: LongitudinalSeriesQuery): Promise<MemberContextQueryResult<readonly LongitudinalPointProjection[]>> {
+    const bounds = this.validateBounds<readonly LongitudinalPointProjection[]>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (typeof query.metric !== "string" || !query.metric.trim()
+      || !Number.isInteger(query.minimumPoints) || query.minimumPoints < 1 || query.minimumPoints > bounds.limit) {
+      return this.invalid("invalid-bound", "Metric and minimum point bounds are invalid.");
+    }
+    if (!isValidWindow(query.window)) return this.invalid("invalid-window", "The requested time window is invalid.");
+    const nodes = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "observation" }> => node.kind === "observation")
+      .filter((node) => node.metric === query.metric && isInWindow(node, query.window))
+      .sort(compareEvidence);
+    const evidenceIds = nodes.map((node) => node.assertionId);
+    if (nodes.length < query.minimumPoints) {
+      return {
+        status: "insufficient-history",
+        ...this.base(evidenceIds),
+        requiredPoints: query.minimumPoints,
+        availablePoints: nodes.length,
+      };
+    }
+    const fingerprint = JSON.stringify({ metric: query.metric, window: query.window, minimumPoints: query.minimumPoints });
+    const page = this.paginate("longitudinal-series", fingerprint, query, nodes);
+    if (page.status !== "ready") return page;
+    const data = page.data.map((node): LongitudinalPointProjection => ({
+      ...projectEvidence(node),
+    }));
+    return this.ready(data, data.map((fact) => fact.evidenceId), page.nextCursor);
+  }
+
+  async getConversation(query: ConversationQuery): Promise<MemberContextQueryResult<ConversationProjection>> {
+    const bounds = this.validateBounds<ConversationProjection>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (!isValidWindow(query.window)) return this.invalid("invalid-window", "The requested time window is invalid.");
+    if (query.conversationId && !isEvidenceId(query.conversationId)) return this.invalid("invalid-evidence-id", "Conversation evidence ID is invalid.");
+    const conversations = this.revisionNodes.filter((node) => node.kind === "conversation");
+    const conversation = query.conversationId
+      ? conversations.find((node) => node.assertionId === query.conversationId)
+      : conversations.sort(compareEvidence)[0];
+    if (!conversation) return this.empty("Conversation is unavailable.");
+    const messageIds = new Set(this.snapshot.relationships
+      .filter((edge) => edge.kind === "CONTAINS_MESSAGE" && edge.fromSemanticId === conversation.semanticId)
+      .map((edge) => edge.toSemanticId));
+    const messages = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "message" }> => node.kind === "message" && messageIds.has(node.semanticId))
+      .filter((node) => isInWindow(node, query.window))
+      .sort((left, right) => left.sourceOrder - right.sourceOrder || compareEvidence(left, right));
+    const fingerprint = JSON.stringify({ conversationId: conversation.assertionId, window: query.window });
+    const page = this.paginate("conversation", fingerprint, query, messages);
+    if (page.status !== "ready") return page as MemberContextQueryResult<ConversationProjection>;
+    if (page.data.length === 0) return this.empty("No messages are available in the requested window.");
+    const projected = page.data.map((message): MessageProjection => {
+      const attachmentIds = new Set(this.snapshot.relationships
+        .filter((edge) => edge.kind === "HAS_ATTACHMENT" && edge.fromSemanticId === message.semanticId)
+        .map((edge) => edge.toSemanticId));
+      const attachments = this.revisionNodes
+        .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "media-attachment" }> => node.kind === "media-attachment" && attachmentIds.has(node.semanticId))
+        .sort(compareEvidence);
+      return {
+        ...projectEvidence(message),
+        senderRole: message.senderRole,
+        text: message.text,
+        attachmentEvidenceIds: attachments.map((node) => node.assertionId),
+        attachments: attachments.map((attachment) => projectEvidence(attachment)),
+      };
+    });
+    const evidenceIds = [conversation.assertionId, ...projected.flatMap((message) => [message.evidenceId, ...message.attachmentEvidenceIds])];
+    return this.ready({ conversationEvidenceId: conversation.assertionId, messages: projected }, evidenceIds, page.nextCursor);
+  }
+
+  async getCoachBrief(query: CoachBriefQuery): Promise<MemberContextQueryResult<CoachBriefProjection>> {
+    const bounds = this.validateBounds<CoachBriefProjection>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (query.cursor !== undefined) return this.invalid("invalid-cursor", "Coach brief queries do not use cursors.");
+    const briefs = this.revisionNodes.filter((node) => node.kind === "coach-brief").sort(compareEvidence);
+    const brief = query.generatedFor ? briefs.find((node) => node.generatedFor === query.generatedFor) : briefs.at(-1);
+    if (!brief) return this.empty("Coach brief is unavailable.");
+    const childEdges = this.snapshot.relationships.filter((edge) => edge.fromSemanticId === brief.semanticId);
+    const taskIds = new Set(childEdges.filter((edge) => edge.kind === "HAS_TASK").map((edge) => edge.toSemanticId));
+    const assessmentId = childEdges.find((edge) => edge.kind === "HAS_ASSESSMENT")?.toSemanticId;
+    const tasks = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "coach-task" }> => node.kind === "coach-task" && taskIds.has(node.semanticId))
+      .sort((left, right) => left.sourceOrder - right.sourceOrder || compareEvidence(left, right))
+      .slice(0, Math.max(0, bounds.limit - 2));
+    const assessment = assessmentId ? this.nodesBySemanticId.get(assessmentId) : undefined;
+    const evidenceIds = [brief.assertionId, ...tasks.map((node) => node.assertionId), ...(assessment ? [assessment.assertionId] : [])];
+    return this.ready({
+      briefEvidenceId: brief.assertionId,
+      taskEvidenceIds: tasks.map((node) => node.assertionId),
+      assessmentEvidenceId: assessment?.assertionId ?? null,
+    }, evidenceIds);
+  }
+
+  async getRelatedEvidence(query: RelatedEvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {
+    if (!isEvidenceId(query.evidenceId)) return this.invalid("invalid-evidence-id", "Evidence ID is invalid.");
+    if (query.maxDepth !== 1 && query.maxDepth !== 2) return this.invalid("invalid-bound", "Related evidence depth is invalid.");
+    const root = this.nodesByEvidenceId.get(query.evidenceId);
+    if (!root) return this.empty("Related evidence is unavailable.");
+    const found = new Map<string, MemberContextRevisionScopedNode>();
+    let frontier = new Set([root.semanticId]);
+    const visited = new Set(frontier);
+    for (let depth = 0; depth < query.maxDepth; depth += 1) {
+      const next = new Set<string>();
+      for (const edge of this.snapshot.relationships) {
+        if (!relatedRelationshipKinds.has(edge.kind) || !frontier.has(edge.fromSemanticId)) continue;
+        const node = this.nodesBySemanticId.get(edge.toSemanticId);
+        if (!node || visited.has(node.semanticId)) continue;
+        visited.add(node.semanticId);
+        found.set(node.assertionId, node);
+        next.add(node.semanticId);
+      }
+      frontier = next;
+    }
+    const nodes = [...found.values()].sort(compareEvidence);
+    const page = this.paginate("related-evidence", JSON.stringify({ evidenceId: query.evidenceId, maxDepth: query.maxDepth }), query, nodes);
+    if (page.status !== "ready") return page;
+    if (page.data.length === 0) return this.empty("Related evidence is unavailable.");
+    const data = page.data.map(projectEvidence);
+    return this.ready(data, data.map((fact) => fact.evidenceId), page.nextCursor);
+  }
+
+  async getCitations(query: CitationLookupQuery): Promise<MemberContextQueryResult<readonly CitationProjection[]>> {
+    const bounds = this.validateBounds<readonly CitationProjection[]>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (!Array.isArray(query.evidenceIds) || query.evidenceIds.length === 0
+      || query.evidenceIds.length > MEMBER_CONTEXT_QUERY_MAXIMA.evidenceIds
+      || query.evidenceIds.length > bounds.limit
+      || query.evidenceIds.some((id) => !isEvidenceId(id))) {
+      return this.invalid("invalid-evidence-id", "Citation evidence IDs are invalid or exceed the lookup bound.");
+    }
+    if (query.cursor !== undefined) return this.invalid("invalid-cursor", "Citation lookups do not use cursors.");
+    const requested = [...new Set(query.evidenceIds)];
+    const nodes = requested.map((id) => this.nodesByEvidenceId.get(id));
+    if (nodes.some((node) => !node)) return this.empty("Citations are unavailable.");
+    const data = (nodes as MemberContextRevisionScopedNode[]).sort(compareEvidence).map((node): CitationProjection => ({
+      evidenceId: node.assertionId,
+      semanticId: node.semanticId,
+      assertionId: node.assertionId,
+      source: node.source,
+      classification: node.classification,
+      temporal: node.temporal,
+    }));
+    return this.ready(data, data.map((citation) => citation.evidenceId));
+  }
+}
 
 export type TrustedMemberContextScope = {
   readonly coachId: string;
