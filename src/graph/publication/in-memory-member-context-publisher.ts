@@ -84,6 +84,20 @@ export class InMemoryMemberContextPublisher implements MemberContextPublisher {
     if (stored.state === "rejected") {
       return { status: "failed", failure: { code: "validation_failed", memberId: snapshot.memberId, contextRevisionId: snapshot.contextRevisionId, errors: stored.validationErrors } };
     }
+    if (stored.state === "validated" && stored.sealId) {
+      return {
+        status: "ok",
+        data: {
+          publicationAttemptId: stored.publicationAttemptId,
+          memberId: snapshot.memberId,
+          contextRevisionId: snapshot.contextRevisionId,
+          sealId: stored.sealId,
+          canonicalDigest: stored.canonicalDigest,
+          nodeCount: stored.nodeCount,
+          relationshipCount: stored.relationshipCount,
+        },
+      };
+    }
     const validation = validateMemberContextGraph(snapshot);
     if (!validation.valid) {
       stored.state = "rejected";

@@ -24,7 +24,7 @@ export function sha256(value: string): `sha256:${string}` {
 
 export function canonicalMemberContextSource(document: MemberContextDocumentInput): MemberContextDocumentInput {
   return {
-    ...structuredClone(document),
+    ...document,
     equipment_available: [...document.equipment_available].sort((left, right) => left.localeCompare(right)),
   };
 }

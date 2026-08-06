@@ -224,6 +224,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
   private readonly nodesByEvidenceId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
   private readonly nodesBySemanticId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
   private readonly labMeasurementIds: ReadonlySet<string>;
+  private readonly domainPredicates: Readonly<Record<MemberContextEvidenceDomain, (node: MemberContextRevisionScopedNode) => boolean>>;
 
   constructor(
     private readonly snapshot: MemberContextGraphSnapshot,
@@ -241,6 +242,26 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     this.labMeasurementIds = new Set(snapshot.relationships
       .filter((edge) => edge.kind === "CONTAINS_MEASUREMENT")
       .map((edge) => edge.toSemanticId));
+    const isObservationMetric = (node: MemberContextRevisionScopedNode, metrics: readonly string[]) => (
+      node.kind === "observation" && metrics.includes(node.metric)
+    );
+    this.domainPredicates = {
+      profile: (node) => node.kind === "member-profile",
+      goals: (node) => node.kind === "goal",
+      preferences: (node) => node.kind === "preference",
+      equipment: (node) => node.kind === "equipment-availability",
+      injuries: (node) => node.kind === "injury-episode",
+      workouts: (node) => node.kind === "workout-session" || node.kind === "exercise-mention",
+      adherence: (node) => isObservationMetric(node, ["weekly-workout-completion", "adherence-trend"]),
+      biomarkers: (node) => node.kind === "observation"
+        && !this.labMeasurementIds.has(node.semanticId)
+        && !isObservationMetric(node, ["weekly-workout-completion", "adherence-trend"]),
+      labs: (node) => node.kind === "lab-panel"
+        || (node.kind === "observation" && this.labMeasurementIds.has(node.semanticId)),
+      conversations: (node) => node.kind === "conversation" || node.kind === "message" || node.kind === "media-attachment",
+      "coach-brief": (node) => node.kind === "coach-brief" || node.kind === "coach-task",
+      churn: (node) => node.kind === "churn-assessment" || node.kind === "churn-reason",
+    };
   }
 
   private base(evidenceIds: readonly string[]) {
@@ -344,26 +365,8 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
 
   private nodesForDomains(domains: readonly MemberContextEvidenceDomain[]): MemberContextRevisionScopedNode[] {
     const selected = new Map<string, MemberContextRevisionScopedNode>();
-    const add = (node: MemberContextRevisionScopedNode) => selected.set(node.assertionId, node);
     for (const node of this.revisionNodes) {
-      for (const domain of domains) {
-        const matches = domain === "profile" ? node.kind === "member-profile"
-          : domain === "goals" ? node.kind === "goal"
-          : domain === "preferences" ? node.kind === "preference"
-          : domain === "equipment" ? node.kind === "equipment-availability"
-          : domain === "injuries" ? node.kind === "injury-episode"
-          : domain === "workouts" ? node.kind === "workout-session" || node.kind === "exercise-mention"
-          : domain === "adherence" ? node.kind === "observation" && ["weekly-workout-completion", "adherence-trend"].includes(node.metric)
-          : domain === "biomarkers" ? node.kind === "observation"
-            && !this.labMeasurementIds.has(node.semanticId)
-            && !["weekly-workout-completion", "adherence-trend"].includes(node.metric)
-          : domain === "labs" ? node.kind === "lab-panel" || (node.kind === "observation" && this.labMeasurementIds.has(node.semanticId))
-          : domain === "conversations" ? ["conversation", "message", "media-attachment"].includes(node.kind)
-          : domain === "coach-brief" ? ["coach-brief", "coach-task"].includes(node.kind)
-          : domain === "churn" ? ["churn-assessment", "churn-reason"].includes(node.kind)
-          : false;
-        if (matches) add(node);
-      }
+      if (domains.some((domain) => this.domainPredicates[domain](node))) selected.set(node.assertionId, node);
     }
     return [...selected.values()].sort(compareEvidence);
   }
@@ -412,7 +415,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
       .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "observation" }> => node.kind === "observation")
       .filter((node) => node.metric === query.metric && isInWindow(node, query.window))
       .sort(compareEvidence);
-    const evidenceIds = nodes.map((node) => node.assertionId);
+    const evidenceIds = nodes.slice(0, bounds.limit).map((node) => node.assertionId);
     if (nodes.length < query.minimumPoints) {
       return {
         status: "insufficient-history",
@@ -424,9 +427,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     const fingerprint = JSON.stringify({ metric: query.metric, window: query.window, minimumPoints: query.minimumPoints });
     const page = this.paginate("longitudinal-series", fingerprint, query, nodes);
     if (page.status !== "ready") return page;
-    const data = page.data.map((node): LongitudinalPointProjection => ({
-      ...projectEvidence(node),
-    }));
+    const data = page.data.map((node): LongitudinalPointProjection => projectEvidence(node));
     return this.ready(data, data.map((fact) => fact.evidenceId), page.nextCursor);
   }
 
@@ -534,14 +535,9 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     const requested = [...new Set(query.evidenceIds)];
     const nodes = requested.map((id) => this.nodesByEvidenceId.get(id));
     if (nodes.some((node) => !node)) return this.empty("Citations are unavailable.");
-    const data = (nodes as MemberContextRevisionScopedNode[]).sort(compareEvidence).map((node): CitationProjection => ({
-      evidenceId: node.assertionId,
-      semanticId: node.semanticId,
-      assertionId: node.assertionId,
-      source: node.source,
-      classification: node.classification,
-      temporal: node.temporal,
-    }));
+    const data = (nodes as MemberContextRevisionScopedNode[])
+      .sort(compareEvidence)
+      .map((node): CitationProjection => evidenceProjectionBase(node));
     return this.ready(data, data.map((citation) => citation.evidenceId));
   }
 }

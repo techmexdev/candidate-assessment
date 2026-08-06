@@ -252,8 +252,8 @@ export function compileMemberContextGraph(input: MemberContextDocumentInput): Me
   const sourceValidation = validateMemberContextSource(input);
   if (!sourceValidation.valid) throw new MemberContextValidationError(sourceValidation.errors);
 
+  const artifactDigest = sourceArtifactDigest(input);
   const document = structuredClone(input);
-  const artifactDigest = sourceArtifactDigest(document);
   const revisionId = contextRevisionId(artifactDigest, mappingArtifactDigest);
   const memberId = document.profile.id;
   const memberSemanticId = `member:${memberId}`;

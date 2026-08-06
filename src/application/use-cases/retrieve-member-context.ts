@@ -1,24 +1,17 @@
 import type {
   AuthorizedMemberContextScope,
   MemberContextReadOpenResult,
-  MemberContextReadProvider,
 } from "../../domain/contracts/member-context-queries";
 import type {
-  MemberContextAccessAuthorizer,
   MemberContextAccessClaims,
+  MemberContextReadBoundary,
 } from "../ports/graph-repositories";
 
-export type MemberContextAccessRequest = {
-  readonly coachId: string;
-  readonly memberId: string;
-  readonly authorizationId: string;
+export type MemberContextAccessRequest = MemberContextAccessClaims & {
   readonly contextRevisionId?: string;
 };
 
-export type RetrieveMemberContextDependencies = {
-  readonly memberContext: MemberContextReadProvider;
-  readonly authorize: MemberContextAccessAuthorizer;
-};
+export type RetrieveMemberContextDependencies = MemberContextReadBoundary;
 
 const authorizedClaims = new WeakMap<object, MemberContextAccessClaims>();
 
@@ -54,7 +47,7 @@ export function createRetrieveMemberContext(
     };
     let authorized = false;
     try {
-      authorized = await dependencies.authorize(claims);
+      authorized = await dependencies.authorizeMemberContext(claims);
     } catch {
       authorized = false;
     }

@@ -41,7 +41,7 @@ async function setup() {
   const provider = new InMemoryMemberContextReadProvider(publisher, { authority: "canonical" });
   const retrieve = createRetrieveMemberContext({
     memberContext: provider,
-    authorize: async (request) => request.authorizationId === "grant:jordan"
+    authorizeMemberContext: async (request) => request.authorizationId === "grant:jordan"
       && request.coachId === jordan.profile.coach_id
       && request.memberId === jordan.profile.id,
   });
@@ -243,7 +243,7 @@ describe("member context bounded query provider", () => {
     const provider = new InMemoryMemberContextReadProvider(publisher);
     const retrieve = createRetrieveMemberContext({
       memberContext: provider,
-      authorize: () => true,
+      authorizeMemberContext: () => true,
     });
     const opened = await retrieve({ coachId: "server-coach", memberId: malicious.memberId, authorizationId: "server-grant" });
     if (opened.status !== "ready") throw new Error(opened.status);
