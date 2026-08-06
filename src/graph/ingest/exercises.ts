@@ -1,16 +1,16 @@
 import exercisesData from "../../../data/exercises.json";
 import mappingsData from "../../../data/movement-ontology-mappings.json";
-import type { OntologyMappingRecord } from "../../domain/contracts/ontology";
+import type { LegacyOntologyMappingRecord } from "../../domain/contracts/ontology";
 import type {
-  MovementEdge,
-  MovementGraphSnapshot,
-  MovementNode,
-  OntologyMapping,
+  LegacyMovementEdge,
+  LegacyMovementGraphSnapshot,
+  LegacyMovementNode,
+  LegacyOntologyMapping,
 } from "../../domain/contracts/movement-graph";
 
 export type CatalogExercise = (typeof exercisesData)[number];
 
-const mappings = mappingsData as OntologyMappingRecord[];
+const mappings = mappingsData as LegacyOntologyMappingRecord[];
 
 function slug(value: string) {
   return value
@@ -21,7 +21,7 @@ function slug(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-export function canonicalId(kind: MovementNode["kind"], label: string) {
+export function canonicalId(kind: LegacyMovementNode["kind"], label: string) {
   return `${kind}:${slug(label)}`;
 }
 
@@ -34,14 +34,14 @@ function aliasesFor(label: string) {
 }
 
 function node(
-  kind: MovementNode["kind"],
+  kind: LegacyMovementNode["kind"],
   label: string,
-  source: MovementNode["source"],
-  metadata: MovementNode["metadata"] = {},
+  source: LegacyMovementNode["source"],
+  metadata: LegacyMovementNode["metadata"] = {},
   explicitId?: string,
-): MovementNode {
+): LegacyMovementNode {
   const id = explicitId ?? canonicalId(kind, label);
-  const nodeMappings: OntologyMapping[] = mappings
+  const nodeMappings: LegacyOntologyMapping[] = mappings
     .filter((mapping) => mapping.targetId === id)
     .map((mapping) => ({
       id: mapping.id,
@@ -57,11 +57,11 @@ function node(
   return { id, kind, label, aliases: aliasesFor(label), source, ontologyMappings: nodeMappings, metadata };
 }
 
-function edge(from: string, to: string, kind: MovementEdge["kind"], source: string): MovementEdge {
+function edge(from: string, to: string, kind: LegacyMovementEdge["kind"], source: string): LegacyMovementEdge {
   return { id: `${kind}:${from}->${to}`, from, to, kind, source };
 }
 
-function addNode(nodes: Map<string, MovementNode>, value: MovementNode) {
+function addNode(nodes: Map<string, LegacyMovementNode>, value: LegacyMovementNode) {
   const existing = nodes.get(value.id);
   if (!existing) {
     nodes.set(value.id, value);
@@ -71,16 +71,16 @@ function addNode(nodes: Map<string, MovementNode>, value: MovementNode) {
   existing.ontologyMappings = [...existing.ontologyMappings, ...value.ontologyMappings];
 }
 
-function addEdge(edges: Map<string, MovementEdge>, value: MovementEdge) {
+function addEdge(edges: Map<string, LegacyMovementEdge>, value: LegacyMovementEdge) {
   if (!edges.has(value.id)) edges.set(value.id, value);
 }
 
 export function buildMovementGraph(
   exercises: CatalogExercise[],
   revision = "movement-v1",
-): MovementGraphSnapshot {
-  const nodes = new Map<string, MovementNode>();
-  const edges = new Map<string, MovementEdge>();
+): LegacyMovementGraphSnapshot {
+  const nodes = new Map<string, LegacyMovementNode>();
+  const edges = new Map<string, LegacyMovementEdge>();
   const seenExerciseIds = new Set<string>();
 
   for (const exercise of exercises) {

@@ -1,10 +1,10 @@
 import type {
-  ConceptMention,
-  ConceptResolution,
-  ConceptResolutionBatch,
+  LegacyConceptMention,
+  LegacyConceptResolution,
+  LegacyConceptResolutionBatch,
   ConceptResolutionPolicy,
 } from "../contracts/concept-resolution";
-import type { MovementGraphRepository } from "../contracts/movement-graph";
+import type { LegacyMovementGraphRepository } from "../contracts/movement-graph";
 import { normalizeConceptText } from "./text-normalization";
 
 export const DEFAULT_RESOLUTION_POLICY: ConceptResolutionPolicy = {
@@ -16,7 +16,7 @@ export const DEFAULT_RESOLUTION_POLICY: ConceptResolutionPolicy = {
   minimumMargin: 0.1,
 };
 
-function candidateSummary(candidate: ReturnType<MovementGraphRepository["findConceptCandidates"]>[number]) {
+function candidateSummary(candidate: ReturnType<LegacyMovementGraphRepository["findConceptCandidates"]>[number]) {
   return {
     conceptId: candidate.node.id,
     label: candidate.node.label,
@@ -27,10 +27,10 @@ function candidateSummary(candidate: ReturnType<MovementGraphRepository["findCon
 }
 
 export function resolveConcept(
-  repository: MovementGraphRepository,
-  mention: ConceptMention,
+  repository: LegacyMovementGraphRepository,
+  mention: LegacyConceptMention,
   policy: ConceptResolutionPolicy = DEFAULT_RESOLUTION_POLICY,
-): ConceptResolution {
+): LegacyConceptResolution {
   const normalized = normalizeConceptText(mention.text);
   const requiredThreshold = mention.safetyCritical ? policy.safetyCriticalThreshold : policy.fuzzyThreshold;
   if (!normalized) {
@@ -98,11 +98,11 @@ export function resolveConcept(
 }
 
 export function resolveConcepts(
-  repository: MovementGraphRepository,
-  mentions: ConceptMention[],
+  repository: LegacyMovementGraphRepository,
+  mentions: LegacyConceptMention[],
   policy: ConceptResolutionPolicy = DEFAULT_RESOLUTION_POLICY,
-): ConceptResolutionBatch {
+): LegacyConceptResolutionBatch {
   const resolutions = mentions.map((mention) => resolveConcept(repository, mention, policy));
   if (resolutions.some((resolution) => resolution.status !== "resolved")) return { status: "needs_clarification", resolutions };
-  return { status: "resolved", resolutions: resolutions as Extract<ConceptResolution, { status: "resolved" }>[] };
+  return { status: "resolved", resolutions: resolutions as Extract<LegacyConceptResolution, { status: "resolved" }>[] };
 }

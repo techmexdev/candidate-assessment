@@ -1,9 +1,9 @@
 import type {
-  ConceptCandidate,
-  MovementEdgeKind,
-  MovementGraphRepository,
-  MovementGraphSnapshot,
-  MovementNode,
+  LegacyConceptCandidate,
+  LegacyMovementEdgeKind,
+  LegacyMovementGraphRepository,
+  LegacyMovementGraphSnapshot,
+  LegacyMovementNode,
 } from "../../domain/contracts/movement-graph";
 import { normalizeConceptText } from "../../domain/policies/text-normalization";
 
@@ -15,12 +15,12 @@ function tokenScore(query: string, candidate: string) {
   return overlap / Math.max(queryTokens.size, candidateTokens.size);
 }
 
-export class InMemoryMovementGraphRepository implements MovementGraphRepository {
-  private readonly nodesById: Map<string, MovementNode>;
-  private readonly edgesByFrom: Map<string, MovementGraphSnapshot["edges"]>;
+export class InMemoryMovementGraphRepository implements LegacyMovementGraphRepository {
+  private readonly nodesById: Map<string, LegacyMovementNode>;
+  private readonly edgesByFrom: Map<string, LegacyMovementGraphSnapshot["edges"]>;
   private readonly anatomyChildrenByParent: Map<string, string[]>;
 
-  constructor(private readonly graph: MovementGraphSnapshot) {
+  constructor(private readonly graph: LegacyMovementGraphSnapshot) {
     this.nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     this.edgesByFrom = new Map();
     this.anatomyChildrenByParent = new Map();
@@ -46,15 +46,15 @@ export class InMemoryMovementGraphRepository implements MovementGraphRepository 
     return this.nodesById.get(id);
   }
 
-  getRelated(id: string, kind: MovementEdgeKind) {
+  getRelated(id: string, kind: LegacyMovementEdgeKind) {
     return (this.edgesByFrom.get(id) ?? [])
       .filter((edge) => edge.kind === kind)
       .map((edge) => this.nodesById.get(edge.to))
-      .filter((node): node is MovementNode => Boolean(node));
+      .filter((node): node is LegacyMovementNode => Boolean(node));
   }
 
   getAnatomyDescendants(id: string) {
-    const descendants: MovementNode[] = [];
+    const descendants: LegacyMovementNode[] = [];
     const visited = new Set<string>([id]);
     const queue = [id];
     while (queue.length > 0) {
@@ -70,11 +70,11 @@ export class InMemoryMovementGraphRepository implements MovementGraphRepository 
     return descendants.sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  findConceptCandidates(query: string, kind?: MovementNode["kind"]) {
+  findConceptCandidates(query: string, kind?: LegacyMovementNode["kind"]) {
     const normalizedQuery = normalizeConceptText(query);
     return this.graph.nodes
       .filter((node) => !kind || node.kind === kind)
-      .flatMap((node): ConceptCandidate[] => {
+      .flatMap((node): LegacyConceptCandidate[] => {
         const aliases = [node.label, ...node.aliases];
         const exactAlias = aliases.find((alias) => normalizeConceptText(alias) === normalizedQuery);
         if (exactAlias) return [{ node, matchedAlias: exactAlias, exact: true, score: 1 }];

@@ -1,5 +1,5 @@
 import type { MemberContextResult, MemberEvidence, MemberScope } from "../../domain/contracts/member-context";
-import type { MovementGraphRepository } from "../../domain/contracts/movement-graph";
+import type { MovementGraphReadProvider } from "../../domain/contracts/movement-clinical-queries";
 
 export type MemberContextRepository = {
   getSnapshot(scope: MemberScope, contextRevision?: string): MemberContextResult;
@@ -7,6 +7,6 @@ export type MemberContextRepository = {
 };
 
 export type GraphRepositories = {
-  movement: MovementGraphRepository;
+  movement: MovementGraphReadProvider;
   memberContext: MemberContextRepository;
 };
