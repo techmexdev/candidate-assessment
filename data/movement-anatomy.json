@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-anatomy:v1",
+  "revision": "movement-curation-v1",
+  "part_of": [
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:anatomy:patellofemoral-part-of-knee:v1",
+      "child_id": "joint:patellofemoral",
+      "child_kind": "joint",
+      "parent_id": "joint:knee",
+      "parent_kind": "joint",
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-domain-curator", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:anatomy:lumbar-spine-part-of-lumbar-back:v1",
+      "child_id": "joint:lumbar-spine",
+      "child_kind": "joint",
+      "parent_id": "body-region:lumbar-back",
+      "parent_kind": "body-region",
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-domain-curator", "reviewed_at": "2026-08-06" }
+    }
+  ],
+  "exercise_stresses": [
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:stress:cyclist-squat-patellofemoral:v1",
+      "exercise_id": "exercise:00036a08-7c22-42e4-8fe5-323b53e31667",
+      "anatomy_id": "joint:patellofemoral",
+      "anatomy_kind": "joint",
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-domain-curator", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:stress:barbell-lunge-patellofemoral:v1",
+      "exercise_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "anatomy_id": "joint:patellofemoral",
+      "anatomy_kind": "joint",
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-domain-curator", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:stress:sandbag-carry-lumbar-spine:v1",
+      "exercise_id": "exercise:0333b0cc-4b43-45d9-adff-505b349e53d9",
+      "anatomy_id": "joint:lumbar-spine",
+      "anatomy_kind": "joint",
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-domain-curator", "reviewed_at": "2026-08-06" }
+    }
+  ]
+}

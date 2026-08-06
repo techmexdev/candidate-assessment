@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:clinical-rules:v1",
+  "revision": "movement-curation-v1",
+  "disclaimer": "Synthetic take-home project policy; not clinically validated medical guidance.",
+  "records": [
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "clinical-rule:pfps-deep-loaded-knee-flexion:v1",
+      "assertion_id": "assertion:rule:pfps-deep-loaded-knee-flexion:v1",
+      "condition_id": "condition:patellofemoral-pain-syndrome",
+      "effect": "hard-contraindication",
+      "severity": "high",
+      "applicability": { "condition_statuses": ["active"], "recovery_stages": ["acute", "return-to-training"], "severity_bands": ["moderate", "high"], "laterality_policy": "conservative-when-unknown" },
+      "override_policy": { "allowed": false, "rationale_required": true },
+      "target": { "edge_kind": "contraindicates", "target_kind": "movement-demand", "target_id": "movement-demand:deep-loaded-knee-flexion" },
+      "evidence_ids": ["evidence:project-policy:knee-load-v1"],
+      "clinical_review": { "status": "approved", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06", "synthetic_take_home_policy": true },
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "clinical-rule:knee-pain-plyometric-impact:v1",
+      "assertion_id": "assertion:rule:knee-pain-plyometric-impact:v1",
+      "condition_id": "condition:knee-pain",
+      "effect": "caution",
+      "severity": "moderate",
+      "applicability": { "condition_statuses": ["active"], "recovery_stages": ["acute", "return-to-training"], "severity_bands": ["low", "moderate", "high"], "laterality_policy": "conservative-when-unknown" },
+      "override_policy": { "allowed": true, "required_role": "coach", "rationale_required": true },
+      "target": { "edge_kind": "cautions", "target_kind": "movement-demand", "target_id": "movement-demand:plyometric-impact-landing" },
+      "evidence_ids": ["evidence:project-policy:knee-load-v1"],
+      "clinical_review": { "status": "approved", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06", "synthetic_take_home_policy": true },
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "clinical-rule:shoulder-pain-loaded-overhead:v1",
+      "assertion_id": "assertion:rule:shoulder-pain-loaded-overhead:v1",
+      "condition_id": "condition:shoulder-pain",
+      "effect": "hard-contraindication",
+      "severity": "high",
+      "applicability": { "condition_statuses": ["active"], "recovery_stages": ["acute", "return-to-training"], "severity_bands": ["moderate", "high"], "laterality_policy": "conservative-when-unknown" },
+      "override_policy": { "allowed": false, "rationale_required": true },
+      "target": { "edge_kind": "contraindicates", "target_kind": "movement-demand", "target_id": "movement-demand:loaded-overhead-shoulder-elevation" },
+      "evidence_ids": ["evidence:project-policy:shoulder-load-v1"],
+      "clinical_review": { "status": "approved", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06", "synthetic_take_home_policy": true },
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "clinical-rule:low-back-pain-loaded-lumbar-flexion:v1",
+      "assertion_id": "assertion:rule:low-back-pain-loaded-lumbar-flexion:v1",
+      "condition_id": "condition:low-back-pain",
+      "effect": "hard-contraindication",
+      "severity": "high",
+      "applicability": { "condition_statuses": ["active"], "recovery_stages": ["acute", "return-to-training"], "severity_bands": ["moderate", "high"], "laterality_policy": "either-side" },
+      "override_policy": { "allowed": false, "rationale_required": true },
+      "target": { "edge_kind": "contraindicates", "target_kind": "movement-demand", "target_id": "movement-demand:loaded-lumbar-flexion" },
+      "evidence_ids": ["evidence:project-policy:lumbar-load-v1"],
+      "clinical_review": { "status": "approved", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06", "synthetic_take_home_policy": true },
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "clinical-rule:low-back-pain-axial-loading:v1",
+      "assertion_id": "assertion:rule:low-back-pain-axial-loading:v1",
+      "condition_id": "condition:low-back-pain",
+      "effect": "down-rank",
+      "severity": "moderate",
+      "applicability": { "condition_statuses": ["active"], "recovery_stages": ["return-to-training", "managed"], "severity_bands": ["low", "moderate"], "laterality_policy": "either-side" },
+      "override_policy": { "allowed": true, "required_role": "coach", "rationale_required": true },
+      "target": { "edge_kind": "downranks", "target_kind": "movement-demand", "target_id": "movement-demand:axial-spinal-loading" },
+      "evidence_ids": ["evidence:project-policy:lumbar-load-v1"],
+      "clinical_review": { "status": "approved", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06", "synthetic_take_home_policy": true },
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    }
+  ]
+}

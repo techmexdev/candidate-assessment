@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-substitutions:v1",
+  "revision": "movement-curation-v1",
+  "records": [
+    {
+      "schema_version": "1.0.0", "assertion_id": "assertion:substitution:dumbbell-crossback-for-barbell-forward-lunge:v1",
+      "source_exercise_id": "exercise:00678525-7d38-4a9e-8998-a299a209c724", "target_exercise_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "candidate_equipment": "Dumbbell", "rank": 1, "preserved_intent": "loaded unilateral knee-dominant strength",
+      "safety_recheck": { "required": true, "expected_result": "reject", "rule_id": "clinical-rule:pfps-deep-loaded-knee-flexion:v1", "reason": "The candidate retains the contraindicated deep-loaded-knee-flexion demand." },
+      "source": { "source_id": "source:movement-substitution-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "substitution-curator", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "assertion_id": "assertion:substitution:med-ball-split-squat-for-barbell-forward-lunge:v1",
+      "source_exercise_id": "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b", "target_exercise_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "candidate_equipment": "Medicine Ball", "rank": 2, "preserved_intent": "loaded unilateral knee-dominant strength",
+      "safety_recheck": { "required": true, "expected_result": "eligible", "rule_id": null, "reason": "No reviewed contraindicated demand is assigned in the starter slice; runtime must still recheck all active constraints." },
+      "source": { "source_id": "source:movement-substitution-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "substitution-curator", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "assertion_id": "assertion:substitution:kettlebell-cyclist-squat-for-barbell-forward-lunge:v1",
+      "source_exercise_id": "exercise:00036a08-7c22-42e4-8fe5-323b53e31667", "target_exercise_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "candidate_equipment": "Kettlebell", "rank": 3, "preserved_intent": "loaded unilateral knee-dominant strength",
+      "safety_recheck": { "required": true, "expected_result": "reject", "rule_id": "clinical-rule:pfps-deep-loaded-knee-flexion:v1", "reason": "Equipment fit does not override the reviewed deep-loaded-knee-flexion rule." },
+      "source": { "source_id": "source:movement-substitution-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "substitution-curator", "reviewed_at": "2026-08-06" }
+    }
+  ]
+}

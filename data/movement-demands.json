@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-demands:v1",
+  "revision": "movement-curation-v1",
+  "records": [
+    {
+      "schema_version": "1.0.0", "stable_id": "movement-demand:deep-loaded-knee-flexion",
+      "label": "Deep loaded knee flexion", "definition": "External load combined with reviewed knee flexion beyond the curated depth band.",
+      "scope": { "type": "categorical", "allowed_values": ["present", "absent"], "curation_note": "Depth is assigned by review, not inferred from an exercise label." },
+      "reviewer_evidence_ids": ["evidence:project-policy:knee-load-v1"],
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "stable_id": "movement-demand:plyometric-impact-landing",
+      "label": "Plyometric impact and landing", "definition": "Repeated impact, take-off, or landing with a reviewed plyometric loading demand.",
+      "scope": { "type": "categorical", "allowed_values": ["present", "absent"] },
+      "reviewer_evidence_ids": ["evidence:project-policy:knee-load-v1"],
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "stable_id": "movement-demand:loaded-overhead-shoulder-elevation",
+      "label": "Loaded overhead shoulder elevation", "definition": "External load while the shoulder is elevated overhead or pressing toward overhead.",
+      "scope": { "type": "categorical", "allowed_values": ["present", "absent"] },
+      "reviewer_evidence_ids": ["evidence:project-policy:shoulder-load-v1"],
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "stable_id": "movement-demand:loaded-lumbar-flexion",
+      "label": "Loaded lumbar flexion", "definition": "Lumbar flexion performed while supporting or moving an external load.",
+      "scope": { "type": "categorical", "allowed_values": ["present", "absent"] },
+      "reviewer_evidence_ids": ["evidence:project-policy:lumbar-load-v1"],
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "stable_id": "movement-demand:axial-spinal-loading",
+      "label": "Axial spinal loading", "definition": "Reviewed external load transmitted principally along the spinal axis.",
+      "scope": { "type": "categorical", "allowed_values": ["present", "absent"] },
+      "reviewer_evidence_ids": ["evidence:project-policy:lumbar-load-v1"],
+      "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" }
+    }
+  ],
+  "assignments": [
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:cyclist-squat-deep-knee:v1", "exercise_id": "exercise:00036a08-7c22-42e4-8fe5-323b53e31667", "demand_id": "movement-demand:deep-loaded-knee-flexion", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:barbell-lunge-deep-knee:v1", "exercise_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09", "demand_id": "movement-demand:deep-loaded-knee-flexion", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:dumbbell-crossback-deep-knee:v1", "exercise_id": "exercise:00678525-7d38-4a9e-8998-a299a209c724", "demand_id": "movement-demand:deep-loaded-knee-flexion", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:static-jump-impact:v1", "exercise_id": "exercise:01ff62bc-e887-49e4-9cc8-bcd367b34cfd", "demand_id": "movement-demand:plyometric-impact-landing", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:vertical-broad-jump-impact:v1", "exercise_id": "exercise:01e33d9f-3607-49db-bd59-af7f61d77300", "demand_id": "movement-demand:plyometric-impact-landing", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:overhead-press-shoulder:v1", "exercise_id": "exercise:03258dbf-bc21-4495-bcae-ca627b3a0f20", "demand_id": "movement-demand:loaded-overhead-shoulder-elevation", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:med-ball-scoop-loaded-lumbar-flexion:v1", "exercise_id": "exercise:01128a8f-44a4-43ae-a172-b6a32b2e8534", "demand_id": "movement-demand:loaded-lumbar-flexion", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "assertion_id": "assertion:demand:sandbag-carry-axial:v1", "exercise_id": "exercise:0333b0cc-4b43-45d9-adff-505b349e53d9", "demand_id": "movement-demand:axial-spinal-loading", "source": { "source_id": "source:movement-clinical-curation", "source_revision": "movement-curation-v1" }, "review": { "status": "reviewed", "reviewer": "movement-demand-reviewer", "reviewed_at": "2026-08-06" } }
+  ]
+}

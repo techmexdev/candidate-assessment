@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:clinical-evidence:v1",
+  "revision": "movement-curation-v1",
+  "disclaimer": "Synthetic take-home project policy for deterministic graph evaluation; not clinically validated medical guidance.",
+  "records": [
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "evidence:project-policy:knee-load-v1",
+      "title": "Synthetic knee-load safety policy",
+      "owner": "Future take-home project",
+      "version_or_access_date": "movement-curation-v1",
+      "evidence_role": "project-policy",
+      "clinically_validated": false,
+      "statement": "Project-authored policy used only to demonstrate deterministic knee-demand rule paths.",
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "evidence:project-policy:shoulder-load-v1",
+      "title": "Synthetic shoulder-load safety policy",
+      "owner": "Future take-home project",
+      "version_or_access_date": "movement-curation-v1",
+      "evidence_role": "project-policy",
+      "clinically_validated": false,
+      "statement": "Project-authored policy used only to demonstrate deterministic loaded-overhead rule paths.",
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "evidence:project-policy:lumbar-load-v1",
+      "title": "Synthetic lumbar-load safety policy",
+      "owner": "Future take-home project",
+      "version_or_access_date": "movement-curation-v1",
+      "evidence_role": "project-policy",
+      "clinically_validated": false,
+      "statement": "Project-authored policy used only to demonstrate deterministic lumbar-demand rule paths.",
+      "source": { "source_id": "source:movement-clinical-policy", "source_revision": "movement-curation-v1" },
+      "review": { "status": "reviewed", "reviewer": "clinical-rule-reviewer", "reviewed_at": "2026-08-06" }
+    }
+  ]
+}

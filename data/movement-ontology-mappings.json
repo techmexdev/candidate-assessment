@@ -1,62 +1,77 @@
-[
-  {
-    "id": "mapping-snomed-knee",
-    "sourceOntology": "SNOMED CT",
-    "sourceTerm": "Knee joint",
-    "sourceUri": "https://evsexplore.semantics.cancer.gov/evsexplore/concept/snomedct_us/",
-    "targetKind": "anatomy",
-    "targetId": "anatomy:knee",
-    "relation": "closeMatch",
-    "confidence": 0.94,
-    "rationale": "The local anatomy node represents the knee joint used by the synthetic exercise catalog.",
-    "revision": "ontology-subset-v1"
-  },
-  {
-    "id": "mapping-snomed-patellofemoral",
-    "sourceOntology": "SNOMED CT",
-    "sourceTerm": "Patellofemoral joint",
-    "sourceUri": "https://evsexplore.semantics.cancer.gov/evsexplore/concept/snomedct_us/",
-    "targetKind": "anatomy",
-    "targetId": "anatomy:patellofemoral-joint",
-    "relation": "closeMatch",
-    "confidence": 0.9,
-    "rationale": "The modeled descendant makes the knee injury scenario traversable without importing the full clinical ontology.",
-    "revision": "ontology-subset-v1"
-  },
-  {
-    "id": "mapping-ope-kettlebell",
-    "sourceOntology": "OPE",
-    "sourceTerm": "Kettlebell",
-    "sourceUri": "https://bioportal.bioontology.org/ontologies/OPE",
-    "targetKind": "equipment",
-    "targetId": "equipment:kettlebell",
-    "relation": "exactMatch",
-    "confidence": 0.98,
-    "rationale": "The catalog equipment term is directly aligned to the OPE equipment concept.",
-    "revision": "ontology-subset-v1"
-  },
-  {
-    "id": "mapping-ope-squat",
-    "sourceOntology": "OPE",
-    "sourceTerm": "Lower push squat",
-    "sourceUri": "https://bioportal.bioontology.org/ontologies/OPE",
-    "targetKind": "movement-pattern",
-    "targetId": "movement-pattern:lower-push-squat",
-    "relation": "closeMatch",
-    "confidence": 0.9,
-    "rationale": "The catalog movement taxonomy is aligned to the exercise ontology at the pattern level.",
-    "revision": "ontology-subset-v1"
-  },
-  {
-    "id": "mapping-copper-context",
-    "sourceOntology": "COPPER",
-    "sourceTerm": "Contextualised and personalised exercise recommendation",
-    "sourceUri": "https://bioportal.bioontology.org/ontologies/COPPER",
-    "targetKind": "movement-pattern",
-    "targetId": "movement-pattern:personalized-context",
-    "relation": "closeMatch",
-    "confidence": 0.82,
-    "rationale": "The local concept records that contextual member signals affect recommendation ranking without making COPPER the safety authority.",
-    "revision": "ontology-subset-v1"
-  }
-]
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-ontology-mappings:v1",
+  "revision": "movement-curation-v1",
+  "source_review_manifest": "manifest:movement-source-reviews:v1",
+  "records": [
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:condition-shoulder-pain:snomed-45326000", "assertion_id": "assertion:mapping:condition-shoulder-pain:snomed-45326000:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "45326000", "source_term": "Pain of shoulder region", "source_uri": "http://snomed.info/id/45326000", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "condition", "target_concept_id": "condition:shoulder-pain", "ontology_concept_id": "ontology-concept:snomed-ct:45326000", "relation": "closeMatch", "confidence": 0.96,
+      "rationale": "The local concept represents nonspecific shoulder pain; the terminology concept is a close regional pain match.", "scope_rationale": "Close rather than exact because the local concept is intentionally broad and project-defined.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:condition-knee-pain:snomed-1003722009", "assertion_id": "assertion:mapping:condition-knee-pain:snomed-1003722009:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "1003722009", "source_term": "Pain of knee region", "source_uri": "http://snomed.info/id/1003722009", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "condition", "target_concept_id": "condition:knee-pain", "ontology_concept_id": "ontology-concept:snomed-ct:1003722009", "relation": "closeMatch", "confidence": 0.96,
+      "rationale": "The reviewed external concept anchors the local nonspecific knee-pain type to the knee region.", "scope_rationale": "Close rather than exact because the local catalog concept is deliberately nonspecific.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:condition-pfps:snomed-430725003", "assertion_id": "assertion:mapping:condition-pfps:snomed-430725003:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "430725003", "source_term": "Patellofemoral stress syndrome", "source_uri": "http://snomed.info/id/430725003", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "condition", "target_concept_id": "condition:patellofemoral-pain-syndrome", "ontology_concept_id": "ontology-concept:snomed-ct:430725003", "relation": "closeMatch", "confidence": 0.93,
+      "rationale": "The reviewed terminology concept is the closest safety-critical candidate for the local patellofemoral pain syndrome type.", "scope_rationale": "Close rather than exact because the preferred external term says stress syndrome while the local policy uses pain syndrome.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:condition-low-back-pain:snomed-279039007", "assertion_id": "assertion:mapping:condition-low-back-pain:snomed-279039007:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "279039007", "source_term": "Low back pain", "source_uri": "http://snomed.info/id/279039007", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "condition", "target_concept_id": "condition:low-back-pain", "ontology_concept_id": "ontology-concept:snomed-ct:279039007", "relation": "exactMatch", "confidence": 1,
+      "rationale": "The local condition remains nonspecific and preserves the same preferred scope and label.", "scope_rationale": "Exact for this revision only while the local condition remains nonspecific low back pain.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:joint-shoulder:snomed-31398001", "assertion_id": "assertion:mapping:joint-shoulder:snomed-31398001:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "31398001", "source_term": "Joint structure of shoulder region", "source_uri": "http://snomed.info/id/31398001", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "joint", "target_concept_id": "joint:shoulder", "ontology_concept_id": "ontology-concept:snomed-ct:31398001", "relation": "closeMatch", "confidence": 0.97,
+      "rationale": "The catalog shoulder joint concept aligns to the reviewed joint structure of the shoulder region.", "scope_rationale": "Close because the external concept is explicitly regional while the local concept is a compact catalog joint.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:joint-knee:snomed-49076000", "assertion_id": "assertion:mapping:joint-knee:snomed-49076000:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "49076000", "source_term": "Knee joint structure", "source_uri": "http://snomed.info/id/49076000", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "joint", "target_concept_id": "joint:knee", "ontology_concept_id": "ontology-concept:snomed-ct:49076000", "relation": "exactMatch", "confidence": 1,
+      "rationale": "The catalog knee joint identity and reviewed external knee joint structure share the same scope.", "scope_rationale": "Exact at the modeled joint level; no surrounding region or hierarchy is imported.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:joint-patellofemoral:snomed-129160003", "assertion_id": "assertion:mapping:joint-patellofemoral:snomed-129160003:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "129160003", "source_term": "Structure of patellofemoral joint", "source_uri": "http://snomed.info/id/129160003", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "joint", "target_concept_id": "joint:patellofemoral", "ontology_concept_id": "ontology-concept:snomed-ct:129160003", "relation": "exactMatch", "confidence": 1,
+      "rationale": "The supplemental local descendant denotes the same patellofemoral joint structure.", "scope_rationale": "Exact for the modeled child joint; only the reviewed local PART_OF assertion supplies hierarchy semantics.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    {
+      "schema_version": "1.0.0", "mapping_id": "mapping:body-region-lumbar-back:snomed-52612000", "assertion_id": "assertion:mapping:body-region-lumbar-back:snomed-52612000:v1", "status": "reviewed",
+      "source_ontology": "SNOMED CT", "source_code": "52612000", "source_term": "Structure of lumbar region of back", "source_uri": "http://snomed.info/id/52612000", "source_release": "SNOMEDCT_US 2025_09_01", "external_status": "active",
+      "target_kind": "body-region", "target_concept_id": "body-region:lumbar-back", "ontology_concept_id": "ontology-concept:snomed-ct:52612000", "relation": "exactMatch", "confidence": 1,
+      "rationale": "The local body region intentionally preserves the same lumbar-back regional scope.", "scope_rationale": "Exact while the local definition remains the lumbar region of back and does not broaden to the entire spine.",
+      "curator": "terminology-reviewer", "reviewed_at": "2026-08-06", "source_artifact_digest": "sha256:0e6dcb8acc93b4449faa000f04b7a3c7a73adba7b428cc236362e520c1dc9b6f", "source": { "source_id": "source:snomed-gps-license", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "terminology-reviewer", "reviewed_at": "2026-08-06" }
+    },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:equipment-barbell:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "equipment", "target_concept_id": "equipment:barbell", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:equipment-dumbbell:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "equipment", "target_concept_id": "equipment:dumbbell", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:equipment-kettlebell:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "equipment", "target_concept_id": "equipment:kettlebell", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:pattern-squat:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-pattern", "target_concept_id": "movement-pattern:lower-push-squat", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:pattern-hinge:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-pattern", "target_concept_id": "movement-pattern:lower-pull-hip-lift", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:pattern-overhead-press:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-pattern", "target_concept_id": "movement-pattern:upper-push-vertical", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:exercise-barbell-forward-lunge:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "exercise", "target_concept_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:exercise-overhead-press:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "exercise", "target_concept_id": "exercise:03258dbf-bc21-4495-bcae-ca627b3a0f20", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:demand-deep-knee:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-demand", "target_concept_id": "movement-demand:deep-loaded-knee-flexion", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:demand-impact:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-demand", "target_concept_id": "movement-demand:plyometric-impact-landing", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:demand-overhead:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-demand", "target_concept_id": "movement-demand:loaded-overhead-shoulder-elevation", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:demand-lumbar-flexion:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-demand", "target_concept_id": "movement-demand:loaded-lumbar-flexion", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } },
+    { "schema_version": "1.0.0", "verification_id": "verification:ope:demand-axial:v1", "status": "local-only", "source_ontology": "OPE", "source_release": "0.0.1", "target_kind": "movement-demand", "target_concept_id": "movement-demand:axial-spinal-loading", "verification_status": "not-verified", "review_reason": "No class IRI verified under clear license metadata; retain local identity without an invented mapping.", "source": { "source_id": "source:ope-bioportal-0.0.1", "source_revision": "observed-2026-08-06" }, "review": { "status": "reviewed", "reviewer": "ontology-curator", "reviewed_at": "2026-08-06" } }
+  ]
+}

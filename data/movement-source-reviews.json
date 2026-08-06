@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-source-reviews:v1",
+  "revision": "movement-curation-v1",
+  "records": [
+    {
+      "schema_version": "1.0.0",
+      "source_id": "source:snomed-gps-license",
+      "source_revision": "observed-2026-08-06",
+      "title": "SNOMED CT Global Patient Set license and use review",
+      "publisher": "SNOMED International",
+      "uri": "https://www.snomed.org/gps",
+      "source_release": "SNOMEDCT_US 2025_09_01",
+      "review_status": "approved-for-bounded-mapping-metadata",
+      "license": "CC BY-ND 4.0",
+      "attribution": "SNOMED CT Global Patient Set, SNOMED International, licensed under CC BY-ND 4.0.",
+      "attribution_required": true,
+      "derivatives_permitted": false,
+      "terms_summary": "The Global Patient Set exposes identifiers, fully specified names, preferred terms, and status at no cost and permits users to share, store, and display that content without a full SNOMED CT license, subject to attribution and no-derivatives terms.",
+      "usage_constraints": [
+        "Do not import the SNOMED CT hierarchy.",
+        "Do not alter preferred labels.",
+        "Store only the reviewed bounded mapping metadata used by this project."
+      ],
+      "hierarchy_imported": false,
+      "preferred_labels_modified": false,
+      "ontology_content_embedded": false,
+      "class_ids_embedded": true,
+      "review": {
+        "status": "reviewed",
+        "reviewer": "terminology-and-license-reviewer",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "source_id": "source:ope-bioportal-0.0.1",
+      "source_revision": "observed-2026-08-06",
+      "title": "Ontology of Physical Exercises BioPortal entry",
+      "publisher": "National Center for Biomedical Ontology BioPortal",
+      "uri": "https://bioportal.bioontology.org/ontologies/OPE",
+      "source_release": "0.0.1",
+      "review_status": "citation-only",
+      "license": null,
+      "attribution": "Ontology of Physical Exercises BioPortal entry, public alpha release 0.0.1.",
+      "attribution_required": false,
+      "derivatives_permitted": false,
+      "review_reason": "The public BioPortal page identifies alpha release 0.0.1 but provides no clear ontology license metadata, so the page is retained only as a citation and verification lead.",
+      "usage_constraints": [
+        "Embed no OPE ontology content.",
+        "Embed no OPE class identifiers or guessed class IRIs.",
+        "Keep requested OPE candidates explicit local-only verification records."
+      ],
+      "hierarchy_imported": false,
+      "preferred_labels_modified": false,
+      "ontology_content_embedded": false,
+      "class_ids_embedded": false,
+      "review": {
+        "status": "reviewed",
+        "reviewer": "ontology-license-reviewer",
+        "reviewed_at": "2026-08-06"
+      }
+    }
+  ]
+}

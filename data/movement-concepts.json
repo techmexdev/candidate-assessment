@@ -1,0 +1,4431 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-concepts:v1",
+  "revision": "movement-curation-v1",
+  "source_artifacts": [
+    {
+      "source_id": "source:exercise-catalog",
+      "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+    },
+    {
+      "source_id": "source:movement-clinical-curation",
+      "source_revision": "movement-curation-v1"
+    }
+  ],
+  "records": [
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0b3178cf-bf89-45a3-bfb0-27310ef6ef38",
+      "kind": "exercise",
+      "label": "Barbell Decline Bench Press",
+      "aliases": [
+        "barbell decline bench press"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0b3178cf-bf89-45a3-bfb0-27310ef6ef38",
+      "catalog": {
+        "id": "0b3178cf-bf89-45a3-bfb0-27310ef6ef38",
+        "name": "Barbell Decline Bench Press",
+        "muscle_groups": [
+          "chest",
+          "triceps"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow"
+        ],
+        "movement_patterns": [
+          "upper push - horizontal"
+        ],
+        "equipment_required": [
+          "Adjustable Bench - Decline",
+          "Barbell",
+          "Plate",
+          "Rack"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0e3201e9-4394-4902-a717-f4ce544d98de",
+      "kind": "exercise",
+      "label": "Push-Up to Knee-Drive",
+      "aliases": [
+        "push-up to knee-drive"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0e3201e9-4394-4902-a717-f4ce544d98de",
+      "catalog": {
+        "id": "0e3201e9-4394-4902-a717-f4ce544d98de",
+        "name": "Push-Up to Knee-Drive",
+        "muscle_groups": [
+          "chest",
+          "triceps",
+          "deltoids",
+          "core"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow",
+          "wrist"
+        ],
+        "movement_patterns": [
+          "upper push - horizontal",
+          "core - anti-extension",
+          "core - flexion"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 1.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0fa0eb42-797f-4752-9a80-68e2dfb2a935",
+      "kind": "exercise",
+      "label": "Alternating Dumbbell Decline Bench Press",
+      "aliases": [
+        "alternating dumbbell decline bench press"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0fa0eb42-797f-4752-9a80-68e2dfb2a935",
+      "catalog": {
+        "id": "0fa0eb42-797f-4752-9a80-68e2dfb2a935",
+        "name": "Alternating Dumbbell Decline Bench Press",
+        "muscle_groups": [
+          "chest",
+          "triceps"
+        ],
+        "joints_loaded": [],
+        "movement_patterns": [
+          "upper push - horizontal"
+        ],
+        "equipment_required": [
+          "Adjustable Bench - Decline",
+          "Dumbbell"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:13261989-7436-44d0-8daf-754b259e5af8",
+      "kind": "exercise",
+      "label": "Dumbbell Incline Chest Fly",
+      "aliases": [
+        "dumbbell incline chest fly"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "13261989-7436-44d0-8daf-754b259e5af8",
+      "catalog": {
+        "id": "13261989-7436-44d0-8daf-754b259e5af8",
+        "name": "Dumbbell Incline Chest Fly",
+        "muscle_groups": [
+          "chest"
+        ],
+        "joints_loaded": [
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "upper push - horizontal",
+          "upper - adduction"
+        ],
+        "equipment_required": [
+          "Dumbbell",
+          "Adjustable Bench - Incline"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:1465f189-eb62-410d-a73e-590a84693dd0",
+      "kind": "exercise",
+      "label": "Dumbbell Neutral-Grip Bench Press",
+      "aliases": [
+        "dumbbell neutral-grip bench press"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "1465f189-eb62-410d-a73e-590a84693dd0",
+      "catalog": {
+        "id": "1465f189-eb62-410d-a73e-590a84693dd0",
+        "name": "Dumbbell Neutral-Grip Bench Press",
+        "muscle_groups": [
+          "chest",
+          "triceps"
+        ],
+        "joints_loaded": [
+          "wrist",
+          "elbow",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "upper push - horizontal"
+        ],
+        "equipment_required": [
+          "Dumbbell",
+          "Flat Bench"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0a5efec6-b142-4a20-8c6d-5829ddc248af",
+      "kind": "exercise",
+      "label": "Isometric Pull-Up",
+      "aliases": [
+        "isometric pull-up"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0a5efec6-b142-4a20-8c6d-5829ddc248af",
+      "catalog": {
+        "id": "0a5efec6-b142-4a20-8c6d-5829ddc248af",
+        "name": "Isometric Pull-Up",
+        "muscle_groups": [
+          "lats",
+          "middle back",
+          "biceps",
+          "upper back"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow",
+          "wrist"
+        ],
+        "movement_patterns": [
+          "upper pull - vertical",
+          "isometric"
+        ],
+        "equipment_required": [
+          "Pull-Up Bar"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0b6fcb1c-aa47-455b-8a9f-f9d1582745df",
+      "kind": "exercise",
+      "label": "Band-Assisted Chin-Up (From Foot)",
+      "aliases": [
+        "band-assisted chin-up (from foot)"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0b6fcb1c-aa47-455b-8a9f-f9d1582745df",
+      "catalog": {
+        "id": "0b6fcb1c-aa47-455b-8a9f-f9d1582745df",
+        "name": "Band-Assisted Chin-Up (From Foot)",
+        "muscle_groups": [
+          "lats",
+          "middle back",
+          "biceps",
+          "upper back"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow",
+          "wrist"
+        ],
+        "movement_patterns": [
+          "upper pull - vertical"
+        ],
+        "equipment_required": [
+          "Pull-Up Bar",
+          "Resistance Band - Loop"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0fb071d6-2ca0-46ac-a855-83a0029b2ccc",
+      "kind": "exercise",
+      "label": "Machine - Single-Arm Lat Pull-Down",
+      "aliases": [
+        "machine - single-arm lat pull-down"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0fb071d6-2ca0-46ac-a855-83a0029b2ccc",
+      "catalog": {
+        "id": "0fb071d6-2ca0-46ac-a855-83a0029b2ccc",
+        "name": "Machine - Single-Arm Lat Pull-Down",
+        "muscle_groups": [
+          "lats",
+          "biceps",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow"
+        ],
+        "movement_patterns": [
+          "upper pull - vertical"
+        ],
+        "equipment_required": [
+          "Seated Lat Pulldown Machine"
+        ],
+        "is_bilateral": true,
+        "side": "left_arm",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": "ae41474d-3891-48a9-b43a-8006665be142"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:12918da8-e735-45e3-9185-8f6c074397a3",
+      "kind": "exercise",
+      "label": "Kneeling Stability Ball Lat Stretch",
+      "aliases": [
+        "kneeling stability ball lat stretch"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "12918da8-e735-45e3-9185-8f6c074397a3",
+      "catalog": {
+        "id": "12918da8-e735-45e3-9185-8f6c074397a3",
+        "name": "Kneeling Stability Ball Lat Stretch",
+        "muscle_groups": [
+          "lats",
+          "upper back"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "knee",
+          "hip"
+        ],
+        "movement_patterns": [
+          "mobility - dynamic",
+          "regen"
+        ],
+        "equipment_required": [
+          "Stability Ball",
+          "Yoga Mat"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": "aecd6652-9705-4609-8f05-8b37d3d9b7da"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:01128a8f-44a4-43ae-a172-b6a32b2e8534",
+      "kind": "exercise",
+      "label": "Med Ball Scoop Toss",
+      "aliases": [
+        "med ball scoop toss"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "01128a8f-44a4-43ae-a172-b6a32b2e8534",
+      "catalog": {
+        "id": "01128a8f-44a4-43ae-a172-b6a32b2e8534",
+        "name": "Med Ball Scoop Toss",
+        "muscle_groups": [
+          "deltoids",
+          "core",
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "elbow",
+          "hip",
+          "knee",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "lower push - squat",
+          "upper pull - vertical",
+          "cardio - plyometric",
+          "cardio"
+        ],
+        "equipment_required": [
+          "Medicine Ball"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 1.1,
+        "bilateral_pair_id": "7188df4c-2524-4e5a-b093-4d0f76ba5106"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:03258dbf-bc21-4495-bcae-ca627b3a0f20",
+      "kind": "exercise",
+      "label": "Alternating Dumbbell Overhead Press",
+      "aliases": [
+        "alternating dumbbell overhead press"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "03258dbf-bc21-4495-bcae-ca627b3a0f20",
+      "catalog": {
+        "id": "03258dbf-bc21-4495-bcae-ca627b3a0f20",
+        "name": "Alternating Dumbbell Overhead Press",
+        "muscle_groups": [
+          "deltoids",
+          "triceps"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow"
+        ],
+        "movement_patterns": [
+          "upper push - vertical"
+        ],
+        "equipment_required": [
+          "Dumbbell"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.4,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0a2dc786-fb42-4571-9b26-f58cdeb2c70e",
+      "kind": "exercise",
+      "label": "Bodyweight Pike",
+      "aliases": [
+        "bodyweight pike"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0a2dc786-fb42-4571-9b26-f58cdeb2c70e",
+      "catalog": {
+        "id": "0a2dc786-fb42-4571-9b26-f58cdeb2c70e",
+        "name": "Bodyweight Pike",
+        "muscle_groups": [
+          "deltoids",
+          "core",
+          "hip flexors"
+        ],
+        "joints_loaded": [
+          "hip",
+          "shoulder",
+          "wrist"
+        ],
+        "movement_patterns": [
+          "core - flexion",
+          "core - anti-extension"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0b1250ab-ac21-42a3-8aff-87f75e85eea0",
+      "kind": "exercise",
+      "label": "Bench-Supported Incline YTI",
+      "aliases": [
+        "bench-supported incline yti"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0b1250ab-ac21-42a3-8aff-87f75e85eea0",
+      "catalog": {
+        "id": "0b1250ab-ac21-42a3-8aff-87f75e85eea0",
+        "name": "Bench-Supported Incline YTI",
+        "muscle_groups": [
+          "deltoids",
+          "upper back",
+          "rotator cuff"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "cervical spine"
+        ],
+        "movement_patterns": [
+          "mobility - dynamic",
+          "shoulders - accessory",
+          "balance",
+          "core - extension"
+        ],
+        "equipment_required": [
+          "Adjustable Bench - Incline"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:004717c7-4e34-4a26-978f-50106f09abcc",
+      "kind": "exercise",
+      "label": "Wide-Grip Preacher Curl with EZ Bar",
+      "aliases": [
+        "wide-grip preacher curl with ez bar"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "004717c7-4e34-4a26-978f-50106f09abcc",
+      "catalog": {
+        "id": "004717c7-4e34-4a26-978f-50106f09abcc",
+        "name": "Wide-Grip Preacher Curl with EZ Bar",
+        "muscle_groups": [
+          "biceps"
+        ],
+        "joints_loaded": [
+          "elbow"
+        ],
+        "movement_patterns": [
+          "arms - accessory"
+        ],
+        "equipment_required": [
+          "EZ Bar",
+          "Preacher Curl Bench"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:12b80a72-6c2f-43f0-b3bd-6b11e14e3358",
+      "kind": "exercise",
+      "label": "Resistance Band Reverse Curl",
+      "aliases": [
+        "resistance band reverse curl"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "12b80a72-6c2f-43f0-b3bd-6b11e14e3358",
+      "catalog": {
+        "id": "12b80a72-6c2f-43f0-b3bd-6b11e14e3358",
+        "name": "Resistance Band Reverse Curl",
+        "muscle_groups": [
+          "biceps",
+          "forearms"
+        ],
+        "joints_loaded": [
+          "elbow"
+        ],
+        "movement_patterns": [
+          "arms - accessory"
+        ],
+        "equipment_required": [
+          "Resistance Band - Loop"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:14a8ad1b-09c9-4572-860c-9d6b231a3a72",
+      "kind": "exercise",
+      "label": "Single-Arm Dumbbell Preacher Curl",
+      "aliases": [
+        "single-arm dumbbell preacher curl"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "14a8ad1b-09c9-4572-860c-9d6b231a3a72",
+      "catalog": {
+        "id": "14a8ad1b-09c9-4572-860c-9d6b231a3a72",
+        "name": "Single-Arm Dumbbell Preacher Curl",
+        "muscle_groups": [
+          "biceps"
+        ],
+        "joints_loaded": [
+          "elbow"
+        ],
+        "movement_patterns": [
+          "arms - accessory"
+        ],
+        "equipment_required": [
+          "Preacher Curl Bench",
+          "Dumbbell"
+        ],
+        "is_bilateral": true,
+        "side": "left_arm",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": "d71d4c88-200a-4b22-ab6f-7155d6bbd1c1"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0aa65232-8367-4622-b0ef-37e31626ba65",
+      "kind": "exercise",
+      "label": "Bench-Lying Single-Arm Dumbbell Tricep Extension",
+      "aliases": [
+        "bench-lying single-arm dumbbell tricep extension"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0aa65232-8367-4622-b0ef-37e31626ba65",
+      "catalog": {
+        "id": "0aa65232-8367-4622-b0ef-37e31626ba65",
+        "name": "Bench-Lying Single-Arm Dumbbell Tricep Extension",
+        "muscle_groups": [
+          "triceps"
+        ],
+        "joints_loaded": [
+          "elbow",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "arms - accessory"
+        ],
+        "equipment_required": [
+          "Dumbbell",
+          "Flat Bench"
+        ],
+        "is_bilateral": true,
+        "side": "left_arm",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": "31295116-8369-4f7a-a46e-9a60763cdb0e"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:12fe4a7f-cdf9-411e-9272-868a74debfeb",
+      "kind": "exercise",
+      "label": "Single-Arm Cable Tricep Extension",
+      "aliases": [
+        "single-arm cable tricep extension"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "12fe4a7f-cdf9-411e-9272-868a74debfeb",
+      "catalog": {
+        "id": "12fe4a7f-cdf9-411e-9272-868a74debfeb",
+        "name": "Single-Arm Cable Tricep Extension",
+        "muscle_groups": [
+          "triceps"
+        ],
+        "joints_loaded": [
+          "elbow"
+        ],
+        "movement_patterns": [
+          "arms - accessory"
+        ],
+        "equipment_required": [
+          "Cable Resistance Machine",
+          "Handle Attachment"
+        ],
+        "is_bilateral": true,
+        "side": "left_arm",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.4,
+        "bilateral_pair_id": "c7d17922-9ff5-413b-938a-a6c96590afd1"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:297668c1-4006-4280-8208-ea3cd99d3264",
+      "kind": "exercise",
+      "label": "Suspension Tricep Press",
+      "aliases": [
+        "suspension tricep press"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "297668c1-4006-4280-8208-ea3cd99d3264",
+      "catalog": {
+        "id": "297668c1-4006-4280-8208-ea3cd99d3264",
+        "name": "Suspension Tricep Press",
+        "muscle_groups": [
+          "triceps"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow",
+          "hip"
+        ],
+        "movement_patterns": [
+          "arms - accessory",
+          "core - anti-extension"
+        ],
+        "equipment_required": [
+          "Suspension Trainer"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00036a08-7c22-42e4-8fe5-323b53e31667",
+      "kind": "exercise",
+      "label": "Kettlebell Goblet Cyclist Squat",
+      "aliases": [
+        "kettlebell goblet cyclist squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
+      "catalog": {
+        "id": "00036a08-7c22-42e4-8fe5-323b53e31667",
+        "name": "Kettlebell Goblet Cyclist Squat",
+        "muscle_groups": [
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - squat"
+        ],
+        "equipment_required": [
+          "Kettlebell",
+          "Slant Board"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00cc383b-f156-4b23-952a-15340100c261",
+      "kind": "exercise",
+      "label": "RNT Split Squat",
+      "aliases": [
+        "rnt split squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00cc383b-f156-4b23-952a-15340100c261",
+      "catalog": {
+        "id": "00cc383b-f156-4b23-952a-15340100c261",
+        "name": "RNT Split Squat",
+        "muscle_groups": [
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - split squat"
+        ],
+        "equipment_required": [
+          "Resistance Band - Loop"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.8,
+        "bilateral_pair_id": "e2814de7-ac6d-4d2d-9a2d-6250b75c5d1d"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:01ff62bc-e887-49e4-9cc8-bcd367b34cfd",
+      "kind": "exercise",
+      "label": "Static Jump",
+      "aliases": [
+        "static jump"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "01ff62bc-e887-49e4-9cc8-bcd367b34cfd",
+      "catalog": {
+        "id": "01ff62bc-e887-49e4-9cc8-bcd367b34cfd",
+        "name": "Static Jump",
+        "muscle_groups": [
+          "quads",
+          "calves"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "hip",
+          "knee"
+        ],
+        "movement_patterns": [
+          "cardio - plyometric",
+          "cardio"
+        ],
+        "equipment_required": [],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+      "kind": "exercise",
+      "label": "Med Ball Split Squat",
+      "aliases": [
+        "med ball split squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+      "catalog": {
+        "id": "0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+        "name": "Med Ball Split Squat",
+        "muscle_groups": [
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - split squat"
+        ],
+        "equipment_required": [
+          "Medicine Ball"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": "a07c9b45-5d4a-47ed-a17e-6389cf1014b5"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+      "kind": "exercise",
+      "label": "Dumbbell Goblet Split Squat",
+      "aliases": [
+        "dumbbell goblet split squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+      "catalog": {
+        "id": "02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+        "name": "Dumbbell Goblet Split Squat",
+        "muscle_groups": [
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - split squat"
+        ],
+        "equipment_required": [
+          "Dumbbell"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": "65f1f947-cba9-4c83-913d-15d69b26bd15"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0732c6eb-2275-4af3-8276-9bb8be2aa12d",
+      "kind": "exercise",
+      "label": "One-Kettlebell Hamstring Walkout",
+      "aliases": [
+        "one-kettlebell hamstring walkout"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0732c6eb-2275-4af3-8276-9bb8be2aa12d",
+      "catalog": {
+        "id": "0732c6eb-2275-4af3-8276-9bb8be2aa12d",
+        "name": "One-Kettlebell Hamstring Walkout",
+        "muscle_groups": [
+          "hamstrings",
+          "glutes",
+          "core"
+        ],
+        "joints_loaded": [
+          "knee",
+          "hip",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower pull - hip lift",
+          "legs - accessory",
+          "core - anti-rotation"
+        ],
+        "equipment_required": [
+          "Kettlebell",
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0a4d99cf-5075-468e-9551-b9f8efa267f1",
+      "kind": "exercise",
+      "label": "World's Greatest Stretch",
+      "aliases": [
+        "world's greatest stretch"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0a4d99cf-5075-468e-9551-b9f8efa267f1",
+      "catalog": {
+        "id": "0a4d99cf-5075-468e-9551-b9f8efa267f1",
+        "name": "World's Greatest Stretch",
+        "muscle_groups": [
+          "hamstrings",
+          "middle back",
+          "hip flexors"
+        ],
+        "joints_loaded": [
+          "hip",
+          "thoracic spine",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "mobility - dynamic",
+          "regen"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.1,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:1423ff58-68de-47da-8884-cb6f438f5774",
+      "kind": "exercise",
+      "label": "Walking Toe Touches",
+      "aliases": [
+        "walking toe touches"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "1423ff58-68de-47da-8884-cb6f438f5774",
+      "catalog": {
+        "id": "1423ff58-68de-47da-8884-cb6f438f5774",
+        "name": "Walking Toe Touches",
+        "muscle_groups": [
+          "hamstrings",
+          "core",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "lumbar spine",
+          "shoulder",
+          "hip"
+        ],
+        "movement_patterns": [
+          "mobility - dynamic"
+        ],
+        "equipment_required": [],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:2248e07a-93de-4da1-ad20-aff27537a99a",
+      "kind": "exercise",
+      "label": "Med Ball Hamstring Walkout",
+      "aliases": [
+        "med ball hamstring walkout"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "2248e07a-93de-4da1-ad20-aff27537a99a",
+      "catalog": {
+        "id": "2248e07a-93de-4da1-ad20-aff27537a99a",
+        "name": "Med Ball Hamstring Walkout",
+        "muscle_groups": [
+          "hamstrings",
+          "glutes",
+          "core"
+        ],
+        "joints_loaded": [
+          "knee",
+          "hip",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower pull - hip lift",
+          "legs - accessory",
+          "core - anti-rotation"
+        ],
+        "equipment_required": [
+          "Medicine Ball",
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.4,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00678525-7d38-4a9e-8998-a299a209c724",
+      "kind": "exercise",
+      "label": "Alternating Dumbbell Racked Crossback Lunge",
+      "aliases": [
+        "alternating dumbbell racked crossback lunge"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00678525-7d38-4a9e-8998-a299a209c724",
+      "catalog": {
+        "id": "00678525-7d38-4a9e-8998-a299a209c724",
+        "name": "Alternating Dumbbell Racked Crossback Lunge",
+        "muscle_groups": [
+          "glutes",
+          "quads",
+          "hip adductors"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - lunge",
+          "lower - abduction",
+          "lower - adduction"
+        ],
+        "equipment_required": [
+          "Dumbbell"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00a510b1-4676-4433-a37d-30f63e1b8a4f",
+      "kind": "exercise",
+      "label": "Stair Climber",
+      "aliases": [
+        "stair climber"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00a510b1-4676-4433-a37d-30f63e1b8a4f",
+      "catalog": {
+        "id": "00a510b1-4676-4433-a37d-30f63e1b8a4f",
+        "name": "Stair Climber",
+        "muscle_groups": [
+          "glutes",
+          "calves",
+          "quads",
+          "hip flexors"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "hip",
+          "knee"
+        ],
+        "movement_patterns": [
+          "cardio - locomotion",
+          "cardio"
+        ],
+        "equipment_required": [
+          "Stair Climber"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "kind": "exercise",
+      "label": "Barbell Racked Forward Lunge",
+      "aliases": [
+        "barbell racked forward lunge"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00b26731-066f-4b69-96e8-3472fc6fbc09",
+      "catalog": {
+        "id": "00b26731-066f-4b69-96e8-3472fc6fbc09",
+        "name": "Barbell Racked Forward Lunge",
+        "muscle_groups": [
+          "glutes",
+          "quads"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - lunge"
+        ],
+        "equipment_required": [
+          "Barbell",
+          "Plate",
+          "Rack"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": "14b7f1bb-26ac-431e-a079-3cfc51e849e7"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00c7ac93-153e-4b96-be56-b4ca6b465369",
+      "kind": "exercise",
+      "label": "Barbell Step Up to Knee-Drive",
+      "aliases": [
+        "barbell step up to knee-drive"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00c7ac93-153e-4b96-be56-b4ca6b465369",
+      "catalog": {
+        "id": "00c7ac93-153e-4b96-be56-b4ca6b465369",
+        "name": "Barbell Step Up to Knee-Drive",
+        "muscle_groups": [
+          "glutes",
+          "quads",
+          "hip flexors",
+          "core"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "knee",
+          "hip"
+        ],
+        "movement_patterns": [
+          "lower push - step-up",
+          "core - flexion",
+          "balance"
+        ],
+        "equipment_required": [
+          "Barbell",
+          "Box",
+          "Plate"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.6,
+        "bilateral_pair_id": "4db015c8-ac9b-47b1-8c00-d0c3b452f297"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:01e33d9f-3607-49db-bd59-af7f61d77300",
+      "kind": "exercise",
+      "label": "Vertical Jump to Broad Jump",
+      "aliases": [
+        "vertical jump to broad jump"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "01e33d9f-3607-49db-bd59-af7f61d77300",
+      "catalog": {
+        "id": "01e33d9f-3607-49db-bd59-af7f61d77300",
+        "name": "Vertical Jump to Broad Jump",
+        "muscle_groups": [
+          "glutes",
+          "quads",
+          "calves"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "hip",
+          "knee"
+        ],
+        "movement_patterns": [
+          "cardio - plyometric",
+          "cardio",
+          "lower push - squat"
+        ],
+        "equipment_required": [],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:00e18a26-70dd-4d43-b013-5038b75a41f3",
+      "kind": "exercise",
+      "label": "Alternating Low Plank To Low Side Plank",
+      "aliases": [
+        "alternating low plank to low side plank"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "00e18a26-70dd-4d43-b013-5038b75a41f3",
+      "catalog": {
+        "id": "00e18a26-70dd-4d43-b013-5038b75a41f3",
+        "name": "Alternating Low Plank To Low Side Plank",
+        "muscle_groups": [
+          "core",
+          "obliques",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "elbow",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "core - anti-lateral flexion",
+          "core - anti-extension"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.1,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:01f5a2bb-ecf7-4168-92b3-35bd78592e26",
+      "kind": "exercise",
+      "label": "High Plank Bird Dog",
+      "aliases": [
+        "high plank bird dog"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "01f5a2bb-ecf7-4168-92b3-35bd78592e26",
+      "catalog": {
+        "id": "01f5a2bb-ecf7-4168-92b3-35bd78592e26",
+        "name": "High Plank Bird Dog",
+        "muscle_groups": [
+          "core",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "wrist",
+          "shoulder",
+          "knee"
+        ],
+        "movement_patterns": [
+          "core - anti-rotation",
+          "isometric",
+          "quadruped"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.2,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0333b0cc-4b43-45d9-adff-505b349e53d9",
+      "kind": "exercise",
+      "label": "Sandbag Zercher Carry",
+      "aliases": [
+        "sandbag zercher carry"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0333b0cc-4b43-45d9-adff-505b349e53d9",
+      "catalog": {
+        "id": "0333b0cc-4b43-45d9-adff-505b349e53d9",
+        "name": "Sandbag Zercher Carry",
+        "muscle_groups": [
+          "core",
+          "forearms",
+          "traps"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "knee",
+          "hip",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "core - carry",
+          "cardio - locomotion"
+        ],
+        "equipment_required": [
+          "Sandbag"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:03ba2166-a5e6-4d0d-9110-ab5b73acdd50",
+      "kind": "exercise",
+      "label": "BOSU Step Over",
+      "aliases": [
+        "bosu step over"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "03ba2166-a5e6-4d0d-9110-ab5b73acdd50",
+      "catalog": {
+        "id": "03ba2166-a5e6-4d0d-9110-ab5b73acdd50",
+        "name": "BOSU Step Over",
+        "muscle_groups": [
+          "core",
+          "calves",
+          "quads",
+          "glutes"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "hip",
+          "knee",
+          "elbow"
+        ],
+        "movement_patterns": [
+          "cardio - plyometric",
+          "cardio"
+        ],
+        "equipment_required": [
+          "BOSU"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.7,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:01bc9947-23e6-4dcf-bf66-6381a2c29700",
+      "kind": "exercise",
+      "label": "Jumping Jack",
+      "aliases": [
+        "jumping jack"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "01bc9947-23e6-4dcf-bf66-6381a2c29700",
+      "catalog": {
+        "id": "01bc9947-23e6-4dcf-bf66-6381a2c29700",
+        "name": "Jumping Jack",
+        "muscle_groups": [
+          "calves",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "shoulder",
+          "hip"
+        ],
+        "movement_patterns": [
+          "cardio - plyometric",
+          "cardio"
+        ],
+        "equipment_required": [],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.7,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0a0b8a72-0bd4-41aa-9fac-e0b44356ca8f",
+      "kind": "exercise",
+      "label": "Horizontal Leg Press Calf Raises",
+      "aliases": [
+        "horizontal leg press calf raises"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0a0b8a72-0bd4-41aa-9fac-e0b44356ca8f",
+      "catalog": {
+        "id": "0a0b8a72-0bd4-41aa-9fac-e0b44356ca8f",
+        "name": "Horizontal Leg Press Calf Raises",
+        "muscle_groups": [
+          "calves"
+        ],
+        "joints_loaded": [
+          "ankle"
+        ],
+        "movement_patterns": [
+          "lower push - calf raise"
+        ],
+        "equipment_required": [
+          "Horizontal Leg Press Machine"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:10336de1-5994-4074-aa52-9b1b28d845a3",
+      "kind": "exercise",
+      "label": "Jump Rope - Single-Leg",
+      "aliases": [
+        "jump rope - single-leg"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "10336de1-5994-4074-aa52-9b1b28d845a3",
+      "catalog": {
+        "id": "10336de1-5994-4074-aa52-9b1b28d845a3",
+        "name": "Jump Rope - Single-Leg",
+        "muscle_groups": [
+          "calves"
+        ],
+        "joints_loaded": [
+          "ankle"
+        ],
+        "movement_patterns": [
+          "cardio - plyometric",
+          "cardio"
+        ],
+        "equipment_required": [
+          "Jump Rope"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 1.9,
+        "bilateral_pair_id": "d4b11a1d-d858-4bb1-85fe-232bdc51293c"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:11afb04e-9b3d-413f-a4cc-8c03a2fb5d93",
+      "kind": "exercise",
+      "label": "Lacrosse Ball Upper Back against Wall",
+      "aliases": [
+        "lacrosse ball upper back against wall"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "11afb04e-9b3d-413f-a4cc-8c03a2fb5d93",
+      "catalog": {
+        "id": "11afb04e-9b3d-413f-a4cc-8c03a2fb5d93",
+        "name": "Lacrosse Ball Upper Back against Wall",
+        "muscle_groups": [
+          "upper back"
+        ],
+        "joints_loaded": [],
+        "movement_patterns": [
+          "massage",
+          "regen"
+        ],
+        "equipment_required": [
+          "Lacrosse Ball",
+          "Wall"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": "c14bca1a-72eb-46e8-9de8-ff3d0c0226f8"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:12573626-5760-4d71-8cb5-e255daaa0b42",
+      "kind": "exercise",
+      "label": "Single-Arm Chest-Supported Incline Row",
+      "aliases": [
+        "single-arm chest-supported incline row"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "12573626-5760-4d71-8cb5-e255daaa0b42",
+      "catalog": {
+        "id": "12573626-5760-4d71-8cb5-e255daaa0b42",
+        "name": "Single-Arm Chest-Supported Incline Row",
+        "muscle_groups": [
+          "upper back",
+          "lats",
+          "biceps",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "elbow",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "upper pull - horizontal"
+        ],
+        "equipment_required": [
+          "Dumbbell",
+          "Adjustable Bench - Incline"
+        ],
+        "is_bilateral": true,
+        "side": "left_arm",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": "67c66d3a-2daa-4d5e-a26a-7758cf8d896a"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:1abf5a3d-25ca-4ee8-89d9-d3d8c6a53691",
+      "kind": "exercise",
+      "label": "Machine - Chest-Supported Row",
+      "aliases": [
+        "machine - chest-supported row"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "1abf5a3d-25ca-4ee8-89d9-d3d8c6a53691",
+      "catalog": {
+        "id": "1abf5a3d-25ca-4ee8-89d9-d3d8c6a53691",
+        "name": "Machine - Chest-Supported Row",
+        "muscle_groups": [
+          "upper back",
+          "lats",
+          "biceps",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "elbow",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "upper pull - horizontal"
+        ],
+        "equipment_required": [
+          "Chest Supported Row Machine"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.3,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:02d6478f-0579-480b-a188-8e719d4fda14",
+      "kind": "exercise",
+      "label": "Low Copenhagen Plank",
+      "aliases": [
+        "low copenhagen plank"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "02d6478f-0579-480b-a188-8e719d4fda14",
+      "catalog": {
+        "id": "02d6478f-0579-480b-a188-8e719d4fda14",
+        "name": "Low Copenhagen Plank",
+        "muscle_groups": [
+          "obliques",
+          "hip adductors",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "ankle",
+          "knee",
+          "hip",
+          "shoulder"
+        ],
+        "movement_patterns": [
+          "core - anti-lateral flexion",
+          "lower - adduction",
+          "isometric"
+        ],
+        "equipment_required": [
+          "Flat Bench",
+          "Yoga Mat"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": "20e5227b-36fe-47f0-8c8c-7ad1d8a0818e"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:07772057-db56-4cfb-ae4b-f98f4cac6b9a",
+      "kind": "exercise",
+      "label": "Anchored Band Rotational Lift",
+      "aliases": [
+        "anchored band rotational lift"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "07772057-db56-4cfb-ae4b-f98f4cac6b9a",
+      "catalog": {
+        "id": "07772057-db56-4cfb-ae4b-f98f4cac6b9a",
+        "name": "Anchored Band Rotational Lift",
+        "muscle_groups": [
+          "obliques",
+          "deltoids"
+        ],
+        "joints_loaded": [
+          "shoulder",
+          "thoracic spine"
+        ],
+        "movement_patterns": [
+          "core - rotation",
+          "shoulders - accessory"
+        ],
+        "equipment_required": [
+          "Resistance Band - With Handles"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.4,
+        "bilateral_pair_id": "f81b857c-41db-4823-9f0c-6274bf85c267"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:1965072a-7e34-4d37-98f5-bde8cb6629a4",
+      "kind": "exercise",
+      "label": "Cow Pose",
+      "aliases": [
+        "cow pose"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "1965072a-7e34-4d37-98f5-bde8cb6629a4",
+      "catalog": {
+        "id": "1965072a-7e34-4d37-98f5-bde8cb6629a4",
+        "name": "Cow Pose",
+        "muscle_groups": [
+          "lower back"
+        ],
+        "joints_loaded": [
+          "lumbar spine",
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "mobility - static",
+          "yoga",
+          "regen"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:201032fe-3189-4c79-a69b-e67e2c7e9b81",
+      "kind": "exercise",
+      "label": "SkiErg",
+      "aliases": [
+        "skierg"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "201032fe-3189-4c79-a69b-e67e2c7e9b81",
+      "catalog": {
+        "id": "201032fe-3189-4c79-a69b-e67e2c7e9b81",
+        "name": "SkiErg",
+        "muscle_groups": [
+          "lower back",
+          "lats",
+          "deltoids",
+          "core"
+        ],
+        "joints_loaded": [
+          "elbow",
+          "wrist",
+          "shoulder",
+          "hip"
+        ],
+        "movement_patterns": [
+          "cardio - locomotion",
+          "cardio",
+          "total body"
+        ],
+        "equipment_required": [
+          "SkiErg"
+        ],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.6,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0a9d8d01-a52d-453e-92bc-dd9238e9a930",
+      "kind": "exercise",
+      "label": "Ground Upper Trap Stretch",
+      "aliases": [
+        "ground upper trap stretch"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0a9d8d01-a52d-453e-92bc-dd9238e9a930",
+      "catalog": {
+        "id": "0a9d8d01-a52d-453e-92bc-dd9238e9a930",
+        "name": "Ground Upper Trap Stretch",
+        "muscle_groups": [
+          "traps"
+        ],
+        "joints_loaded": [
+          "cervical spine"
+        ],
+        "movement_patterns": [
+          "mobility - static",
+          "regen"
+        ],
+        "equipment_required": [
+          "Yoga Mat"
+        ],
+        "is_bilateral": true,
+        "side": "left_side",
+        "priority_tier": 2,
+        "is_reps": false,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0,
+        "bilateral_pair_id": "bce04e50-529c-4b52-b429-6cc0f8e9ecfb"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0b5f275e-db72-4dd7-8949-30d737fb14fc",
+      "kind": "exercise",
+      "label": "Standing Neck Circles",
+      "aliases": [
+        "standing neck circles"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0b5f275e-db72-4dd7-8949-30d737fb14fc",
+      "catalog": {
+        "id": "0b5f275e-db72-4dd7-8949-30d737fb14fc",
+        "name": "Standing Neck Circles",
+        "muscle_groups": [
+          "traps",
+          "upper back"
+        ],
+        "joints_loaded": [
+          "cervical spine"
+        ],
+        "movement_patterns": [
+          "mobility - dynamic",
+          "regen"
+        ],
+        "equipment_required": [],
+        "is_bilateral": false,
+        "side": null,
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": false,
+        "estimated_rep_duration": 0.1,
+        "bilateral_pair_id": null
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "exercise:0263d731-ceb6-41d0-b01f-88f0f177623b",
+      "kind": "exercise",
+      "label": "Standing Miniband Hip Flexion",
+      "aliases": [
+        "standing miniband hip flexion"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "catalog_id": "0263d731-ceb6-41d0-b01f-88f0f177623b",
+      "catalog": {
+        "id": "0263d731-ceb6-41d0-b01f-88f0f177623b",
+        "name": "Standing Miniband Hip Flexion",
+        "muscle_groups": [
+          "hip flexors"
+        ],
+        "joints_loaded": [
+          "hip",
+          "knee",
+          "ankle"
+        ],
+        "movement_patterns": [
+          "car"
+        ],
+        "equipment_required": [
+          "Miniband"
+        ],
+        "is_bilateral": true,
+        "side": "left_leg",
+        "priority_tier": 2,
+        "is_reps": true,
+        "is_duration": true,
+        "supports_weight": true,
+        "estimated_rep_duration": 0.5,
+        "bilateral_pair_id": "690b051a-3c35-4d5f-b135-9f868bed2136"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:biceps",
+      "kind": "muscle",
+      "label": "biceps",
+      "aliases": [
+        "biceps"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:calves",
+      "kind": "muscle",
+      "label": "calves",
+      "aliases": [
+        "calves"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:chest",
+      "kind": "muscle",
+      "label": "chest",
+      "aliases": [
+        "chest"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:core",
+      "kind": "muscle",
+      "label": "core",
+      "aliases": [
+        "core"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:deltoids",
+      "kind": "muscle",
+      "label": "deltoids",
+      "aliases": [
+        "deltoids"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:forearms",
+      "kind": "muscle",
+      "label": "forearms",
+      "aliases": [
+        "forearms"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:glutes",
+      "kind": "muscle",
+      "label": "glutes",
+      "aliases": [
+        "glutes"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:hamstrings",
+      "kind": "muscle",
+      "label": "hamstrings",
+      "aliases": [
+        "hamstrings"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:hip-adductors",
+      "kind": "muscle",
+      "label": "hip adductors",
+      "aliases": [
+        "hip adductors"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:hip-flexors",
+      "kind": "muscle",
+      "label": "hip flexors",
+      "aliases": [
+        "hip flexors"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:lats",
+      "kind": "muscle",
+      "label": "lats",
+      "aliases": [
+        "lats"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:lower-back",
+      "kind": "muscle",
+      "label": "lower back",
+      "aliases": [
+        "lower back"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:middle-back",
+      "kind": "muscle",
+      "label": "middle back",
+      "aliases": [
+        "middle back"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:obliques",
+      "kind": "muscle",
+      "label": "obliques",
+      "aliases": [
+        "obliques"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:quads",
+      "kind": "muscle",
+      "label": "quads",
+      "aliases": [
+        "quads"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:rotator-cuff",
+      "kind": "muscle",
+      "label": "rotator cuff",
+      "aliases": [
+        "rotator cuff"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:traps",
+      "kind": "muscle",
+      "label": "traps",
+      "aliases": [
+        "traps"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:triceps",
+      "kind": "muscle",
+      "label": "triceps",
+      "aliases": [
+        "triceps"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "muscle:upper-back",
+      "kind": "muscle",
+      "label": "upper back",
+      "aliases": [
+        "upper back"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:ankle",
+      "kind": "joint",
+      "label": "ankle",
+      "aliases": [
+        "ankle"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:cervical-spine",
+      "kind": "joint",
+      "label": "cervical spine",
+      "aliases": [
+        "cervical spine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:elbow",
+      "kind": "joint",
+      "label": "elbow",
+      "aliases": [
+        "elbow"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:hip",
+      "kind": "joint",
+      "label": "hip",
+      "aliases": [
+        "hip"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:knee",
+      "kind": "joint",
+      "label": "knee",
+      "aliases": [
+        "knee"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:lumbar-spine",
+      "kind": "joint",
+      "label": "lumbar spine",
+      "aliases": [
+        "lumbar spine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:shoulder",
+      "kind": "joint",
+      "label": "shoulder",
+      "aliases": [
+        "shoulder"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:thoracic-spine",
+      "kind": "joint",
+      "label": "thoracic spine",
+      "aliases": [
+        "thoracic spine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:wrist",
+      "kind": "joint",
+      "label": "wrist",
+      "aliases": [
+        "wrist"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:arms-accessory",
+      "kind": "movement-pattern",
+      "label": "arms - accessory",
+      "aliases": [
+        "arms - accessory"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:arms-accessory"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:balance",
+      "kind": "movement-pattern",
+      "label": "balance",
+      "aliases": [
+        "balance"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:balance"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:car",
+      "kind": "movement-pattern",
+      "label": "car",
+      "aliases": [
+        "car"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:car"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:cardio",
+      "kind": "movement-pattern",
+      "label": "cardio",
+      "aliases": [
+        "cardio"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:cardio"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:cardio-locomotion",
+      "kind": "movement-pattern",
+      "label": "cardio - locomotion",
+      "aliases": [
+        "cardio - locomotion"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:cardio-locomotion"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:cardio-plyometric",
+      "kind": "movement-pattern",
+      "label": "cardio - plyometric",
+      "aliases": [
+        "cardio - plyometric"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:cardio-plyometric"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-anti-extension",
+      "kind": "movement-pattern",
+      "label": "core - anti-extension",
+      "aliases": [
+        "core - anti-extension"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-anti-extension"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-anti-lateral-flexion",
+      "kind": "movement-pattern",
+      "label": "core - anti-lateral flexion",
+      "aliases": [
+        "core - anti-lateral flexion"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-anti-lateral-flexion"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-anti-rotation",
+      "kind": "movement-pattern",
+      "label": "core - anti-rotation",
+      "aliases": [
+        "core - anti-rotation"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-anti-rotation"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-carry",
+      "kind": "movement-pattern",
+      "label": "core - carry",
+      "aliases": [
+        "core - carry"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-carry"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-extension",
+      "kind": "movement-pattern",
+      "label": "core - extension",
+      "aliases": [
+        "core - extension"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-extension"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-flexion",
+      "kind": "movement-pattern",
+      "label": "core - flexion",
+      "aliases": [
+        "core - flexion"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-flexion"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:core-rotation",
+      "kind": "movement-pattern",
+      "label": "core - rotation",
+      "aliases": [
+        "core - rotation"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:core-rotation"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:isometric",
+      "kind": "movement-pattern",
+      "label": "isometric",
+      "aliases": [
+        "isometric"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:isometric"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:legs-accessory",
+      "kind": "movement-pattern",
+      "label": "legs - accessory",
+      "aliases": [
+        "legs - accessory"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:legs-accessory"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-abduction",
+      "kind": "movement-pattern",
+      "label": "lower - abduction",
+      "aliases": [
+        "lower - abduction"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-abduction"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-adduction",
+      "kind": "movement-pattern",
+      "label": "lower - adduction",
+      "aliases": [
+        "lower - adduction"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-adduction"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-pull-hip-lift",
+      "kind": "movement-pattern",
+      "label": "lower pull - hip lift",
+      "aliases": [
+        "lower pull - hip lift"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-pull-hip-lift"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-push-calf-raise",
+      "kind": "movement-pattern",
+      "label": "lower push - calf raise",
+      "aliases": [
+        "lower push - calf raise"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-push-calf-raise"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-push-lunge",
+      "kind": "movement-pattern",
+      "label": "lower push - lunge",
+      "aliases": [
+        "lower push - lunge"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-push-lunge"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-push-split-squat",
+      "kind": "movement-pattern",
+      "label": "lower push - split squat",
+      "aliases": [
+        "lower push - split squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-push-split-squat"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-push-squat",
+      "kind": "movement-pattern",
+      "label": "lower push - squat",
+      "aliases": [
+        "lower push - squat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-push-squat"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:lower-push-step-up",
+      "kind": "movement-pattern",
+      "label": "lower push - step-up",
+      "aliases": [
+        "lower push - step-up"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:lower-push-step-up"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:massage",
+      "kind": "movement-pattern",
+      "label": "massage",
+      "aliases": [
+        "massage"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:massage"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:mobility-dynamic",
+      "kind": "movement-pattern",
+      "label": "mobility - dynamic",
+      "aliases": [
+        "mobility - dynamic"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:mobility-dynamic"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:mobility-static",
+      "kind": "movement-pattern",
+      "label": "mobility - static",
+      "aliases": [
+        "mobility - static"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:mobility-static"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:quadruped",
+      "kind": "movement-pattern",
+      "label": "quadruped",
+      "aliases": [
+        "quadruped"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:quadruped"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:regen",
+      "kind": "movement-pattern",
+      "label": "regen",
+      "aliases": [
+        "regen"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:regen"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:shoulders-accessory",
+      "kind": "movement-pattern",
+      "label": "shoulders - accessory",
+      "aliases": [
+        "shoulders - accessory"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:shoulders-accessory"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:total-body",
+      "kind": "movement-pattern",
+      "label": "total body",
+      "aliases": [
+        "total body"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:total-body"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:upper-adduction",
+      "kind": "movement-pattern",
+      "label": "upper - adduction",
+      "aliases": [
+        "upper - adduction"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:upper-adduction"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:upper-pull-horizontal",
+      "kind": "movement-pattern",
+      "label": "upper pull - horizontal",
+      "aliases": [
+        "upper pull - horizontal"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:upper-pull-horizontal"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:upper-pull-vertical",
+      "kind": "movement-pattern",
+      "label": "upper pull - vertical",
+      "aliases": [
+        "upper pull - vertical"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:upper-pull-vertical"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:upper-push-horizontal",
+      "kind": "movement-pattern",
+      "label": "upper push - horizontal",
+      "aliases": [
+        "upper push - horizontal"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:upper-push-horizontal"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:upper-push-vertical",
+      "kind": "movement-pattern",
+      "label": "upper push - vertical",
+      "aliases": [
+        "upper push - vertical"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:upper-push-vertical"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "movement-pattern:yoga",
+      "kind": "movement-pattern",
+      "label": "yoga",
+      "aliases": [
+        "yoga"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "taxonomy_id": "movement-pattern:yoga"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:adjustable-bench-decline",
+      "kind": "equipment",
+      "label": "Adjustable Bench - Decline",
+      "aliases": [
+        "adjustable bench - decline"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "bench"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:adjustable-bench-incline",
+      "kind": "equipment",
+      "label": "Adjustable Bench - Incline",
+      "aliases": [
+        "adjustable bench - incline"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "bench"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:barbell",
+      "kind": "equipment",
+      "label": "Barbell",
+      "aliases": [
+        "barbell",
+        "bb"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:bosu",
+      "kind": "equipment",
+      "label": "BOSU",
+      "aliases": [
+        "bosu"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:box",
+      "kind": "equipment",
+      "label": "Box",
+      "aliases": [
+        "box"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:cable-resistance-machine",
+      "kind": "equipment",
+      "label": "Cable Resistance Machine",
+      "aliases": [
+        "cable resistance machine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:chest-supported-row-machine",
+      "kind": "equipment",
+      "label": "Chest Supported Row Machine",
+      "aliases": [
+        "chest supported row machine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:dumbbell",
+      "kind": "equipment",
+      "label": "Dumbbell",
+      "aliases": [
+        "dumbbell",
+        "db"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:ez-bar",
+      "kind": "equipment",
+      "label": "EZ Bar",
+      "aliases": [
+        "ez bar"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:flat-bench",
+      "kind": "equipment",
+      "label": "Flat Bench",
+      "aliases": [
+        "flat bench"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "bench"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:handle-attachment",
+      "kind": "equipment",
+      "label": "Handle Attachment",
+      "aliases": [
+        "handle attachment"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:horizontal-leg-press-machine",
+      "kind": "equipment",
+      "label": "Horizontal Leg Press Machine",
+      "aliases": [
+        "horizontal leg press machine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:jump-rope",
+      "kind": "equipment",
+      "label": "Jump Rope",
+      "aliases": [
+        "jump rope"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:kettlebell",
+      "kind": "equipment",
+      "label": "Kettlebell",
+      "aliases": [
+        "kettlebell",
+        "kettle bell"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:lacrosse-ball",
+      "kind": "equipment",
+      "label": "Lacrosse Ball",
+      "aliases": [
+        "lacrosse ball"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:medicine-ball",
+      "kind": "equipment",
+      "label": "Medicine Ball",
+      "aliases": [
+        "medicine ball"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:miniband",
+      "kind": "equipment",
+      "label": "Miniband",
+      "aliases": [
+        "miniband"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:plate",
+      "kind": "equipment",
+      "label": "Plate",
+      "aliases": [
+        "plate"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:preacher-curl-bench",
+      "kind": "equipment",
+      "label": "Preacher Curl Bench",
+      "aliases": [
+        "preacher curl bench"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "bench"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:pull-up-bar",
+      "kind": "equipment",
+      "label": "Pull-Up Bar",
+      "aliases": [
+        "pull-up bar"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:rack",
+      "kind": "equipment",
+      "label": "Rack",
+      "aliases": [
+        "rack"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:resistance-band-loop",
+      "kind": "equipment",
+      "label": "Resistance Band - Loop",
+      "aliases": [
+        "resistance band - loop"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "resistance-band"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:resistance-band-with-handles",
+      "kind": "equipment",
+      "label": "Resistance Band - With Handles",
+      "aliases": [
+        "resistance band - with handles"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "resistance-band"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:sandbag",
+      "kind": "equipment",
+      "label": "Sandbag",
+      "aliases": [
+        "sandbag"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:seated-lat-pulldown-machine",
+      "kind": "equipment",
+      "label": "Seated Lat Pulldown Machine",
+      "aliases": [
+        "seated lat pulldown machine"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:skierg",
+      "kind": "equipment",
+      "label": "SkiErg",
+      "aliases": [
+        "skierg"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:slant-board",
+      "kind": "equipment",
+      "label": "Slant Board",
+      "aliases": [
+        "slant board"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:stability-ball",
+      "kind": "equipment",
+      "label": "Stability Ball",
+      "aliases": [
+        "stability ball"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:stair-climber",
+      "kind": "equipment",
+      "label": "Stair Climber",
+      "aliases": [
+        "stair climber"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "machine"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:suspension-trainer",
+      "kind": "equipment",
+      "label": "Suspension Trainer",
+      "aliases": [
+        "suspension trainer"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:wall",
+      "kind": "equipment",
+      "label": "Wall",
+      "aliases": [
+        "wall"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "equipment:yoga-mat",
+      "kind": "equipment",
+      "label": "Yoga Mat",
+      "aliases": [
+        "yoga mat"
+      ],
+      "catalog_scope": "catalog",
+      "source": {
+        "source_id": "source:exercise-catalog",
+        "source_revision": "sha256:ffdcf6b3b51787d1f14b327ee9d31b9b1f8ee469eaa11068180f056ce5118798"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      },
+      "category": "training-tool"
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "joint:patellofemoral",
+      "kind": "joint",
+      "label": "Patellofemoral joint",
+      "aliases": [
+        "patellofemoral joint",
+        "kneecap joint"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "body-region:lumbar-back",
+      "kind": "body-region",
+      "label": "Lumbar region of back",
+      "aliases": [
+        "lumbar back",
+        "lower back region"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "condition:shoulder-pain",
+      "kind": "condition",
+      "label": "Shoulder pain",
+      "aliases": [
+        "shoulder pain",
+        "pain of shoulder region"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "condition:knee-pain",
+      "kind": "condition",
+      "label": "Knee pain",
+      "aliases": [
+        "knee pain",
+        "pain of knee region"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "condition:patellofemoral-pain-syndrome",
+      "kind": "condition",
+      "label": "Patellofemoral pain syndrome",
+      "aliases": [
+        "patellofemoral pain syndrome",
+        "patellofemoral stress syndrome",
+        "pfps"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "stable_id": "condition:low-back-pain",
+      "kind": "condition",
+      "label": "Low back pain",
+      "aliases": [
+        "low back pain",
+        "lower back pain"
+      ],
+      "catalog_scope": "safety-slice",
+      "source": {
+        "source_id": "source:movement-clinical-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-domain-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    }
+  ]
+}

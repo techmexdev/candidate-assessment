@@ -10,7 +10,58 @@ import type {
 
 export type CatalogExercise = (typeof exercisesData)[number];
 
-const mappings = mappingsData as LegacyOntologyMappingRecord[];
+type CuratedMappingRecord = (typeof mappingsData.records)[number];
+
+const reviewedTargetIds: Readonly<Record<string, Pick<LegacyOntologyMappingRecord, "targetKind" | "targetId">>> = {
+  "condition:patellofemoral-pain-syndrome": {
+    targetKind: "condition",
+    targetId: "condition:patellofemoral-pain",
+  },
+  "joint:knee": { targetKind: "anatomy", targetId: "anatomy:knee" },
+  "joint:patellofemoral": {
+    targetKind: "anatomy",
+    targetId: "anatomy:patellofemoral-joint",
+  },
+  "joint:shoulder": { targetKind: "anatomy", targetId: "anatomy:shoulder" },
+};
+
+function isLegacyRelation(value: string): value is LegacyOntologyMappingRecord["relation"] {
+  return ["exactMatch", "closeMatch", "broadMatch", "narrowMatch"].includes(value);
+}
+
+function toLegacyMapping(record: CuratedMappingRecord): LegacyOntologyMappingRecord | undefined {
+  if (record.status !== "reviewed") return undefined;
+  if (
+    typeof record.mapping_id !== "string"
+    || typeof record.source_term !== "string"
+    || typeof record.source_uri !== "string"
+    || typeof record.relation !== "string"
+    || !isLegacyRelation(record.relation)
+    || typeof record.confidence !== "number"
+    || typeof record.rationale !== "string"
+  ) return undefined;
+
+  const target = reviewedTargetIds[record.target_concept_id];
+  if (!target) return undefined;
+
+  return {
+    id: record.mapping_id,
+    sourceOntology: record.source_ontology,
+    sourceTerm: record.source_term,
+    sourceUri: record.source_uri,
+    targetKind: target.targetKind,
+    targetId: target.targetId,
+    relation: record.relation,
+    confidence: record.confidence,
+    rationale: record.rationale,
+    revision: record.source_release,
+  };
+}
+
+const mappings: LegacyOntologyMappingRecord[] = mappingsData.records.flatMap((record) => {
+  const mapping = toLegacyMapping(record);
+  return mapping ? [mapping] : [];
+});
 
 function slug(value: string) {
   return value
