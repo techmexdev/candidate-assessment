@@ -31,11 +31,19 @@ const requestFor = (snapshot: MemberContextGraphSnapshot) => ({
 
 function countReadTransactions(delegate: Neo4jClient) {
   let reads = 0;
+  let queries = 0;
   const timeoutOptions: (number | undefined)[] = [];
+  const readQueries: string[] = [];
   const executeRead: Neo4jClient["executeRead"] = async (work, options) => {
     reads += 1;
     timeoutOptions.push(options?.timeoutMs);
-    return delegate.executeRead(work, options);
+    return delegate.executeRead((transaction) => work({
+      run: async (query, parameters) => {
+        queries += 1;
+        readQueries.push(query);
+        return transaction.run(query, parameters);
+      },
+    }), options);
   };
   return {
     client: {
@@ -45,6 +53,8 @@ function countReadTransactions(delegate: Neo4jClient) {
       close: delegate.close,
     } satisfies Neo4jClient,
     reads: () => reads,
+    queries: () => queries,
+    readQueries: () => [...readQueries],
     timeoutOptions: () => [...timeoutOptions],
   };
 }
@@ -246,7 +256,7 @@ describe.sequential("Neo4j member context persistence", () => {
       .not.toEqual(firstPage.data.map((fact) => fact.evidenceId));
   });
 
-  it("validates bounds before access and passes the query deadline into each pinned canonical read", async () => {
+  it("validates bounds before access and performs one pinned-seal query per handle read", async () => {
     const snapshot = compileMemberContextGraph(jordan);
     const publisher = await seal(client, snapshot);
     await publisher.activate({
@@ -259,13 +269,89 @@ describe.sequential("Neo4j member context persistence", () => {
     const opened = await openThroughApplication(createNeo4jMemberContextReadProvider(counted.client), snapshot);
     if (opened.status !== "ready") throw new Error("expected readable revision");
     const readsAfterOpen = counted.reads();
+    const queriesAfterOpen = counted.queries();
 
     await expect(opened.handle.getEvidence({ domains: ["labs"], limit: 2, timeoutMs: 0 }))
       .resolves.toMatchObject({ status: "invalid", code: "invalid-bound" });
+    expect(counted.reads()).toBe(readsAfterOpen);
+    expect(counted.queries()).toBe(queriesAfterOpen);
+
+    const operations = [
+      () => opened.handle.getSummary({ limit: 10, timeoutMs: 1_001 }),
+      () => opened.handle.getEvidence({ domains: ["labs"], limit: 10, timeoutMs: 1_002 }),
+      () => opened.handle.getLongitudinalSeries({
+        metric: "weekly-workout-completion",
+        window: { fromInclusive: "2026-05-01", toExclusive: "2026-07-01" },
+        minimumPoints: 4,
+        limit: 10,
+        timeoutMs: 1_003,
+      }),
+      () => opened.handle.getCoachBrief({ generatedFor: "2026-06-04", limit: 10, timeoutMs: 1_004 }),
+      () => opened.handle.getWorkoutConstraints({ limit: 10, timeoutMs: 1_005 }),
+    ];
+    for (const operation of operations) {
+      await expect(operation()).resolves.not.toMatchObject({ status: "unavailable" });
+    }
+
+    expect(counted.reads()).toBe(readsAfterOpen + operations.length);
+    expect(counted.queries()).toBe(queriesAfterOpen + operations.length);
+    expect(counted.readQueries().slice(queriesAfterOpen))
+      .toEqual(Array.from({ length: operations.length }, () => MEMBER_CONTEXT_CYPHER.readPinnedRevisionSeal));
+    expect(counted.timeoutOptions().slice(readsAfterOpen)).toEqual([1_001, 1_002, 1_003, 1_004, 1_005]);
+  });
+
+  it("reuses one validated snapshot while its immutable revision seal stays pinned", async () => {
+    const snapshot = compileMemberContextGraph(jordan);
+    const publisher = await seal(client, snapshot);
+    await publisher.activate({
+      memberId: snapshot.memberId,
+      contextRevisionId: snapshot.contextRevisionId,
+      expectedPriorRevisionId: null,
+      actorId: "seed:test",
+    });
+    const provider = createNeo4jMemberContextReadProvider(client);
+    const opened = await openThroughApplication(provider, snapshot);
+    if (opened.status !== "ready") throw new Error("expected readable revision");
+    const original = await opened.handle.getSummary({ limit: 10, timeoutMs: 1_000 });
+    expect(original).toMatchObject({ status: "ready" });
+
+    const goal = snapshot.nodes.find((node) => node.kind === "goal");
+    if (!goal) throw new Error("expected goal fact");
+    await client.executeWrite(async (transaction) => {
+      await transaction.run(`
+        MATCH (fact:MemberContextFact {
+          memberId: $memberId,
+          contextRevisionId: $contextRevisionId,
+          semanticId: $semanticId
+        })
+        SET fact.payload = $payload
+      `, {
+        memberId: snapshot.memberId,
+        contextRevisionId: snapshot.contextRevisionId,
+        semanticId: goal.semanticId,
+        payload: JSON.stringify({ ...goal, text: "tampered after open" }),
+      });
+    });
+
+    await expect(opened.handle.getSummary({ limit: 10, timeoutMs: 1_000 })).resolves.toEqual(original);
+    await expect(openThroughApplication(provider, snapshot))
+      .resolves.toEqual({ status: "unavailable", message: "Member context is unavailable." });
+
+    await client.executeWrite(async (transaction) => {
+      await transaction.run(`
+        MATCH (seal:MemberContextRevisionSeal {
+          memberId: $memberId,
+          contextRevisionId: $contextRevisionId
+        })
+        SET seal.canonicalDigest = $canonicalDigest
+      `, {
+        memberId: snapshot.memberId,
+        contextRevisionId: snapshot.contextRevisionId,
+        canonicalDigest: "sha256:tampered-seal",
+      });
+    });
     await expect(opened.handle.getSummary({ limit: 10, timeoutMs: 1_000 }))
-      .resolves.toMatchObject({ status: "ready" });
-    expect(counted.reads()).toBe(readsAfterOpen + 1);
-    expect(counted.timeoutOptions().at(-1)).toBe(1_000);
+      .resolves.toEqual(expect.objectContaining({ status: "unavailable", evidenceIds: [] }));
   });
 
   it("anchors every open to opaque trusted scope and never falls back to fixture data", async () => {

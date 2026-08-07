@@ -61,10 +61,31 @@ export async function readCanonicalMemberContextSnapshot(
 }
 
 type SealMetadata = {
+  readonly sealId: string;
   readonly canonicalDigest: string;
   readonly nodeCount: number;
   readonly relationshipCount: number;
 };
+
+function sealMetadata(record: { get(key: string): unknown } | undefined): SealMetadata | undefined {
+  const sealId = text(record?.get("sealId"));
+  const canonicalDigest = text(record?.get("canonicalDigest"));
+  return record && sealId && canonicalDigest
+    ? {
+        sealId,
+        canonicalDigest,
+        nodeCount: Number(record.get("nodeCount")),
+        relationshipCount: Number(record.get("relationshipCount")),
+      }
+    : undefined;
+}
+
+function sameSeal(left: SealMetadata | undefined, right: SealMetadata): boolean {
+  return left?.sealId === right.sealId
+    && left.canonicalDigest === right.canonicalDigest
+    && left.nodeCount === right.nodeCount
+    && left.relationshipCount === right.relationshipCount;
+}
 
 type OpenedRevision =
   | { readonly activeRevisionId: string | null }
@@ -120,14 +141,8 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
           memberId: claims.memberId,
           contextRevisionId,
         });
-        const record = sealResult.records[0];
-        const canonicalDigest = text(record?.get("canonicalDigest"));
-        if (!record || !canonicalDigest) return { activeRevisionId };
-        const seal: SealMetadata = {
-          canonicalDigest,
-          nodeCount: Number(record.get("nodeCount")),
-          relationshipCount: Number(record.get("relationshipCount")),
-        };
+        const seal = sealMetadata(sealResult.records[0]);
+        if (!seal) return { activeRevisionId };
         const snapshot = await readCanonicalMemberContextSnapshot(transaction, claims.memberId, contextRevisionId);
         return snapshot ? { activeRevisionId, seal, snapshot } : { activeRevisionId };
       });
@@ -169,33 +184,35 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
       evidenceIds: [],
       message: genericMessage,
     });
+    // Sealed revisions are immutable by repository contract. Build the indexed
+    // projection handle once from the fully validated snapshot, then pin each
+    // read to the exact seal identity and metadata instead of rebuilding and
+    // re-digesting the entire graph.
+    const delegate = createMemberContextReadHandle(
+      openedSnapshot,
+      coachId,
+      "canonical",
+      this.cursorSecret,
+    );
     const invoke = async <T>(
       query: BoundedMemberContextQuery,
       operation: (handle: MemberContextReadHandle) => Promise<MemberContextQueryResult<T>>,
     ): Promise<MemberContextQueryResult<T>> => {
       try {
-        const preflight = await operation(createMemberContextReadHandle(
-          openedSnapshot,
-          coachId,
-          "canonical",
-          this.cursorSecret,
-        ));
+        const preflight = await operation(delegate);
         if (preflight.status === "invalid") return preflight;
-        const snapshot = await this.client.executeRead(
-          (transaction) => readCanonicalMemberContextSnapshot(
-            transaction,
-            openedSnapshot.memberId,
-            openedSnapshot.contextRevisionId,
-          ),
+        const currentSeal = await this.client.executeRead(
+          async (transaction) => {
+            const result = await transaction.run(MEMBER_CONTEXT_CYPHER.readPinnedRevisionSeal, {
+              sealId: seal.sealId,
+              memberId: openedSnapshot.memberId,
+              contextRevisionId: openedSnapshot.contextRevisionId,
+            });
+            return sealMetadata(result.records[0]);
+          },
           { timeoutMs: query.timeoutMs },
         );
-        if (!snapshot
-          || snapshot.nodes.length !== seal.nodeCount
-          || snapshot.relationships.length !== seal.relationshipCount
-          || canonicalMemberContextDigest(snapshot) !== seal.canonicalDigest
-          || !validateMemberContextGraph(snapshot).valid) {
-          return unavailable();
-        }
+        if (!sameSeal(currentSeal, seal)) return unavailable();
         return preflight;
       } catch {
         return unavailable();

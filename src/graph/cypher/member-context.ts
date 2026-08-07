@@ -92,6 +92,15 @@ export const MEMBER_CONTEXT_CYPHER = Object.freeze({
       seal.relationshipCount AS relationshipCount, seal.sealId AS sealId
     LIMIT 1
   `,
+  readPinnedRevisionSeal: `
+    MATCH (seal:MemberContextRevisionSeal {
+      sealId: $sealId, memberId: $memberId, contextRevisionId: $contextRevisionId
+    })-[:MEMBER_CONTEXT_SEALS_REVISION]->
+      (revision:MemberContextRevision {memberId: $memberId, contextRevisionId: $contextRevisionId})
+    RETURN seal.canonicalDigest AS canonicalDigest, seal.nodeCount AS nodeCount,
+      seal.relationshipCount AS relationshipCount, seal.sealId AS sealId
+    LIMIT 1
+  `,
   readActiveRevision: `
     MATCH (catalog:MemberContextCatalog {memberId: $memberId})
     RETURN catalog.activeRevisionId AS activeRevisionId
