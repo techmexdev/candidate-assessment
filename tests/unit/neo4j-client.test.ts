@@ -79,19 +79,53 @@ describe("Neo4j client transaction timeouts", () => {
     expect(driverMocks.executeWrite).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000 });
   });
 
-  it("rejects an aborted transaction and closes its session", async () => {
-    let settle!: (value: unknown) => void;
-    driverMocks.executeRead.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
-    const client = createNeo4jClient({ environment: "test" });
-    const controller = new AbortController();
-    const pending = client.executeRead(async () => "read", { signal: controller.signal });
+  it.each(["read", "write"] as const)(
+    "waits for the exact %s session to close before rejecting an aborted transaction",
+    async (mode) => {
+      const events: string[] = [];
+      let finishClose!: () => void;
+      let settleExecution!: (value: unknown) => void;
+      const closeFinished = new Promise<undefined>((resolve) => {
+        finishClose = () => {
+          events.push("close finished");
+          resolve(undefined);
+        };
+      });
+      driverMocks.sessionClose.mockReturnValueOnce(closeFinished);
+      const driverExecution = mode === "read" ? driverMocks.executeRead : driverMocks.executeWrite;
+      driverExecution.mockImplementationOnce(() => new Promise((resolve) => { settleExecution = resolve; }));
+      const client = createNeo4jClient({ environment: "test" });
+      const controller = new AbortController();
+      const pending = mode === "read"
+        ? client.executeRead(async () => "read", { signal: controller.signal })
+        : client.executeWrite(async () => "write", { signal: controller.signal });
+      const observed = pending.then(
+        (value) => ({ status: "resolved" as const, value }),
+        (error: unknown) => {
+          events.push("rejected");
+          return { status: "rejected" as const, error };
+        },
+      );
 
-    controller.abort();
+      controller.abort();
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    expect(driverMocks.sessionClose).toHaveBeenCalledOnce();
-    settle("late result");
-  });
+      expect(driverMocks.sessionClose).toHaveBeenCalledOnce();
+      expect(events).toEqual([]);
+
+      finishClose();
+
+      await expect(observed).resolves.toMatchObject({
+        status: "rejected",
+        error: { name: "AbortError" },
+      });
+      expect(events).toEqual(["close finished", "rejected"]);
+
+      settleExecution("late result");
+      await Promise.resolve();
+      expect(driverMocks.sessionClose).toHaveBeenCalledOnce();
+    },
+  );
 
   it("does not open a session for an already aborted transaction", async () => {
     const client = createNeo4jClient({ environment: "test" });

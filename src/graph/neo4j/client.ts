@@ -120,12 +120,18 @@ class DriverNeo4jClient implements Neo4jClient {
       bookmarkManager: this.bookmarks,
     });
     let aborted = false;
+    let abortReason: unknown;
+    let closePromise: Promise<void> | undefined;
+    const closeSession = () => closePromise ??= session.close();
     let rejectAborted!: (reason?: unknown) => void;
     const abortedExecution = new Promise<never>((_resolve, reject) => { rejectAborted = reject; });
     const abort = () => {
       aborted = true;
-      rejectAborted(options.signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
-      void session.close().catch(() => undefined);
+      abortReason = options.signal?.reason ?? new DOMException("The operation was aborted", "AbortError");
+      void closeSession().then(
+        () => rejectAborted(abortReason),
+        () => rejectAborted(abortReason),
+      );
     };
     options.signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -134,10 +140,21 @@ class DriverNeo4jClient implements Neo4jClient {
       const execution = mode === "read"
         ? session.executeRead(callback, transactionConfig)
         : session.executeWrite(callback, transactionConfig);
-      return options.signal ? await Promise.race([execution, abortedExecution]) : await execution;
+      const result = options.signal ? await Promise.race([execution, abortedExecution]) : await execution;
+      if (aborted) {
+        await closeSession().catch(() => undefined);
+        throw abortReason;
+      }
+      return result;
+    } catch (error) {
+      if (aborted) {
+        await closeSession().catch(() => undefined);
+        throw abortReason;
+      }
+      throw error;
     } finally {
       options.signal?.removeEventListener("abort", abort);
-      if (!aborted) await session.close();
+      if (!aborted) await closeSession();
     }
   }
 
