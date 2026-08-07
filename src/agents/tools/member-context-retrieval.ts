@@ -79,7 +79,6 @@ export type MemberContextRetrievalDependencies = {
 export type MemberContextRetrievalRequest = {
   readonly selection: CopilotIntentSelection;
   readonly requestedFor: string;
-  readonly evidenceAsOf?: string;
   readonly handle: MemberContextReadHandle;
 };
 
@@ -114,10 +113,6 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
       const resolution = resolveCopilotIntent(request.selection);
       if (resolution.status !== "resolved") return resolution;
       if (!isClientDate(request.requestedFor)) return { status: "invalid", message: "Requested day is invalid." };
-      if (request.evidenceAsOf !== undefined && !Number.isFinite(Date.parse(request.evidenceAsOf))) {
-        return { status: "invalid", message: "Evidence as-of timestamp is invalid." };
-      }
-
       const { handle } = request;
       const scope: CopilotScopeEnvelope = {
         memberId: handle.memberId,
@@ -130,7 +125,7 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
       const conversations: ConversationProjection[] = [];
       let brief: CoachBriefProjection | null = null;
       let timezone: string | undefined;
-      let evidenceAsOf = request.evidenceAsOf;
+      let evidenceAsOf: string | undefined;
       let citations: CopilotCitation[] = [];
       let readCount = 0;
 
@@ -230,6 +225,16 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
           const profile = selected.find((item): item is MemberProfileEvidenceProjection => item.kind === "member-profile");
           if (step.stepId === "profile" && !profile) return { status: "empty", message: "No supported evidence is available." };
           timezone ??= profile?.timezone;
+          if (step.stepId === "profile") {
+            if (!timezone || !result.authoritativeEvidenceAnchor) {
+              return { status: "invalid", message: "Member context has no authoritative evidence anchor." };
+            }
+            try {
+              evidenceAsOf = deriveEvidenceAsOf([result.authoritativeEvidenceAnchor], timezone);
+            } catch {
+              return { status: "invalid", message: "Member context evidence anchor is invalid." };
+            }
+          }
         } else if (step.operation === "longitudinal-series") {
           const data = result.data as readonly LongitudinalPointProjection[];
           longitudinal.push(...data);
@@ -261,10 +266,6 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
             if (!item) throw new Error("Citation escaped the bounded retrieval evidence set.");
             return normalizeCitation(scope, citation, item);
           });
-        }
-
-        if (!evidenceAsOf) {
-          try { evidenceAsOf = deriveEvidenceAsOf(evidence, timezone ?? "UTC"); } catch { /* no authoritative anchor yet */ }
         }
       }
 

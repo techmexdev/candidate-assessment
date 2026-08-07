@@ -159,7 +159,6 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
       const retrievalStage = await waitForStage(dependencies.retrieve({
         selection,
         requestedFor: request.requestedFor,
-        evidenceAsOf: request.evidenceAsOf,
         handle: request.memberContext,
       }), signal);
       if (retrievalStage.status === "aborted") {

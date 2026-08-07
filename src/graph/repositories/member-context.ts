@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { inspectAuthorizedMemberContextScope } from "../../application/use-cases/retrieve-member-context";
 import type {
+  AuthoritativeEvidenceAnchorProjection,
   AuthorizedMemberContextScope,
   BoundedMemberContextQuery,
   CitationLookupQuery,
@@ -41,6 +42,7 @@ import type {
   WorkoutPreferenceConstraintProjection,
   WorkoutSessionEvidenceProjection,
 } from "../../domain/contracts/member-context-queries";
+import { deriveEvidenceAsOf } from "../../domain/policies/copilot-projections";
 import type {
   MemberContextAuthority,
   MemberContextGraphSnapshot,
@@ -343,6 +345,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
   private readonly nodesByEvidenceId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
   private readonly nodesBySemanticId: ReadonlyMap<string, MemberContextRevisionScopedNode>;
   private readonly labMeasurementIds: ReadonlySet<string>;
+  private readonly authoritativeEvidenceAnchor: AuthoritativeEvidenceAnchorProjection | null;
   private readonly domainPredicates: Readonly<Record<MemberContextEvidenceDomain, (node: MemberContextRevisionScopedNode) => boolean>>;
 
   constructor(
@@ -358,6 +361,23 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     this.revisionNodes = snapshot.nodes.filter((node): node is MemberContextRevisionScopedNode => "assertionId" in node);
     this.nodesByEvidenceId = new Map(this.revisionNodes.map((node) => [node.assertionId, node]));
     this.nodesBySemanticId = new Map(this.revisionNodes.map((node) => [node.semanticId, node]));
+    const profile = this.revisionNodes.find((node) => node.kind === "member-profile");
+    const anchorCandidates = profile ? this.revisionNodes
+      .filter((node): node is MemberContextRevisionScopedNode & {
+        readonly temporal: AuthoritativeEvidenceAnchorProjection["temporal"];
+      } => node.temporal.precision === "exact-timestamp" || node.temporal.precision === "date")
+      .map((node) => ({
+        evidenceId: node.assertionId,
+        temporal: node.temporal,
+        instant: Date.parse(deriveEvidenceAsOf([node], profile.timezone)),
+      }))
+      .filter((candidate) => Number.isFinite(candidate.instant))
+      .sort((left, right) => left.instant - right.instant || left.evidenceId.localeCompare(right.evidenceId))
+      : [];
+    const latestAnchor = anchorCandidates.at(-1);
+    this.authoritativeEvidenceAnchor = latestAnchor
+      ? { evidenceId: latestAnchor.evidenceId, temporal: latestAnchor.temporal }
+      : null;
     this.labMeasurementIds = new Set(snapshot.relationships
       .filter((edge) => edge.kind === "CONTAINS_MEASUREMENT")
       .map((edge) => edge.toSemanticId));
@@ -389,6 +409,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
       contextRevisionId: this.contextRevisionId,
       authority: this.authority,
       evidenceIds,
+      authoritativeEvidenceAnchor: this.authoritativeEvidenceAnchor,
     } as const;
   }
 

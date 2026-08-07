@@ -79,11 +79,20 @@ export type CitationLookupQuery = BoundedMemberContextQuery & {
   readonly evidenceIds: readonly string[];
 };
 
+export type AuthoritativeEvidenceAnchorProjection = {
+  readonly evidenceId: string;
+  readonly temporal:
+    | Extract<AssertionTemporal, { readonly precision: "exact-timestamp" }>
+    | Extract<AssertionTemporal, { readonly precision: "date" }>;
+};
+
 type QueryEnvelope = {
   readonly memberId: string;
   readonly contextRevisionId: string;
   readonly authority: MemberContextAuthority;
   readonly evidenceIds: readonly string[];
+  /** Latest dated assertion in the authorized, revision-pinned Member Context snapshot. */
+  readonly authoritativeEvidenceAnchor?: AuthoritativeEvidenceAnchorProjection | null;
 };
 
 export type MemberContextQueryResult<T> =

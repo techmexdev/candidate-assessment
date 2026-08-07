@@ -202,6 +202,15 @@ describe("member context bounded query provider", () => {
     });
     if (result.status !== "ready") throw new Error(result.status);
 
+    expect(result.authoritativeEvidenceAnchor?.temporal).toEqual({
+      precision: "date",
+      effectiveOn: jordan.coach_brief.generated_for,
+    });
+    expect(snapshot.nodes.some((node) => "assertionId" in node
+      && node.assertionId === result.authoritativeEvidenceAnchor?.evidenceId
+      && node.temporal.precision === "date"
+      && node.temporal.effectiveOn === jordan.coach_brief.generated_for)).toBe(true);
+
     expect(result.data.find((fact) => fact.kind === "member-profile")).toEqual(expect.objectContaining({
       timezone: jordan.profile.timezone,
       source: expect.objectContaining({ artifactDigest: snapshot.sourceArtifactDigest }),

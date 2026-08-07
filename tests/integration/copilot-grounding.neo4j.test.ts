@@ -36,13 +36,13 @@ function publication(snapshot: MemberContextGraphSnapshot) {
   };
 }
 
-function requestBody(memberId = JORDAN_ID) {
+function requestBody(memberId = JORDAN_ID, promptId = "morning-brief") {
   return {
     schemaVersion: "copilot-request/v1",
     requestId: "request:integration",
     memberId,
     requestedFor: "2026-07-08",
-    input: { kind: "quick-prompt", promptId: "morning-brief" },
+    input: { kind: "quick-prompt", promptId },
   } as const;
 }
 
@@ -135,6 +135,29 @@ describe.sequential("Copilot canonical Neo4j grounding", () => {
     expect(model.select).not.toHaveBeenCalled();
   });
 
+  it("answers Jordan's calendar-first Adherence prompt from one pinned canonical revision", async () => {
+    const { handler, model } = harness();
+    const response = await handler(httpRequest(requestBody(JORDAN_ID, "adherence")));
+    const payload = await response.json() as { status: string; answer: CopilotAnswerPacket };
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.status).toBe("ready");
+    expect(payload.answer).toMatchObject({
+      memberId: JORDAN_ID,
+      contextRevisionId: first.contextRevisionId,
+      authority: "canonical",
+      intentId: "adherence",
+      requestedFor: "2026-07-08",
+      evidenceAsOf: "2026-06-04T23:59:59.999-07:00",
+    });
+    expect(payload.answer.chart?.points).toHaveLength(4);
+    expect(payload.answer.citations.length).toBeGreaterThan(0);
+    expect(payload.answer.citations.every((citation) => citation.memberId === JORDAN_ID
+      && citation.contextRevisionId === first.contextRevisionId
+      && payload.answer.evidence.atoms.some((atom) => atom.evidenceId === citation.evidenceId))).toBe(true);
+    expect(model.select).not.toHaveBeenCalled();
+  });
+
   it("keeps the initially opened sealed revision when a newer revision activates before recipe reads", async () => {
     const second = compileMemberContextGraph(buildMemberContextFixture((source) => {
       source.biomarkers.hrv_ms += 1;
@@ -163,12 +186,14 @@ describe.sequential("Copilot canonical Neo4j grounding", () => {
         return input.coachId === COACH_ID && input.authorizationId === "grant:integration" && input.memberId === JORDAN_ID;
       },
     });
-    const response = await handler(httpRequest(requestBody()));
-    const payload = await response.json() as { answer: CopilotAnswerPacket };
+    const response = await handler(httpRequest(requestBody(JORDAN_ID, "adherence")));
+    const payload = await response.json() as { status: string; answer: CopilotAnswerPacket };
 
+    expect(payload.status, JSON.stringify(payload)).toBe("ready");
     expect(payload.answer, JSON.stringify(payload)).toBeDefined();
     expect(payload.answer.contextRevisionId).toBe(first.contextRevisionId);
-    expect(payload.answer.citations.every((citation) => citation.contextRevisionId === first.contextRevisionId)).toBe(true);
+    expect(payload.answer.citations.every((citation) => citation.memberId === JORDAN_ID
+      && citation.contextRevisionId === first.contextRevisionId)).toBe(true);
     const active = await publisher.inspect(JORDAN_ID);
     expect(active).toMatchObject({ status: "ok", data: { activeRevisionId: second.contextRevisionId } });
   });

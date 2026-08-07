@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import jordan from "../../data/member-context.json";
 import type {
+  AuthoritativeEvidenceAnchorProjection,
   MemberContextQueryResult,
   MemberContextReadHandle,
   MemberEvidenceProjection,
@@ -32,11 +33,20 @@ const base = {
   temporal: { precision: "date", effectiveOn: "2026-06-04" },
 } as const;
 
-function ready<T>(data: T, evidenceIds: readonly string[]): MemberContextQueryResult<T> {
-  return { status: "ready", ...scope, data, evidenceIds };
+const authoritativeEvidenceAnchor: AuthoritativeEvidenceAnchorProjection = {
+  evidenceId: "assertion:anchor00000000",
+  temporal: { precision: "date", effectiveOn: "2026-06-04" },
+};
+
+function ready<T>(
+  data: T,
+  evidenceIds: readonly string[],
+  anchor: AuthoritativeEvidenceAnchorProjection | null = authoritativeEvidenceAnchor,
+): MemberContextQueryResult<T> {
+  return { status: "ready", ...scope, data, evidenceIds, authoritativeEvidenceAnchor: anchor };
 }
 
-function fakeHandle() {
+function fakeHandle(anchor: AuthoritativeEvidenceAnchorProjection | null = authoritativeEvidenceAnchor) {
   const evidence: MemberEvidenceProjection[] = [{
     ...base,
     kind: "member-profile",
@@ -59,7 +69,7 @@ function fakeHandle() {
     ...scope,
     coachId: "coach_casey",
     getSummary: vi.fn(),
-    getEvidence: vi.fn(async () => ready(evidence, [base.evidenceId])),
+    getEvidence: vi.fn(async () => ready(evidence, [base.evidenceId], anchor)),
     getLongitudinalSeries: vi.fn(async () => ready([], [])),
     getRelativeOrderSequence: vi.fn(async () => ready(sleep, sleep.map((point) => point.evidenceId))),
     getConversation: vi.fn(async () => ({ status: "empty" as const, ...scope, evidenceIds: [], message: "none" })),
@@ -191,6 +201,31 @@ describe("Copilot bounded retrieval", () => {
     expect(handle.getCitations).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["absent", null],
+    ["invalid", {
+      evidenceId: "assertion:invalidanchor00",
+      temporal: { precision: "exact-timestamp", effectiveAt: "not-a-timestamp" },
+    } as AuthoritativeEvidenceAnchorProjection],
+    ["invalid calendar-date", {
+      evidenceId: "assertion:invalidanchor01",
+      temporal: { precision: "date", effectiveOn: "2026-02-30" },
+    } as AuthoritativeEvidenceAnchorProjection],
+  ] as const)("fails closed on an %s authoritative anchor before a calendar read", async (_case, anchor) => {
+    const handle = fakeHandle(anchor);
+    const reauthorize = vi.fn(async () => true);
+    const result = await createMemberContextRetrieval({ reauthorize }).retrieve({
+      selection: { kind: "quick-prompt", promptId: "adherence" },
+      requestedFor: "2099-12-31",
+      handle,
+    });
+
+    expect(result).toMatchObject({ status: "invalid" });
+    expect(reauthorize).toHaveBeenCalledTimes(1);
+    expect(handle.getLongitudinalSeries).not.toHaveBeenCalled();
+    expect(handle.getCitations).not.toHaveBeenCalled();
+  });
+
   it("executes every seeded quick-prompt recipe without a model on one canonical revision", async () => {
     const snapshot = compileMemberContextGraph(jordan);
     const publisher = new InMemoryMemberContextPublisher();
@@ -209,13 +244,12 @@ describe("Copilot bounded retrieval", () => {
       authorizeMemberContext: () => true,
     })({ coachId: jordan.profile.coach_id, memberId: jordan.profile.id, authorizationId: "grant:jordan" });
     if (opened.status !== "ready") throw new Error(opened.status);
-    const retrieval = createMemberContextRetrieval({ reauthorize: () => true });
-
     for (const promptId of Object.keys(COPILOT_INTENT_REGISTRY)) {
+      const reauthorize = vi.fn(() => true);
+      const retrieval = createMemberContextRetrieval({ reauthorize });
       const result = await retrieval.retrieve({
         selection: { kind: "quick-prompt", promptId },
         requestedFor: "2026-07-08",
-        evidenceAsOf: "2026-06-04T23:59:59.999-07:00",
         handle: opened.handle,
       });
       expect(result, promptId).toMatchObject({
@@ -226,6 +260,7 @@ describe("Copilot bounded retrieval", () => {
         memberTimezone: "America/Los_Angeles",
         contextRevisionId: snapshot.contextRevisionId,
       });
+      expect(reauthorize, promptId).toHaveBeenCalledTimes(COPILOT_INTENT_REGISTRY[promptId as keyof typeof COPILOT_INTENT_REGISTRY].readBudget);
     }
   });
 });

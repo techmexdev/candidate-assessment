@@ -63,6 +63,12 @@ function addCalendarDays(date: string, days: number): string {
   return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
 }
 
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
+}
+
 export function calculateCalendarWindow(input: Readonly<{
   evidenceAsOf: string;
   timezone: string;
@@ -89,6 +95,7 @@ export function deriveEvidenceAsOf(values: readonly TemporalValue[], timezone: s
       return [{ timestamp: instant.getTime(), rendered: instant.toISOString() }];
     }
     if (value.temporal.precision === "date") {
+      if (!isCalendarDate(value.temporal.effectiveOn)) return [];
       const instant = zonedInstant(value.temporal.effectiveOn, timezone, {
         hour: 23,
         minute: 59,

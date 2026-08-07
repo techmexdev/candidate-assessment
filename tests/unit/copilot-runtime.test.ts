@@ -76,7 +76,7 @@ function runtimeHarness(overrides: Record<string, unknown> = {}) {
 }
 
 function request(input: CopilotRuntimeRequest["input"]): CopilotRuntimeRequest {
-  return { requestId: "request:1", requestedFor: "2026-07-08", evidenceAsOf: "2026-06-04T23:59:59.999-07:00", input, memberContext: handle };
+  return { requestId: "request:1", requestedFor: "2026-07-08", input, memberContext: handle };
 }
 
 describe("bounded Copilot runtime", () => {
