@@ -7,6 +7,7 @@ import {
   selectCurrentVersion,
   type DashboardState,
 } from "../../src/features/coach-dashboard/state";
+import type { SpeechCaptureState } from "../../src/features/coach-dashboard/speech-input";
 
 const jordanState = () => dashboardReducer(
   createInitialDashboardState("2026-08-06"),
@@ -233,6 +234,42 @@ describe("coach dashboard state", () => {
 
     expect(athlete(brief).pendingPrompt).toBeNull();
     expect(stale).toBe(brief);
+  });
+
+  it("keeps speech capture member-scoped and clears it when leaving the route", () => {
+    const capture: SpeechCaptureState = {
+      status: "reviewing",
+      scope: {
+        memberId: "mbr_jordan",
+        routeId: "copilot",
+        contextRevisionId: "revision-1",
+        captureId: "capture-1",
+      },
+      interimTranscript: "",
+      transcript: "Review adherence",
+      message: "",
+    };
+    const active = dashboardReducer(jordanState(), {
+      type: "update-speech-capture",
+      memberId: "mbr_jordan",
+      capture,
+    });
+    const avery = dashboardReducer(active, { type: "select-athlete", memberId: "mbr_avery" });
+    const stale = dashboardReducer(avery, {
+      type: "update-speech-capture",
+      memberId: "mbr_jordan",
+      capture,
+    });
+    const left = dashboardReducer(active, { type: "select-destination", destination: "coach" });
+
+    expect(active.athleteStates.mbr_jordan.capture).toEqual(capture);
+    expect(active.announcement).not.toContain(capture.transcript);
+    expect(stale).toBe(avery);
+    expect(left.athleteStates.mbr_jordan.capture).toMatchObject({
+      status: "idle",
+      transcript: "",
+      interimTranscript: "",
+    });
   });
 
   it("keeps cancelled edits out of the immutable content history", () => {

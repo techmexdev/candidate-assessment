@@ -2,6 +2,7 @@ import type { CopilotAnswerPacket, CopilotPin, CopilotQuestionInput, SignedCopil
 import type { DashboardCopilotOutcome, DashboardDecisionId, DashboardInsightId } from "./dashboard-contract";
 import type { DashboardRuntimeWorkoutProjection, DashboardWorkoutRuntimeUpdate } from "./runtime-adapter";
 import type { MemberConversationTimeline } from "../../application/use-cases/retrieve-member-conversation";
+import { createInitialSpeechCaptureState, type SpeechCaptureState } from "./speech-input";
 
 export type DashboardDestination = "today" | "coach";
 export type DashboardDialog = "adjustment" | "override";
@@ -90,6 +91,7 @@ export type AthleteWorkflowState = {
   runtimeWorkout: DashboardRuntimeWorkoutProjection | null;
   conversation: DashboardConversationState;
   copilot: DashboardCopilotState;
+  capture: SpeechCaptureState;
 };
 
 export type DashboardState = {
@@ -127,6 +129,7 @@ export type DashboardAction =
   | { type: "request-copilot"; request: DashboardCopilotRequestRecord }
   | { type: "complete-copilot"; memberId: string; requestId: string; outcome: DashboardCopilotOutcome }
   | { type: "toggle-copilot-pin"; pin: CopilotPin }
+  | { type: "update-speech-capture"; memberId: string; capture: SpeechCaptureState }
   | { type: "request-workout-generation"; requestId: string }
   | {
       type: "update-workout-generation";
@@ -180,6 +183,7 @@ function createAthleteWorkflowState(): AthleteWorkflowState {
     runtimeWorkout: null,
     conversation: { status: "idle", timeline: null, message: "" },
     copilot: { pending: null, lastRequest: null, outcome: null, answers: [], lastReadyAnswer: null, pins: [] },
+    capture: createInitialSpeechCaptureState(),
   };
 }
 
@@ -209,12 +213,16 @@ function isPublished(workflow: AthleteWorkflowState) {
 
 function cancelPending(workflow: AthleteWorkflowState): AthleteWorkflowState {
   const generationPending = ["submitting", "queued", "running"].includes(workflow.runtimeGeneration.status);
-  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending) return workflow;
+  const capturePending = workflow.capture.status !== "idle"
+    || Boolean(workflow.capture.transcript)
+    || Boolean(workflow.capture.interimTranscript);
+  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !capturePending) return workflow;
   return {
     ...workflow,
     pendingPrompt: null,
     pendingAdjustment: false,
     copilot: workflow.copilot.pending ? { ...workflow.copilot, pending: null } : workflow.copilot,
+    capture: capturePending ? createInitialSpeechCaptureState() : workflow.capture,
     ...(generationPending ? {
       runtimeGeneration: {
         ...workflow.runtimeGeneration,
@@ -530,6 +538,24 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
         },
       }));
       return { ...updated, announcement: removing ? "Copilot pin removed from Today." : "Copilot answer pinned to Today." };
+    }
+    case "update-speech-capture": {
+      if (action.memberId !== state.activeMemberId) return state;
+      const workflow = state.athleteStates[action.memberId];
+      if (!workflow) return state;
+      const currentCaptureId = workflow.capture.scope?.captureId;
+      const nextCaptureId = action.capture.scope?.captureId;
+      const activeCapture = workflow.capture.status !== "idle" && workflow.capture.status !== "cancelled";
+      if (activeCapture && currentCaptureId && nextCaptureId && currentCaptureId !== nextCaptureId) return state;
+      const updated = updateAthlete(state, action.memberId, (current) => ({ ...current, capture: action.capture }));
+      const message = action.capture.status === "listening"
+        ? "Voice input listening."
+        : action.capture.status === "reviewing"
+          ? "Voice input ready to review."
+          : action.capture.status === "submitting"
+            ? "Submitting voice question."
+            : action.capture.message;
+      return message ? { ...updated, announcement: message } : updated;
     }
     case "request-workout-generation": {
       const workflow = selectActiveAthleteState(state);
