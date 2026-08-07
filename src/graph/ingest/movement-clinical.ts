@@ -32,7 +32,13 @@ import {
 type SourceRecord = { readonly source_id: string; readonly source_revision: string };
 type ReviewRecord = { readonly status: string; readonly reviewer: string; readonly reviewed_at: string };
 type ManifestBase = { readonly manifest_id: string; readonly revision: string };
-type CatalogExercise = (typeof catalog)[number];
+type CatalogExercise = {
+  readonly id: string;
+  readonly muscle_groups: readonly string[];
+  readonly joints_loaded: readonly string[];
+  readonly movement_patterns: readonly string[];
+  readonly equipment_required: readonly string[];
+};
 
 type ExerciseConceptRecord = {
   readonly stable_id: string;
@@ -216,6 +222,196 @@ const slug = (value: string) => value
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-|-$/g, "");
 
+type UnknownRecord = Readonly<Record<string, unknown>>;
+
+const isRecord = (value: unknown): value is UnknownRecord => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const isString = (value: unknown): value is string => typeof value === "string";
+const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
+const isStringArray = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every(isString);
+const isOneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => isString(value) && options.includes(value as T);
+const hasStrings = (value: UnknownRecord, keys: readonly string[]) => keys.every((key) => isString(value[key]));
+
+function isJsonValue(value: unknown, ancestors = new WeakSet<object>()): boolean {
+  if (value === null || isString(value) || isBoolean(value)) return true;
+  if (isNumber(value)) return true;
+  if (!isRecord(value) && !Array.isArray(value)) return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = (Array.isArray(value) ? value : Object.values(value))
+    .every((nested) => isJsonValue(nested, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
+function isSourceRecord(value: unknown): value is SourceRecord {
+  return isRecord(value) && hasStrings(value, ["source_id", "source_revision"]);
+}
+
+function isReviewRecord(value: unknown): value is ReviewRecord {
+  return isRecord(value) && hasStrings(value, ["status", "reviewer", "reviewed_at"]);
+}
+
+function hasOptionalReview(value: UnknownRecord) {
+  return value.review === undefined || isReviewRecord(value.review);
+}
+
+function isManifest(value: unknown): value is ManifestBase & UnknownRecord {
+  return isRecord(value) && hasStrings(value, ["manifest_id", "revision"]);
+}
+
+function isCatalogExercise(value: unknown): value is CatalogExercise {
+  return isRecord(value)
+    && isString(value.id)
+    && isStringArray(value.muscle_groups)
+    && isStringArray(value.joints_loaded)
+    && isStringArray(value.movement_patterns)
+    && isStringArray(value.equipment_required);
+}
+
+function isConceptRecord(value: unknown): value is ConceptRecord {
+  if (!isRecord(value)
+    || !hasStrings(value, ["stable_id", "kind", "label", "catalog_scope"])
+    || !isStringArray(value.aliases)
+    || !isSourceRecord(value.source)) return false;
+  if (value.kind === "exercise") {
+    if (!isString(value.catalog_id) || !isRecord(value.catalog)) return false;
+    return (isString(value.catalog.priority_tier) || isNumber(value.catalog.priority_tier))
+      && isBoolean(value.catalog.supports_weight)
+      && isBoolean(value.catalog.is_bilateral)
+      && (value.catalog.bilateral_pair_id === null || isString(value.catalog.bilateral_pair_id));
+  }
+  return isOneOf(value.kind, ["movement-pattern", "equipment", "muscle", "joint", "body-region", "condition"] as const);
+}
+
+function isPartOfRecord(value: unknown): value is PartOfRecord {
+  return isRecord(value)
+    && hasStrings(value, ["assertion_id", "child_id", "child_kind", "parent_id", "parent_kind"])
+    && isOneOf(value.child_kind, ["muscle", "joint", "body-region"] as const)
+    && isOneOf(value.parent_kind, ["joint", "body-region"] as const)
+    && isSourceRecord(value.source);
+}
+
+function isExerciseStressRecord(value: unknown): value is ExerciseStressRecord {
+  return isRecord(value)
+    && hasStrings(value, ["assertion_id", "exercise_id", "anatomy_id", "anatomy_kind"])
+    && isOneOf(value.anatomy_kind, ["joint", "body-region"] as const)
+    && isSourceRecord(value.source);
+}
+
+function isDemandRecord(value: unknown): value is DemandRecord {
+  return isRecord(value)
+    && hasStrings(value, ["stable_id", "label", "definition"])
+    && "scope" in value
+    && isStringArray(value.reviewer_evidence_ids)
+    && isSourceRecord(value.source);
+}
+
+function isDemandAssignmentRecord(value: unknown): value is DemandAssignmentRecord {
+  return isRecord(value)
+    && hasStrings(value, ["assertion_id", "exercise_id", "demand_id"])
+    && isSourceRecord(value.source);
+}
+
+function isEvidenceRecord(value: unknown): value is EvidenceRecord {
+  return isRecord(value)
+    && hasStrings(value, ["stable_id", "title", "owner", "version_or_access_date"])
+    && isOneOf(value.evidence_role, ["clinical", "project-policy", "catalog", "ontology", "graph-build"] as const)
+    && isSourceRecord(value.source);
+}
+
+function isSourceReviewRecord(value: unknown): value is SourceReviewRecord {
+  return isRecord(value)
+    && hasStrings(value, ["source_id", "source_revision", "title", "publisher", "source_release", "uri"]);
+}
+
+function isClinicalRuleRecord(value: unknown): value is ClinicalRuleRecord {
+  if (!isRecord(value)
+    || !hasStrings(value, ["stable_id", "assertion_id", "condition_id"])
+    || !isOneOf(value.effect, ["hard-contraindication", "caution", "down-rank"] as const)
+    || !isOneOf(value.severity, ["critical", "high", "moderate", "low"] as const)
+    || !isStringArray(value.evidence_ids)
+    || !isSourceRecord(value.source)
+    || !hasOptionalReview(value)
+    || !isRecord(value.applicability)
+    || !isStringArray(value.applicability.condition_statuses)
+    || !isStringArray(value.applicability.recovery_stages)
+    || !isStringArray(value.applicability.severity_bands)
+    || !isOneOf(value.applicability.laterality_policy, ["same-side", "either-side", "conservative-when-unknown"] as const)
+    || !isRecord(value.override_policy)
+    || !isBoolean(value.override_policy.allowed)
+    || !isBoolean(value.override_policy.rationale_required)
+    || (value.override_policy.required_role !== undefined && !isOneOf(value.override_policy.required_role, ["coach", "clinical-reviewer"] as const))
+    || !isRecord(value.target)
+    || !isOneOf(value.target.edge_kind, ["contraindicates", "cautions", "downranks"] as const)
+    || !isOneOf(value.target.target_kind, ["movement-demand", "movement-pattern", "joint", "body-region"] as const)
+    || !isString(value.target.target_id)) return false;
+  return value.clinical_review === undefined
+    || (isRecord(value.clinical_review) && hasStrings(value.clinical_review, ["status", "reviewer"]));
+}
+
+function isMappingRecord(value: unknown): value is MappingRecord {
+  if (!isRecord(value) || !isString(value.status) || !isSourceRecord(value.source) || !hasOptionalReview(value)) return false;
+  if (value.status === "local-only") {
+    return hasStrings(value, ["verification_id", "verification_status", "review_reason"]);
+  }
+  return value.status === "reviewed"
+    && hasStrings(value, [
+      "mapping_id", "assertion_id", "source_ontology", "source_code", "source_term", "source_uri",
+      "source_release", "external_status", "target_kind", "target_concept_id", "ontology_concept_id",
+      "relation", "rationale", "curator", "reviewed_at", "source_artifact_digest",
+    ])
+    && isOneOf(value.source_ontology, ["OPE", "SNOMED CT"] as const)
+    && isOneOf(value.external_status, ["active", "inactive"] as const)
+    && isOneOf(value.target_kind, ["exercise", "muscle", "joint", "body-region", "movement-pattern", "movement-demand", "equipment", "condition"] as const)
+    && isOneOf(value.relation, ["exactMatch", "closeMatch", "broadMatch", "narrowMatch"] as const)
+    && isNumber(value.confidence);
+}
+
+function isSubstitutionRecord(value: unknown): value is SubstitutionRecord {
+  return isRecord(value)
+    && hasStrings(value, ["assertion_id", "source_exercise_id", "target_exercise_id", "preserved_intent"])
+    && isNumber(value.rank)
+    && isSourceRecord(value.source)
+    && isReviewRecord(value.review);
+}
+
+const sourceManifestValidators = {
+  catalog: (value: unknown) => Array.isArray(value) && value.every(isCatalogExercise),
+  concepts: (value: unknown) => isManifest(value)
+    && Array.isArray(value.source_artifacts) && value.source_artifacts.every(isSourceRecord)
+    && Array.isArray(value.records) && value.records.every(isConceptRecord),
+  anatomy: (value: unknown) => isManifest(value)
+    && Array.isArray(value.part_of) && value.part_of.every(isPartOfRecord)
+    && Array.isArray(value.exercise_stresses) && value.exercise_stresses.every(isExerciseStressRecord),
+  demands: (value: unknown) => isManifest(value)
+    && Array.isArray(value.records) && value.records.every(isDemandRecord)
+    && Array.isArray(value.assignments) && value.assignments.every(isDemandAssignmentRecord),
+  evidence: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isEvidenceRecord),
+  rules: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isClinicalRuleRecord),
+  substitutions: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isSubstitutionRecord),
+  mappings: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isMappingRecord),
+  sourceReviews: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isSourceReviewRecord),
+} satisfies Record<keyof MovementGraphSources, (value: unknown) => boolean>;
+
+function parseMovementGraphSources(value: unknown):
+  | { readonly status: "valid"; readonly sources: MovementGraphSources }
+  | { readonly status: "invalid"; readonly errors: readonly MovementGraphValidationError[] } {
+  if (!isRecord(value)) {
+    return { status: "invalid", errors: [{ code: "invalid_source_manifest", message: "Malformed movement graph sources" }] };
+  }
+  const expectedNames = new Set(Object.keys(sourceManifestValidators));
+  const errors: MovementGraphValidationError[] = Object.keys(value)
+    .filter((name) => !expectedNames.has(name))
+    .map((name) => ({ code: "invalid_source_manifest", message: `Unexpected source manifest ${name}` }));
+  errors.push(...Object.entries(sourceManifestValidators)
+    .filter(([name, validate]) => !isJsonValue(value[name]) || !validate(value[name]))
+    .map(([name]) => ({ code: "invalid_source_manifest" as const, message: `Malformed source manifest ${name}` })));
+  return errors.length > 0
+    ? { status: "invalid", errors }
+    : { status: "valid", sources: value as MovementGraphSources };
+}
+
 function manifestMetadata(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const manifest = value as Readonly<Record<string, unknown>>;
@@ -260,10 +456,18 @@ function sourceValidationErrors(sources: MovementGraphSources): MovementGraphVal
       errors.push({ code: "rule_effect_mismatch", message: `Rule effect mismatch ${record.stable_id || "unknown"}` });
     }
   }
+  for (const record of sources.substitutions.records) {
+    if (record.review.status !== "reviewed" || !record.review.reviewer.trim() || !record.review.reviewed_at.trim()) {
+      errors.push({ code: "incomplete_substitution", message: `Incomplete substitution ${record.assertion_id || "unknown"}` });
+    }
+  }
   return errors;
 }
 
-export function compileMovementGraph(sources: MovementGraphSources): MovementGraphCompileResult {
+export function compileMovementGraph(value: unknown): MovementGraphCompileResult {
+  const parsed = parseMovementGraphSources(value);
+  if (parsed.status === "invalid") return { status: "invalid", report: invalidSourceReport(parsed.errors) };
+  const sources = parsed.sources;
   const sourceEntries = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right));
   const sourceDigests = sourceEntries.map(([name, value]) => [name, `sha256:${sha256(canonicalJson(value))}`] as [string, string]);
   const graphRevisionId = deriveRevisionId(MOVEMENT_GRAPH_SCHEMA_VERSION, MOVEMENT_GRAPH_COMPILER_VERSION, sourceDigests);

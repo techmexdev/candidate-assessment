@@ -11,7 +11,7 @@ export type MovementGraphValidationErrorCode =
   | "duplicate_concept_id" | "duplicate_assertion_id" | "dangling_reference" | "invalid_endpoint"
   | "forbidden_direct_clinical_edge" | "unsupported_mapping_relation" | "incomplete_mapping"
   | "invalid_local_only_mapping" | "rule_effect_mismatch" | "incomplete_clinical_rule" | "anatomy_cycle"
-  | "mixed_revision" | "bounds_exceeded";
+  | "incomplete_substitution" | "invalid_source_manifest" | "mixed_revision" | "bounds_exceeded";
 export type MovementGraphValidationError = { readonly code: MovementGraphValidationErrorCode; readonly message: string; readonly assertionId?: string };
 export type MovementGraphValidationReport =
   | { readonly status: "valid"; readonly errors: readonly [] }

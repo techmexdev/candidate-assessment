@@ -102,4 +102,65 @@ describe("movement graph compiler and validator", () => {
     if (result.status === "invalid") expect(result.report.errors.map((error) => error.code)).toContain("invalid_local_only_mapping");
     expect("snapshot" in result).toBe(false);
   });
+
+  it.each([
+    "catalog",
+    "concepts",
+    "anatomy",
+    "demands",
+    "evidence",
+    "rules",
+    "substitutions",
+    "mappings",
+    "sourceReviews",
+  ] as const)("returns a typed invalid report for a malformed %s source manifest", (manifest) => {
+    const sources = structuredClone(movementGraphSources) as unknown as Record<string, unknown>;
+    sources[manifest] = null;
+
+    expect(() => compileMovementGraph(sources as unknown as typeof movementGraphSources)).not.toThrow();
+    const result = compileMovementGraph(sources as unknown as typeof movementGraphSources);
+
+    expect(result.status).toBe("invalid");
+    if (result.status === "invalid") {
+      expect(result.report.errors).toContainEqual({
+        code: "invalid_source_manifest",
+        message: `Malformed source manifest ${manifest}`,
+      });
+    }
+    expect("snapshot" in result).toBe(false);
+  });
+
+  it("returns a typed invalid report for malformed nested manifest data", () => {
+    const sources = structuredClone(movementGraphSources) as unknown as {
+      demands: { records: Array<{ scope: unknown }> };
+    };
+    sources.demands.records[0]!.scope = 1n;
+
+    const result = compileMovementGraph(sources);
+
+    expect(result).toMatchObject({
+      status: "invalid",
+      report: { errors: [{ code: "invalid_source_manifest", message: "Malformed source manifest demands" }] },
+    });
+  });
+
+  it.each([
+    ["draft review", { status: "draft", reviewer: "curator", reviewed_at: "2026-08-06" }],
+    ["rejected review", { status: "rejected", reviewer: "curator", reviewed_at: "2026-08-06" }],
+    ["blank reviewer", { status: "reviewed", reviewer: " ", reviewed_at: "2026-08-06" }],
+    ["blank review date", { status: "reviewed", reviewer: "curator", reviewed_at: " " }],
+  ])("rejects a substitution with %s", (_label, review) => {
+    const sources = structuredClone(movementGraphSources) as unknown as {
+      substitutions: { records: Array<{ review: typeof review }> };
+    };
+    sources.substitutions.records[0]!.review = review;
+
+    const result = compileMovementGraph(sources as unknown as typeof movementGraphSources);
+
+    expect(result.status).toBe("invalid");
+    if (result.status === "invalid") {
+      expect(result.report.errors.map((error) => error.code)).toContain("incomplete_substitution");
+    }
+    expect("snapshot" in result).toBe(false);
+  });
 });

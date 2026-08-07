@@ -113,13 +113,14 @@ class Neo4jMovementPublisher implements MovementGraphPublisher {
           await transaction.run(MOVEMENT_CYPHER.rejectAttempt, { attemptId: attempt.attemptId, validationErrors: errors, validatedAt });
           return { status: "failed", failure: { code: "validation_failed", graphRevisionId: attempt.revisionId, errors } };
         }
-        if (snapshot.nodes.some((node) => node.kind === "clinical-rule") && !request.clinicalReviewApprovalId?.trim()) {
+        if (!request.clinicalReviewApprovalId?.trim()) {
           return { status: "failed", failure: { code: "clinical_review_required", graphRevisionId: attempt.revisionId } };
         }
         const report = validateMovementGraph(snapshot);
         const canonicalDigest = `sha256:${sha256(canonicalJson(snapshot))}`;
         const errors = [
           ...(report.status === "invalid" ? validationStrings(report.errors) : []),
+          ...(snapshot.nodes.some((node) => node.kind === "clinical-rule") ? [] : ["missing_clinical_rules"]),
           ...(canonicalDigest === attempt.requestedDigest ? [] : ["canonical_digest_mismatch"]),
           ...(snapshot.nodes.length === attempt.requestedNodeCount ? [] : ["node_count_mismatch"]),
           ...(snapshot.edges.length === attempt.requestedEdgeCount ? [] : ["edge_count_mismatch"]),

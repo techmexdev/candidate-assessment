@@ -45,30 +45,52 @@ type SealMetadata = { readonly canonicalDigest: string; readonly nodeCount: numb
 
 class Neo4jMovementGraphReadHandle implements MovementGraphReadHandle {
   readonly authority = "canonical" as const;
-  constructor(readonly graphRevisionId: string, private readonly client: Neo4jClient, private readonly seal: SealMetadata) {}
+  readonly graphRevisionId: string;
 
-  private async withCanonicalHandle<T>(operation: (handle: MovementGraphReadHandle) => Promise<GraphQueryResult<T>>): Promise<GraphQueryResult<T>> {
+  constructor(
+    private readonly delegate: MovementGraphReadHandle,
+    private readonly client: Neo4jClient,
+    private readonly seal: SealMetadata,
+  ) {
+    this.graphRevisionId = delegate.graphRevisionId;
+  }
+
+  private async withPinnedSeal<T>(operation: (handle: MovementGraphReadHandle) => Promise<GraphQueryResult<T>>): Promise<GraphQueryResult<T>> {
     try {
-      const snapshot = await this.client.executeRead((transaction) => readCanonicalMovementSnapshot(transaction, this.graphRevisionId));
-      const digest = snapshot ? `sha256:${sha256(canonicalJson(snapshot))}` : undefined;
-      if (!snapshot || snapshot.nodes.length !== this.seal.nodeCount || snapshot.edges.length !== this.seal.edgeCount
-        || digest !== this.seal.canonicalDigest || validateMovementGraph(snapshot).status !== "valid") {
-        return { status: "failed", graphRevisionId: this.graphRevisionId, authority: this.authority, failure: { code: "graph_unavailable", message: "Sealed movement graph failed canonical integrity verification" } };
+      const seal = await this.client.executeRead(async (transaction): Promise<SealMetadata | undefined> => {
+        const result = await transaction.run(MOVEMENT_CYPHER.readSealedRevision, { revisionId: this.graphRevisionId });
+        const record = result.records[0];
+        const canonicalDigest = textValue(record?.get("canonicalDigest"));
+        return record && canonicalDigest
+          ? { canonicalDigest, nodeCount: Number(record.get("nodeCount")), edgeCount: Number(record.get("edgeCount")) }
+          : undefined;
+      });
+      if (!seal || seal.canonicalDigest !== this.seal.canonicalDigest
+        || seal.nodeCount !== this.seal.nodeCount || seal.edgeCount !== this.seal.edgeCount) {
+        return {
+          status: "failed",
+          graphRevisionId: this.graphRevisionId,
+          authority: this.authority,
+          failure: { code: "graph_unavailable", message: "Movement graph revision seal changed after open" },
+        };
       }
-      const opened = await new InMemoryMovementGraphReadProvider([snapshot], { authority: "canonical", activeRevisionId: this.graphRevisionId }).openRevision(this.graphRevisionId);
-      if (opened.status !== "ready") return { status: "failed", graphRevisionId: this.graphRevisionId, authority: this.authority, failure: { code: "graph_unavailable", message: "Canonical movement graph is unavailable" } };
-      return operation(opened.handle);
+      return operation(this.delegate);
     } catch {
-      return { status: "failed", graphRevisionId: this.graphRevisionId, authority: this.authority, failure: { code: "graph_unavailable", message: "Canonical movement graph read failed" } };
+      return {
+        status: "failed",
+        graphRevisionId: this.graphRevisionId,
+        authority: this.authority,
+        failure: { code: "graph_unavailable", message: "Movement graph revision seal check failed" },
+      };
     }
   }
 
-  resolveConceptCandidates(query: ResolveConceptCandidatesQuery) { return this.withCanonicalHandle((handle) => handle.resolveConceptCandidates(query)); }
-  getAnatomyPaths(query: AnatomyPathsQuery) { return this.withCanonicalHandle((handle) => handle.getAnatomyPaths(query)); }
-  getClinicalRuleFacts(query: ClinicalRuleFactsQuery) { return this.withCanonicalHandle((handle) => handle.getClinicalRuleFacts(query)); }
-  getExerciseConstraintFacts(query: ExerciseConstraintFactsQuery) { return this.withCanonicalHandle((handle) => handle.getExerciseConstraintFacts(query)); }
-  getSubstitutionCandidates(query: SubstitutionCandidatesQuery) { return this.withCanonicalHandle((handle) => handle.getSubstitutionCandidates(query)); }
-  getAssertions(query: AssertionLookupQuery) { return this.withCanonicalHandle((handle) => handle.getAssertions(query)); }
+  resolveConceptCandidates(query: ResolveConceptCandidatesQuery) { return this.withPinnedSeal((handle) => handle.resolveConceptCandidates(query)); }
+  getAnatomyPaths(query: AnatomyPathsQuery) { return this.withPinnedSeal((handle) => handle.getAnatomyPaths(query)); }
+  getClinicalRuleFacts(query: ClinicalRuleFactsQuery) { return this.withPinnedSeal((handle) => handle.getClinicalRuleFacts(query)); }
+  getExerciseConstraintFacts(query: ExerciseConstraintFactsQuery) { return this.withPinnedSeal((handle) => handle.getExerciseConstraintFacts(query)); }
+  getSubstitutionCandidates(query: SubstitutionCandidatesQuery) { return this.withPinnedSeal((handle) => handle.getSubstitutionCandidates(query)); }
+  getAssertions(query: AssertionLookupQuery) { return this.withPinnedSeal((handle) => handle.getAssertions(query)); }
 }
 
 class Neo4jMovementGraphReadProvider implements MovementGraphReadProvider {
@@ -88,18 +110,36 @@ class Neo4jMovementGraphReadProvider implements MovementGraphReadProvider {
 
   async openRevision(revisionId: string): Promise<MovementGraphReadOpenResult> {
     try {
-      const seal = await this.client.executeRead(async (transaction): Promise<SealMetadata | undefined> => {
+      const canonicalRevision = await this.client.executeRead(async (transaction): Promise<{
+        readonly seal: SealMetadata;
+        readonly snapshot: MovementGraphSnapshot | undefined;
+      } | undefined> => {
         const result = await transaction.run(MOVEMENT_CYPHER.readSealedRevision, { revisionId });
         const record = result.records[0];
         const canonicalDigest = textValue(record?.get("canonicalDigest"));
         if (!record || !canonicalDigest) return undefined;
-        return { canonicalDigest, nodeCount: Number(record.get("nodeCount")), edgeCount: Number(record.get("edgeCount")) };
+        const seal = { canonicalDigest, nodeCount: Number(record.get("nodeCount")), edgeCount: Number(record.get("edgeCount")) };
+        const snapshot = await readCanonicalMovementSnapshot(transaction, revisionId);
+        return { seal, snapshot };
       });
-      return seal
-        ? { status: "ready", handle: new Neo4jMovementGraphReadHandle(revisionId, this.client, seal) }
-        : { status: "unavailable", failure: { code: "revision_not_found", revisionId } };
+      if (!canonicalRevision) return { status: "unavailable", failure: { code: "revision_not_found", revisionId } };
+
+      const { seal, snapshot } = canonicalRevision;
+      const digest = snapshot ? `sha256:${sha256(canonicalJson(snapshot))}` : undefined;
+      if (!snapshot || snapshot.nodes.length !== seal.nodeCount || snapshot.edges.length !== seal.edgeCount
+        || digest !== seal.canonicalDigest || validateMovementGraph(snapshot).status !== "valid") {
+        return { status: "unavailable", failure: { code: "graph_unavailable", message: "Sealed movement graph failed canonical integrity verification" } };
+      }
+
+      const indexed = await new InMemoryMovementGraphReadProvider([snapshot], {
+        authority: "canonical",
+        activeRevisionId: revisionId,
+      }).openRevision(revisionId);
+      return indexed.status === "ready"
+        ? { status: "ready", handle: new Neo4jMovementGraphReadHandle(indexed.handle, this.client, seal) }
+        : { status: "unavailable", failure: { code: "graph_unavailable", message: "Canonical movement graph is unavailable" } };
     } catch {
-      return { status: "unavailable", failure: { code: "graph_unavailable", message: "Movement graph revision lookup failed" } };
+      return { status: "unavailable", failure: { code: "graph_unavailable", message: "Movement graph revision read failed" } };
     }
   }
 }

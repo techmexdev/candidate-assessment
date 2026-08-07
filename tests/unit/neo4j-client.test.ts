@@ -35,6 +35,7 @@ vi.mock("neo4j-driver", () => ({
 
 import {
   createNeo4jClient,
+  NEO4J_DRIVER_TIMEOUTS,
   NEO4J_TRANSACTION_TIMEOUTS,
 } from "../../src/graph/neo4j/client";
 
@@ -45,6 +46,17 @@ describe("Neo4j client transaction timeouts", () => {
 
   it("applies the bounded publication-safe default to every managed transaction", async () => {
     const client = createNeo4jClient({ environment: "test" });
+
+    expect(driverMocks.driver).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      {
+        disableLosslessIntegers: true,
+        connectionTimeout: NEO4J_DRIVER_TIMEOUTS.connectionMs,
+        connectionAcquisitionTimeout: NEO4J_DRIVER_TIMEOUTS.connectionAcquisitionMs,
+        maxTransactionRetryTime: NEO4J_DRIVER_TIMEOUTS.maxTransactionRetryMs,
+      },
+    );
 
     await expect(client.executeWrite(async () => "written")).resolves.toBe("written");
     await expect(client.executeRead(async () => "read")).resolves.toBe("read");
@@ -65,6 +77,35 @@ describe("Neo4j client transaction timeouts", () => {
     await client.executeWrite(async () => undefined, { timeoutMs: 5_000 });
 
     expect(driverMocks.executeWrite).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000 });
+  });
+
+  it("passes validated driver timeout overrides to the driver", () => {
+    const driverTimeouts = {
+      connectionMs: 50,
+      connectionAcquisitionMs: 100,
+      maxTransactionRetryMs: 50,
+    };
+
+    createNeo4jClient({ environment: "test", driverTimeouts });
+
+    expect(driverMocks.driver).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      expect.objectContaining({
+        connectionTimeout: driverTimeouts.connectionMs,
+        connectionAcquisitionTimeout: driverTimeouts.connectionAcquisitionMs,
+        maxTransactionRetryTime: driverTimeouts.maxTransactionRetryMs,
+      }),
+    );
+  });
+
+  it("rejects invalid driver timeout overrides before creating the driver", () => {
+    expect(() => createNeo4jClient({
+      environment: "test",
+      driverTimeouts: { connectionMs: 100, connectionAcquisitionMs: 50 },
+    })).toThrow(/acquisition timeout/i);
+
+    expect(driverMocks.driver).not.toHaveBeenCalled();
   });
 
   it.each([

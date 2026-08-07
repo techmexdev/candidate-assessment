@@ -130,10 +130,7 @@ function sourceReviewErrors(sources: MovementGraphSources): string[] {
   return [...new Set(errors)].sort();
 }
 
-export function prepareMovementGraphSeed(sources: MovementGraphSources = movementGraphSources): MovementGraphSeedPreparation {
-  const gateErrors = sourceReviewErrors(sources);
-  if (gateErrors.length > 0) return { status: "invalid", validationStatus: "invalid", validationErrors: gateErrors };
-
+export function prepareMovementGraphSeed(sources: unknown = movementGraphSources): MovementGraphSeedPreparation {
   const compiled = compileMovementGraph(sources);
   if (compiled.status === "invalid") {
     return {
@@ -142,6 +139,8 @@ export function prepareMovementGraphSeed(sources: MovementGraphSources = movemen
       validationErrors: compiled.report.errors.map((error) => error.assertionId ? `${error.code}:${error.assertionId}` : error.code).sort(),
     };
   }
+  const gateErrors = sourceReviewErrors(sources as MovementGraphSources);
+  if (gateErrors.length > 0) return { status: "invalid", validationStatus: "invalid", validationErrors: gateErrors };
   const revision = compiled.snapshot.nodes.find((node) => node.kind === "graph-revision");
   if (!revision || revision.kind !== "graph-revision") {
     return { status: "invalid", validationStatus: "invalid", validationErrors: ["missing_graph_revision"] };
@@ -258,27 +257,48 @@ function clientConfig(): Neo4jClientConfig {
   };
 }
 
-async function runCli(args: readonly string[]) {
-  const action = args[0] ?? "seed";
-  const seed = prepareMovementGraphSeed();
-  if (seed.status === "invalid") {
-    process.stdout.write(`${JSON.stringify(seed)}\n`);
-    process.exitCode = 1;
-    return;
-  }
-  if (action === "seed" && args.includes("--dry-run")) {
-    process.stdout.write(`${JSON.stringify(await executePreparedMovementGraphSeed(undefined, seed, { mode: "dry-run" }))}\n`);
-    return;
-  }
+type MovementGraphSeedCliPublisherSession = {
+  readonly publisher: MovementGraphPublisher;
+  readonly close: () => Promise<void>;
+};
 
+export type MovementGraphSeedCliDependencies = {
+  readonly prepareSeed?: () => MovementGraphSeedPreparation;
+  readonly openPublisher?: () => Promise<MovementGraphSeedCliPublisherSession>;
+  readonly writeOutput?: (output: string) => void;
+  readonly setExitCode?: (exitCode: number) => void;
+};
+
+async function openMovementGraphSeedPublisher(): Promise<MovementGraphSeedCliPublisherSession> {
   const client = createNeo4jClient(clientConfig());
   try {
     await client.verifyConnectivity();
     await setupMovementNeo4jSchema(client);
-    const publisher = createNeo4jMovementPublisher(client);
-    if (action === "inspect") {
+    return {
+      publisher: createNeo4jMovementPublisher(client),
+      close: () => client.close(),
+    };
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
+}
+
+export async function runMovementGraphSeedCli(
+  args: readonly string[],
+  dependencies: MovementGraphSeedCliDependencies = {},
+) {
+  const prepareSeed = dependencies.prepareSeed ?? prepareMovementGraphSeed;
+  const openPublisher = dependencies.openPublisher ?? openMovementGraphSeedPublisher;
+  const writeOutput = dependencies.writeOutput ?? ((output: string) => process.stdout.write(output));
+  const setExitCode = dependencies.setExitCode ?? ((exitCode: number) => { process.exitCode = exitCode; });
+  const action = args[0] ?? "seed";
+
+  if (action === "inspect") {
+    const session = await openPublisher();
+    try {
       const revisionId = argumentValue(args, "--revision");
-      const inspection = await publisher.inspect(revisionId);
+      const inspection = await session.publisher.inspect(revisionId);
       const safeOutput = inspection.status === "ok"
         ? {
             validationStatus: inspection.data.state,
@@ -286,10 +306,27 @@ async function runCli(args: readonly string[]) {
             ...(inspection.data.revisionId ? { graphRevisionId: inspection.data.revisionId } : {}),
           }
         : { validationStatus: "failed", failureCode: inspection.failure.code };
-      process.stdout.write(`${JSON.stringify(safeOutput)}\n`);
-      if (inspection.status === "failed") process.exitCode = 1;
+      writeOutput(`${JSON.stringify(safeOutput)}\n`);
+      if (inspection.status === "failed") setExitCode(1);
       return;
+    } finally {
+      await session.close();
     }
+  }
+
+  const seed = prepareSeed();
+  if (seed.status === "invalid") {
+    writeOutput(`${JSON.stringify(seed)}\n`);
+    setExitCode(1);
+    return;
+  }
+  if (action === "seed" && args.includes("--dry-run")) {
+    writeOutput(`${JSON.stringify(await executePreparedMovementGraphSeed(undefined, seed, { mode: "dry-run" }))}\n`);
+    return;
+  }
+
+  const session = await openPublisher();
+  try {
     if (action !== "seed") throw new Error("Expected seed or inspect command");
 
     const activate = args.includes("--activate");
@@ -303,17 +340,17 @@ async function runCli(args: readonly string[]) {
           actorId: argumentValue(args, "--actor") ?? "curator:local-seed-command",
         }
       : { mode: "stage", clinicalReviewApprovalId: "clinical-review:manifest:clinical-rules:v1" };
-    const result = await executePreparedMovementGraphSeed(publisher, seed, mode);
-    process.stdout.write(`${JSON.stringify(result)}\n`);
-    if (result.status === "failed") process.exitCode = 1;
+    const result = await executePreparedMovementGraphSeed(session.publisher, seed, mode);
+    writeOutput(`${JSON.stringify(result)}\n`);
+    if (result.status === "failed") setExitCode(1);
   } finally {
-    await client.close();
+    await session.close();
   }
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : undefined;
 if (invokedPath === import.meta.url) {
-  runCli(process.argv.slice(2)).catch(() => {
+  runMovementGraphSeedCli(process.argv.slice(2)).catch(() => {
     process.stdout.write(`${JSON.stringify({ validationStatus: "failed", failureCode: "publication_unavailable" })}\n`);
     process.exitCode = 1;
   });

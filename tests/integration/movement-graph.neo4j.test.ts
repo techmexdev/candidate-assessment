@@ -102,6 +102,28 @@ describe.sequential("Neo4j movement graph persistence", () => {
     for (const operation of operations) expect(await operation(neoOpened.handle)).toEqual(await operation(memoryOpened.handle));
   });
 
+  it("reuses one verified canonical snapshot for every query on an opened handle", async () => {
+    const snapshot = compiledSnapshot();
+    await publishAndSeal(client, snapshot);
+    const provider = createNeo4jMovementGraphReadProvider(client);
+    const opened = await provider.openRevision(snapshot.graphRevisionId);
+    if (opened.status !== "ready") throw new Error("expected readable revision");
+
+    await client.executeWrite(async (transaction) => {
+      await transaction.run(
+        "MATCH (node:MovementConcept {graphRevisionId: $revisionId}) WITH node LIMIT 1 SET node.payload = $payload",
+        { revisionId: snapshot.graphRevisionId, payload: "{\"tamperedAfterOpen\":true}" },
+      );
+    });
+
+    await expect(opened.handle.resolveConceptCandidates({ text: "knee", kinds: ["joint"], maxResults: 10 }))
+      .resolves.toMatchObject({ status: "ok", graphRevisionId: snapshot.graphRevisionId });
+    await expect(opened.handle.getAnatomyPaths({ conceptId: "joint:knee", includeSelf: true, maxDepth: 4, maxResults: 10 }))
+      .resolves.toMatchObject({ status: "ok", graphRevisionId: snapshot.graphRevisionId });
+    await expect(provider.openRevision(snapshot.graphRevisionId))
+      .resolves.toMatchObject({ status: "unavailable", failure: { code: "graph_unavailable" } });
+  });
+
   it("rolls back the entire bounded snapshot when staging fails inside the transaction", async () => {
     const snapshot = compiledSnapshot();
     const publisher = createNeo4jMovementPublisher(client, { failureInjection: "after_nodes" });
@@ -171,6 +193,69 @@ describe.sequential("Neo4j movement graph persistence", () => {
       .resolves.toMatchObject({ status: "failed", failure: { code: "validation_failed" } });
     await expect(createNeo4jMovementGraphReadProvider(client).openRevision(snapshot.graphRevisionId))
       .resolves.toMatchObject({ status: "unavailable" });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["whitespace", "   "],
+  ])("requires a clinical review approval when it is %s", async (_case, clinicalReviewApprovalId) => {
+    const snapshot = compiledSnapshot();
+    const publisher = createNeo4jMovementPublisher(client);
+    const staged = await publisher.stage(requestFor(snapshot));
+    if (staged.status !== "ok") throw new Error(JSON.stringify(staged.failure));
+
+    const validationRequest = clinicalReviewApprovalId === undefined
+      ? { publicationAttemptId: staged.data.publicationAttemptId }
+      : { publicationAttemptId: staged.data.publicationAttemptId, clinicalReviewApprovalId };
+    await expect(publisher.validate(validationRequest)).resolves.toEqual({
+      status: "failed",
+      failure: { code: "clinical_review_required", graphRevisionId: snapshot.graphRevisionId },
+    });
+    await expect(publisher.inspect(snapshot.graphRevisionId))
+      .resolves.toMatchObject({ status: "ok", data: { state: "staged" } });
+    await expect(createNeo4jMovementGraphReadProvider(client).openRevision(snapshot.graphRevisionId))
+      .resolves.toEqual({ status: "unavailable", failure: { code: "revision_not_found", revisionId: snapshot.graphRevisionId } });
+    const sealCount = await client.executeRead(async (transaction) => {
+      const result = await transaction.run(
+        "MATCH (:RevisionSeal {graphRevisionId: $revisionId}) RETURN count(*) AS count",
+        { revisionId: snapshot.graphRevisionId },
+      );
+      return Number(result.records[0]?.get("count"));
+    });
+    expect(sealCount).toBe(0);
+  });
+
+  it("rejects a first-release snapshot with no clinical rules before it can seal or activate", async () => {
+    const compiled = compiledSnapshot();
+    const retainedConceptIds = new Set(compiled.nodes
+      .filter((node) => node.kind !== "clinical-rule")
+      .map((node) => node.conceptId));
+    const snapshot: MovementGraphSnapshot = {
+      ...compiled,
+      nodes: compiled.nodes.filter((node) => retainedConceptIds.has(node.conceptId)),
+      edges: compiled.edges.filter((edge) => retainedConceptIds.has(edge.fromConceptId) && retainedConceptIds.has(edge.toConceptId)),
+    };
+    const publisher = createNeo4jMovementPublisher(client);
+    const staged = await publisher.stage(requestFor(snapshot));
+    if (staged.status !== "ok") throw new Error(JSON.stringify(staged.failure));
+
+    await expect(publisher.validate({
+      publicationAttemptId: staged.data.publicationAttemptId,
+      clinicalReviewApprovalId: "clinical-review:rule-free-test",
+    })).resolves.toEqual({
+      status: "failed",
+      failure: { code: "validation_failed", graphRevisionId: snapshot.graphRevisionId, errors: ["missing_clinical_rules"] },
+    });
+    await expect(publisher.inspect(snapshot.graphRevisionId))
+      .resolves.toMatchObject({ status: "ok", data: { activeRevisionId: null, state: "rejected" } });
+    await expect(publisher.activate({
+      graphRevisionId: snapshot.graphRevisionId,
+      expectedPriorRevisionId: null,
+      actorId: "curator:rule-free-test",
+    })).resolves.toEqual({ status: "failed", failure: { code: "not_sealed", graphRevisionId: snapshot.graphRevisionId } });
+    await expect(createNeo4jMovementGraphReadProvider(client).openRevision(snapshot.graphRevisionId))
+      .resolves.toEqual({ status: "unavailable", failure: { code: "revision_not_found", revisionId: snapshot.graphRevisionId } });
+    await expect(publisher.inspect()).resolves.toMatchObject({ status: "ok", data: { activeRevisionId: null } });
   });
 
   it("rejects unsafe environment configuration before creating a driver", () => {

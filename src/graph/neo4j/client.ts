@@ -16,12 +16,30 @@ export const NEO4J_TRANSACTION_TIMEOUTS = Object.freeze({
   maxMs: 120_000,
 });
 
+/**
+ * Fail-fast driver limits for the local-first graph service. These bound the
+ * time spent connecting, waiting for a pooled connection, and retrying a
+ * managed transaction before repository adapters return an unavailable result.
+ */
+export type Neo4jDriverTimeouts = {
+  readonly connectionMs: number;
+  readonly connectionAcquisitionMs: number;
+  readonly maxTransactionRetryMs: number;
+};
+
+export const NEO4J_DRIVER_TIMEOUTS: Neo4jDriverTimeouts = Object.freeze({
+  connectionMs: 5_000,
+  connectionAcquisitionMs: 10_000,
+  maxTransactionRetryMs: 5_000,
+});
+
 export type Neo4jClientConfig = {
   readonly uri?: string;
   readonly username?: string;
   readonly password?: string;
   readonly database?: string;
   readonly environment?: string;
+  readonly driverTimeouts?: Partial<Neo4jDriverTimeouts>;
 };
 
 export type Neo4jRecord = { readonly get: (key: string) => unknown };
@@ -51,6 +69,19 @@ function resolveTransactionTimeout(timeoutMs: number | undefined): number {
   return resolved;
 }
 
+function resolveDriverTimeouts(overrides: Partial<Neo4jDriverTimeouts> | undefined): Neo4jDriverTimeouts {
+  const resolved = { ...NEO4J_DRIVER_TIMEOUTS, ...overrides };
+  for (const [name, timeoutMs] of Object.entries(resolved)) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      throw new Error(`Neo4j driver ${name} must be a positive integer number of milliseconds`);
+    }
+  }
+  if (resolved.connectionAcquisitionMs < resolved.connectionMs) {
+    throw new Error("Neo4j connection acquisition timeout must be at least the connection timeout");
+  }
+  return Object.freeze(resolved);
+}
+
 function resolvedConfig(config: Neo4jClientConfig) {
   const environment = config.environment ?? process.env.NODE_ENV ?? "production";
   const allowsSyntheticDefaults = ["test", "development", "local"].includes(environment);
@@ -66,7 +97,7 @@ function resolvedConfig(config: Neo4jClientConfig) {
   if (!isLocalHost(parsed.hostname) && !["neo4j+s:", "bolt+s:"].includes(parsed.protocol)) {
     throw new Error("Non-local Neo4j hosts require an encrypted neo4j+s or bolt+s URI");
   }
-  return { uri, username, password, database };
+  return { uri, username, password, database, driverTimeouts: resolveDriverTimeouts(config.driverTimeouts) };
 }
 
 class DriverNeo4jClient implements Neo4jClient {
@@ -108,6 +139,9 @@ export function createNeo4jClient(config: Neo4jClientConfig = {}): Neo4jClient {
   const resolved = resolvedConfig(config);
   const driver = neo4j.driver(resolved.uri, neo4j.auth.basic(resolved.username, resolved.password), {
     disableLosslessIntegers: true,
+    connectionTimeout: resolved.driverTimeouts.connectionMs,
+    connectionAcquisitionTimeout: resolved.driverTimeouts.connectionAcquisitionMs,
+    maxTransactionRetryTime: resolved.driverTimeouts.maxTransactionRetryMs,
   });
   return new DriverNeo4jClient(driver, resolved.database, neo4j.bookmarkManager());
 }
