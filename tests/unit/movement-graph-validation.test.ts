@@ -60,7 +60,7 @@ describe("movement graph compiler and validator", () => {
     expect(second.status).toBe("valid");
     if (first.status !== "valid" || second.status !== "valid") return;
 
-    expect(first.snapshot.graphRevisionId).toBe("graph:sha256:c94ad209883875ba3294388d3db82f4d2bcae2aefd55a11b7d1f52ddccb1217a");
+    expect(first.snapshot.graphRevisionId).toBe("graph:sha256:f02cd7de83eb2abb539098dbdf6c7090435133bdf3c01c2de96f7808f2b6c5a7");
     expect(second.snapshot).toEqual(first.snapshot);
     expect(Object.isFrozen(first.snapshot)).toBe(true);
     expect(Object.isFrozen(first.snapshot.nodes)).toBe(true);
@@ -81,6 +81,15 @@ describe("movement graph compiler and validator", () => {
     ["anatomy_cycle", (copy) => {
       const edge = copy.edges.find((item) => item.kind === "part-of")!;
       copy.edges.push({ ...edge, assertionId: "assertion:cycle", fromConceptId: edge.toConceptId, fromKind: edge.toKind, toConceptId: edge.fromConceptId, toKind: edge.fromKind });
+    }],
+    ["variant_cycle", (copy) => {
+      const edge = copy.edges.find((item) => item.kind === "variant-of")!;
+      copy.edges.push({
+        ...edge,
+        assertionId: "assertion:variant-cycle",
+        fromConceptId: edge.toConceptId,
+        toConceptId: edge.fromConceptId,
+      });
     }],
     ["mixed_revision", (copy) => { copy.edges[0]!.graphRevisionId = "graph:sha256:other"; }],
     ["bounds_exceeded", (copy) => { copy.nodes = Array.from({ length: 513 }, (_, index) => ({ ...copy.nodes[0]!, conceptId: `exercise:overflow-${index}`, assertionId: `assertion:overflow-${index}` })); }],
@@ -111,6 +120,7 @@ describe("movement graph compiler and validator", () => {
     "evidence",
     "rules",
     "substitutions",
+    "variants",
     "mappings",
     "sourceReviews",
   ] as const)("returns a typed invalid report for a malformed %s source manifest", (manifest) => {
@@ -160,6 +170,31 @@ describe("movement graph compiler and validator", () => {
     expect(result.status).toBe("invalid");
     if (result.status === "invalid") {
       expect(result.report.errors.map((error) => error.code)).toContain("incomplete_substitution");
+    }
+    expect("snapshot" in result).toBe(false);
+  });
+
+  it.each([
+    ["draft review", { status: "draft", reviewer: "curator", reviewed_at: "2026-08-06" }],
+    ["self reference", undefined],
+  ])("rejects a movement variant with %s", (label, review) => {
+    const sources = structuredClone(movementGraphSources) as unknown as {
+      variants: { records: Array<{
+        variant_exercise_id: string;
+        family_root_exercise_id: string;
+        review: { status: string; reviewer: string; reviewed_at: string };
+      }> };
+    };
+    if (label === "self reference") {
+      sources.variants.records[0]!.variant_exercise_id = sources.variants.records[0]!.family_root_exercise_id;
+    } else if (review) {
+      sources.variants.records[0]!.review = review;
+    }
+
+    const result = compileMovementGraph(sources as unknown as typeof movementGraphSources);
+    expect(result.status).toBe("invalid");
+    if (result.status === "invalid") {
+      expect(result.report.errors.map((error) => error.code)).toContain("incomplete_variant");
     }
     expect("snapshot" in result).toBe(false);
   });

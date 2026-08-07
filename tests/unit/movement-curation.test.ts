@@ -9,6 +9,7 @@ import mappings from "../../data/movement-ontology-mappings.json";
 import rules from "../../data/clinical-rules.json";
 import sourceReviews from "../../data/movement-source-reviews.json";
 import substitutions from "../../data/movement-substitutions.json";
+import variants from "../../data/movement-variants.json";
 import type { OntologyMappingRecord } from "../../src/domain/contracts/ontology";
 
 const expectedDemandIds = [
@@ -183,6 +184,28 @@ describe("Movement and Clinical curated manifests", () => {
     const reversePairs = new Set(substitutions.records.map((record) => `${record.target_exercise_id}->${record.source_exercise_id}`));
     expect(substitutions.records.some((record) => reversePairs.has(`${record.source_exercise_id}->${record.target_exercise_id}`)))
       .toBe(false);
+  });
+
+  it("seeds one reviewed split-squat family with stable exercise endpoints", () => {
+    const exerciseIds = new Set(
+      concepts.records.filter((record) => record.kind === "exercise").map((record) => record.stable_id),
+    );
+    expect(variants.records).toHaveLength(2);
+    expectUnique(variants.records.map((record) => record.assertion_id));
+    expect(variants.records.map((record) => record.family_root_exercise_id)).toEqual([
+      "exercise:00cc383b-f156-4b23-952a-15340100c261",
+      "exercise:00cc383b-f156-4b23-952a-15340100c261",
+    ]);
+    expect(variants.records.map((record) => record.variant_exercise_id).sort()).toEqual([
+      "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+      "exercise:02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+    ]);
+    for (const record of variants.records) {
+      expectReviewedRecord(record);
+      expect(record.variant_exercise_id).not.toBe(record.family_root_exercise_id);
+      expect(exerciseIds.has(record.variant_exercise_id)).toBe(true);
+      expect(exerciseIds.has(record.family_root_exercise_id)).toBe(true);
+    }
   });
 
   it("pins eight reviewed SNOMED records and keeps OPE candidates explicitly local-only", () => {

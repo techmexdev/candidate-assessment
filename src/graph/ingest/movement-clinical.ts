@@ -7,6 +7,7 @@ import rules from "../../../data/clinical-rules.json";
 import mappings from "../../../data/movement-ontology-mappings.json";
 import sourceReviews from "../../../data/movement-source-reviews.json";
 import substitutions from "../../../data/movement-substitutions.json";
+import variants from "../../../data/movement-variants.json";
 import type {
   AssertionProvenance,
   ClinicalRuleNodeAssertion,
@@ -174,6 +175,13 @@ type SubstitutionRecord = {
   readonly source: SourceRecord;
   readonly review: ReviewRecord;
 };
+type VariantRecord = {
+  readonly assertion_id: string;
+  readonly variant_exercise_id: string;
+  readonly family_root_exercise_id: string;
+  readonly source: SourceRecord;
+  readonly review: ReviewRecord;
+};
 
 export type MovementGraphSources = {
   readonly catalog: readonly CatalogExercise[];
@@ -183,6 +191,7 @@ export type MovementGraphSources = {
   readonly evidence: ManifestBase & { readonly records: readonly EvidenceRecord[] };
   readonly rules: ManifestBase & { readonly records: readonly ClinicalRuleRecord[] };
   readonly substitutions: ManifestBase & { readonly records: readonly SubstitutionRecord[] };
+  readonly variants: ManifestBase & { readonly records: readonly VariantRecord[] };
   readonly mappings: ManifestBase & { readonly records: readonly MappingRecord[] };
   readonly sourceReviews: ManifestBase & { readonly records: readonly SourceReviewRecord[] };
 };
@@ -195,6 +204,7 @@ export const movementGraphSources = deepFreeze({
   evidence,
   rules,
   substitutions,
+  variants,
   mappings,
   sourceReviews,
 } as unknown as MovementGraphSources);
@@ -376,6 +386,13 @@ function isSubstitutionRecord(value: unknown): value is SubstitutionRecord {
     && isReviewRecord(value.review);
 }
 
+function isVariantRecord(value: unknown): value is VariantRecord {
+  return isRecord(value)
+    && hasStrings(value, ["assertion_id", "variant_exercise_id", "family_root_exercise_id"])
+    && isSourceRecord(value.source)
+    && isReviewRecord(value.review);
+}
+
 const sourceManifestValidators = {
   catalog: (value: unknown) => Array.isArray(value) && value.every(isCatalogExercise),
   concepts: (value: unknown) => isManifest(value)
@@ -390,6 +407,7 @@ const sourceManifestValidators = {
   evidence: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isEvidenceRecord),
   rules: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isClinicalRuleRecord),
   substitutions: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isSubstitutionRecord),
+  variants: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isVariantRecord),
   mappings: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isMappingRecord),
   sourceReviews: (value: unknown) => isManifest(value) && Array.isArray(value.records) && value.records.every(isSourceReviewRecord),
 } satisfies Record<keyof MovementGraphSources, (value: unknown) => boolean>;
@@ -459,6 +477,19 @@ function sourceValidationErrors(sources: MovementGraphSources): MovementGraphVal
   for (const record of sources.substitutions.records) {
     if (record.review.status !== "reviewed" || !record.review.reviewer.trim() || !record.review.reviewed_at.trim()) {
       errors.push({ code: "incomplete_substitution", message: `Incomplete substitution ${record.assertion_id || "unknown"}` });
+    }
+  }
+  const exerciseIds = new Set(sources.concepts.records
+    .filter((record) => record.kind === "exercise")
+    .map((record) => record.stable_id));
+  for (const record of sources.variants.records) {
+    if (record.review.status !== "reviewed" || !record.review.reviewer.trim() || !record.review.reviewed_at.trim()
+      || record.variant_exercise_id === record.family_root_exercise_id
+      || !record.variant_exercise_id.startsWith("exercise:")
+      || !record.family_root_exercise_id.startsWith("exercise:")
+      || !exerciseIds.has(record.variant_exercise_id)
+      || !exerciseIds.has(record.family_root_exercise_id)) {
+      errors.push({ code: "incomplete_variant", message: `Incomplete movement variant ${record.assertion_id || "unknown"}` });
     }
   }
   return errors;
@@ -695,6 +726,16 @@ export function compileMovementGraph(value: unknown): MovementGraphCompileResult
       preservedIntent: record.preserved_intent,
       curator: record.review.reviewer,
       reviewedAt: record.review.reviewed_at,
+      source: source(record.source, record.assertion_id),
+    });
+  }
+  for (const record of sources.variants.records) {
+    addEdge(record.assertion_id, {
+      kind: "variant-of",
+      fromConceptId: record.variant_exercise_id,
+      fromKind: "exercise",
+      toConceptId: record.family_root_exercise_id,
+      toKind: "exercise",
       source: source(record.source, record.assertion_id),
     });
   }

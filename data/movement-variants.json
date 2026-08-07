@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_id": "manifest:movement-variants:v1",
+  "revision": "movement-curation-v1",
+  "records": [
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:variant:med-ball-split-squat-of-rnt-split-squat:v1",
+      "variant_exercise_id": "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+      "family_root_exercise_id": "exercise:00cc383b-f156-4b23-952a-15340100c261",
+      "source": {
+        "source_id": "source:movement-variant-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-family-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "assertion_id": "assertion:variant:dumbbell-goblet-split-squat-of-rnt-split-squat:v1",
+      "variant_exercise_id": "exercise:02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+      "family_root_exercise_id": "exercise:00cc383b-f156-4b23-952a-15340100c261",
+      "source": {
+        "source_id": "source:movement-variant-curation",
+        "source_revision": "movement-curation-v1"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "movement-family-curator",
+        "reviewed_at": "2026-08-06"
+      }
+    }
+  ]
+}

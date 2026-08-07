@@ -83,9 +83,9 @@ export type ClinicalRuleFact = {
 };
 
 export type ExerciseConstraintRelationFact = {
-  readonly kind: "has-demand" | "expresses" | "stresses" | "requires";
+  readonly kind: "targets" | "has-demand" | "expresses" | "stresses" | "requires";
   readonly targetConceptId: string;
-  readonly targetKind: "movement-demand" | "movement-pattern" | "joint" | "body-region" | "equipment";
+  readonly targetKind: "muscle" | "movement-demand" | "movement-pattern" | "joint" | "body-region" | "equipment";
   readonly targetAssertionId: string;
   readonly edgeAssertionId: string;
 };
@@ -95,6 +95,34 @@ export type ExerciseConstraintFact = {
   readonly exerciseAssertionId: string;
   readonly attributes: ExerciseAttributes;
   readonly relations: readonly ExerciseConstraintRelationFact[];
+};
+
+export type ExerciseFamilyRelationFact = {
+  readonly variantExerciseConceptId: string;
+  readonly variantExerciseAssertionId: string;
+  readonly familyRootExerciseConceptId: string;
+  readonly familyRootExerciseAssertionId: string;
+  readonly edgeAssertionId: string;
+};
+
+export type CatalogExerciseFact = ExerciseConstraintFact & {
+  readonly familyRelations: readonly ExerciseFamilyRelationFact[];
+};
+
+export type CatalogExerciseFactsQuery = Pick<BoundedGraphQuery, "maxResults">;
+
+export type CatalogFamilyFact = {
+  readonly exerciseConceptId: string;
+  readonly exerciseAssertionId: string;
+  readonly matchedConceptId: string;
+  readonly matchedConceptAssertionId: string;
+  readonly matchKind: "exact-exercise" | "variant-of" | "expresses";
+  readonly pathAssertionIds: readonly string[];
+};
+
+export type CatalogFamilyFactsQuery = BoundedGraphQuery & {
+  readonly conceptId: string;
+  readonly conceptKind: "exercise" | "movement-pattern";
 };
 
 export type ExerciseConstraintFactsQuery = BoundedGraphQuery & {
@@ -139,6 +167,12 @@ export type MovementGraphReadHandle = {
   readonly getExerciseConstraintFacts: (
     query: ExerciseConstraintFactsQuery,
   ) => Promise<GraphQueryResult<ExerciseConstraintFact>>;
+  readonly getCatalogExerciseFacts: (
+    query: CatalogExerciseFactsQuery,
+  ) => Promise<GraphQueryResult<readonly CatalogExerciseFact[]>>;
+  readonly getCatalogFamilyFacts: (
+    query: CatalogFamilyFactsQuery,
+  ) => Promise<GraphQueryResult<readonly CatalogFamilyFact[]>>;
   readonly getSubstitutionCandidates: (
     query: SubstitutionCandidatesQuery,
   ) => Promise<GraphQueryResult<readonly SubstitutionCandidateFact[]>>;

@@ -2,6 +2,10 @@ import type {
   AnatomyPathFact,
   AnatomyPathsQuery,
   AssertionLookupQuery,
+  CatalogExerciseFact,
+  CatalogExerciseFactsQuery,
+  CatalogFamilyFact,
+  CatalogFamilyFactsQuery,
   ClinicalRuleFact,
   ClinicalRuleFactsQuery,
   ConceptCandidateFact,
@@ -15,6 +19,10 @@ import type {
   SubstitutionCandidateFact,
   SubstitutionCandidatesQuery,
 } from "../../domain/contracts/movement-clinical-queries";
+import {
+  CATALOG_SAFETY_MAX_EXERCISES,
+  CATALOG_SAFETY_MAX_FAMILY_DEPTH,
+} from "../../domain/contracts/catalog-safety";
 import { RESOLVABLE_CONCEPT_KINDS } from "../../domain/contracts/movement-graph";
 import type {
   GraphAuthority,
@@ -199,7 +207,7 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
     const exercise = this.nodesById.get(query.exerciseConceptId);
     if (!exercise || exercise.kind !== "exercise") return this.failure({ code: "unresolved_concept", conceptId: query.exerciseConceptId });
     const relations = (this.edgesByFrom.get(exercise.conceptId) ?? []).flatMap((edge): ExerciseConstraintFact["relations"][number][] => {
-      if (!["has-demand", "expresses", "stresses", "requires"].includes(edge.kind)) return [];
+      if (!["targets", "has-demand", "expresses", "stresses", "requires"].includes(edge.kind)) return [];
       const target = this.nodesById.get(edge.toConceptId);
       if (!target) return [];
       return [{
@@ -214,6 +222,153 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
       || left.edgeAssertionId.localeCompare(right.edgeAssertionId));
     if (relations.length > query.maxResults) return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth ?? 1, maxResults: query.maxResults });
     return this.result({ exerciseConceptId: exercise.conceptId, exerciseAssertionId: exercise.assertionId, attributes: exercise.attributes, relations });
+  }
+
+  async getCatalogExerciseFacts(query: CatalogExerciseFactsQuery): Promise<GraphQueryResult<readonly CatalogExerciseFact[]>> {
+    if (!Number.isInteger(query.maxResults) || query.maxResults <= 0 || query.maxResults > CATALOG_SAFETY_MAX_EXERCISES) {
+      return this.failure({ code: "invalid_query", message: `Catalog facts require maxResults between 1 and ${CATALOG_SAFETY_MAX_EXERCISES}` });
+    }
+    const exercises = this.snapshot.nodes
+      .filter((node) => node.kind === "exercise")
+      .sort((left, right) => left.conceptId.localeCompare(right.conceptId));
+    if (exercises.length > query.maxResults || exercises.length > CATALOG_SAFETY_MAX_EXERCISES) {
+      return this.failure({ code: "traversal_limit_exceeded", maxDepth: 1, maxResults: query.maxResults });
+    }
+
+    const facts: CatalogExerciseFact[] = [];
+    for (const exercise of exercises) {
+      const relations: ExerciseConstraintFact["relations"][number][] = [];
+      for (const edge of (this.edgesByFrom.get(exercise.conceptId) ?? [])) {
+        if (!["targets", "has-demand", "expresses", "stresses", "requires"].includes(edge.kind)) continue;
+        const target = this.nodesById.get(edge.toConceptId);
+        if (!target) return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
+        relations.push({
+          kind: edge.kind as ExerciseConstraintFact["relations"][number]["kind"],
+          targetConceptId: target.conceptId,
+          targetKind: target.kind as ExerciseConstraintFact["relations"][number]["targetKind"],
+          targetAssertionId: target.assertionId,
+          edgeAssertionId: edge.assertionId,
+        });
+      }
+      relations.sort((left, right) => left.kind.localeCompare(right.kind)
+        || left.targetConceptId.localeCompare(right.targetConceptId)
+        || left.edgeAssertionId.localeCompare(right.edgeAssertionId));
+
+      const familyRelations: CatalogExerciseFact["familyRelations"][number][] = [];
+      const familyEdges = [
+        ...(this.edgesByFrom.get(exercise.conceptId) ?? []),
+        ...(this.edgesByTo.get(exercise.conceptId) ?? []),
+      ].filter((edge) => edge.kind === "variant-of");
+      for (const edge of new Map(familyEdges.map((item) => [item.assertionId, item])).values()) {
+        const variant = this.nodesById.get(edge.fromConceptId);
+        const root = this.nodesById.get(edge.toConceptId);
+        if (!variant || variant.kind !== "exercise" || !root || root.kind !== "exercise" || variant.conceptId === root.conceptId) {
+          return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
+        }
+        familyRelations.push({
+          variantExerciseConceptId: variant.conceptId,
+          variantExerciseAssertionId: variant.assertionId,
+          familyRootExerciseConceptId: root.conceptId,
+          familyRootExerciseAssertionId: root.assertionId,
+          edgeAssertionId: edge.assertionId,
+        });
+      }
+      familyRelations.sort((left, right) => left.familyRootExerciseConceptId.localeCompare(right.familyRootExerciseConceptId)
+        || left.variantExerciseConceptId.localeCompare(right.variantExerciseConceptId)
+        || left.edgeAssertionId.localeCompare(right.edgeAssertionId));
+      facts.push({
+        exerciseConceptId: exercise.conceptId,
+        exerciseAssertionId: exercise.assertionId,
+        attributes: exercise.attributes,
+        relations,
+        familyRelations,
+      });
+    }
+    return this.result(facts);
+  }
+
+  async getCatalogFamilyFacts(query: CatalogFamilyFactsQuery): Promise<GraphQueryResult<readonly CatalogFamilyFact[]>> {
+    if (!this.validateBounds(query) || query.maxDepth === undefined
+      || query.maxDepth > CATALOG_SAFETY_MAX_FAMILY_DEPTH
+      || query.maxResults > CATALOG_SAFETY_MAX_EXERCISES) {
+      return this.failure({ code: "invalid_query", message: "Catalog family query bounds are invalid" });
+    }
+    const matched = this.nodesById.get(query.conceptId);
+    if (!matched || matched.kind !== query.conceptKind) {
+      return this.failure({ code: "unresolved_concept", conceptId: query.conceptId });
+    }
+
+    const facts: CatalogFamilyFact[] = [];
+    if (matched.kind === "movement-pattern") {
+      for (const edge of (this.edgesByTo.get(matched.conceptId) ?? []).filter((item) => item.kind === "expresses")) {
+        const exercise = this.nodesById.get(edge.fromConceptId);
+        if (!exercise || exercise.kind !== "exercise") {
+          return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
+        }
+        facts.push({
+          exerciseConceptId: exercise.conceptId,
+          exerciseAssertionId: exercise.assertionId,
+          matchedConceptId: matched.conceptId,
+          matchedConceptAssertionId: matched.assertionId,
+          matchKind: "expresses",
+          pathAssertionIds: [exercise.assertionId, edge.assertionId, matched.assertionId],
+        });
+      }
+    } else {
+      facts.push({
+        exerciseConceptId: matched.conceptId,
+        exerciseAssertionId: matched.assertionId,
+        matchedConceptId: matched.conceptId,
+        matchedConceptAssertionId: matched.assertionId,
+        matchKind: "exact-exercise",
+        pathAssertionIds: [matched.assertionId],
+      });
+      const queue = [{
+        conceptId: matched.conceptId,
+        depth: 0,
+        pathAssertionIds: [matched.assertionId] as string[],
+        pathConceptIds: new Set([matched.conceptId]),
+      }];
+      const visited = new Set([matched.conceptId]);
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const children = (this.edgesByTo.get(current.conceptId) ?? []).filter((edge) => edge.kind === "variant-of");
+        if (current.depth >= query.maxDepth) {
+          if (children.length > 0) {
+            return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth, maxResults: query.maxResults });
+          }
+          continue;
+        }
+        for (const edge of children) {
+          const exercise = this.nodesById.get(edge.fromConceptId);
+          if (!exercise || exercise.kind !== "exercise" || current.pathConceptIds.has(exercise.conceptId) || visited.has(exercise.conceptId)) {
+            return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
+          }
+          visited.add(exercise.conceptId);
+          const pathAssertionIds = [...current.pathAssertionIds, edge.assertionId, exercise.assertionId];
+          facts.push({
+            exerciseConceptId: exercise.conceptId,
+            exerciseAssertionId: exercise.assertionId,
+            matchedConceptId: matched.conceptId,
+            matchedConceptAssertionId: matched.assertionId,
+            matchKind: "variant-of",
+            pathAssertionIds,
+          });
+          queue.push({
+            conceptId: exercise.conceptId,
+            depth: current.depth + 1,
+            pathAssertionIds,
+            pathConceptIds: new Set(current.pathConceptIds).add(exercise.conceptId),
+          });
+        }
+      }
+    }
+    facts.sort((left, right) => Number(left.matchKind !== "exact-exercise") - Number(right.matchKind !== "exact-exercise")
+      || left.exerciseConceptId.localeCompare(right.exerciseConceptId));
+    if (facts.length > query.maxResults) {
+      return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth, maxResults: query.maxResults });
+    }
+    return this.result(facts);
   }
 
   async getSubstitutionCandidates(query: SubstitutionCandidatesQuery): Promise<GraphQueryResult<readonly SubstitutionCandidateFact[]>> {

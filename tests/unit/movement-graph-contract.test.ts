@@ -155,6 +155,18 @@ describe("Movement and Clinical graph contract", () => {
         authority: "canonical",
         failure: { code: "unresolved_concept", conceptId: "exercise:test" },
       }),
+      getCatalogExerciseFacts: async () => ({
+        status: "ok",
+        graphRevisionId: "graph:sha256:abc",
+        authority: "canonical",
+        data: [],
+      }),
+      getCatalogFamilyFacts: async () => ({
+        status: "ok",
+        graphRevisionId: "graph:sha256:abc",
+        authority: "canonical",
+        data: [],
+      }),
       getSubstitutionCandidates: async () => ({
         status: "ok",
         graphRevisionId: "graph:sha256:abc",

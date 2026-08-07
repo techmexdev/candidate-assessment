@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { CATALOG_SAFETY_MAX_EXERCISES } from "../../src/domain/contracts/catalog-safety";
+import type { MovementGraphSnapshot } from "../../src/domain/contracts/movement-graph";
 import { compileDefaultMovementGraph } from "../../src/graph/ingest/movement-clinical";
 import { InMemoryMovementGraphReadProvider } from "../../src/graph/repositories/movement-graph";
 
@@ -97,6 +99,110 @@ describe("in-memory movement graph read contract", () => {
       .resolves.toMatchObject({ status: "failed", failure: { code: "unresolved_concept" } });
     await expect(handle.getExerciseConstraintFacts({ exerciseConceptId, maxResults: 1 }))
       .resolves.toMatchObject({ status: "failed", failure: { code: "traversal_limit_exceeded" } });
+  });
+
+  it("returns the complete bounded catalog with assertion-bearing relations", async () => {
+    const { handle } = await openHandle("canonical");
+    const result = await handle.getCatalogExerciseFacts({ maxResults: CATALOG_SAFETY_MAX_EXERCISES });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toHaveLength(50);
+    expect(result.data.map((fact) => fact.exerciseConceptId)).toEqual(
+      [...result.data.map((fact) => fact.exerciseConceptId)].sort(),
+    );
+    expect(result.data.every((fact) => fact.exerciseAssertionId.startsWith("assertion:")
+      && typeof fact.attributes.isBilateral === "boolean"
+      && fact.relations.every((relation) => relation.edgeAssertionId.startsWith("assertion:")
+        && relation.targetAssertionId.startsWith("assertion:")))).toBe(true);
+    expect(result.data.some((fact) => fact.relations.some((relation) => relation.kind === "targets"))).toBe(true);
+  });
+
+  it("returns only reviewed exercise variants and exact movement-pattern members", async () => {
+    const { handle } = await openHandle("canonical");
+    const splitSquatRoot = "exercise:00cc383b-f156-4b23-952a-15340100c261";
+    const variants = await handle.getCatalogFamilyFacts({
+      conceptId: splitSquatRoot,
+      conceptKind: "exercise",
+      maxDepth: 2,
+      maxResults: 10,
+    });
+    expect(variants.status).toBe("ok");
+    if (variants.status === "ok") {
+      expect(variants.data.map((fact) => [fact.matchKind, fact.exerciseConceptId])).toEqual([
+        ["exact-exercise", splitSquatRoot],
+        ["variant-of", "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b"],
+        ["variant-of", "exercise:02fe4cf5-bb21-4bef-868f-fea1477e2a53"],
+      ]);
+      expect(variants.data.every((fact) => fact.pathAssertionIds.every((id) => id.startsWith("assertion:")))).toBe(true);
+      expect(variants.data.some((fact) => fact.exerciseConceptId === "exercise:00b26731-066f-4b69-96e8-3472fc6fbc09")).toBe(false);
+      expect(variants.data.some((fact) => fact.exerciseConceptId === "exercise:00036a08-7c22-42e4-8fe5-323b53e31667")).toBe(false);
+    }
+
+    const pattern = await handle.getCatalogFamilyFacts({
+      conceptId: "movement-pattern:lower-push-split-squat",
+      conceptKind: "movement-pattern",
+      maxDepth: 1,
+      maxResults: 10,
+    });
+    expect(pattern.status).toBe("ok");
+    if (pattern.status === "ok") {
+      expect(pattern.data.map((fact) => fact.exerciseConceptId)).toEqual([
+        splitSquatRoot,
+        "exercise:0252c3c1-435f-49a2-9f79-5ef53eec3b1b",
+        "exercise:02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+      ].sort());
+      expect(pattern.data.every((fact) => fact.matchKind === "expresses")).toBe(true);
+    }
+  });
+
+  it("fails closed for invalid family bounds, missing concepts, broken paths, and catalog overflow", async () => {
+    const { handle } = await openHandle("canonical");
+    await expect(handle.getCatalogFamilyFacts({
+      conceptId: "exercise:00cc383b-f156-4b23-952a-15340100c261",
+      conceptKind: "exercise",
+      maxDepth: 0,
+      maxResults: 10,
+    })).resolves.toMatchObject({ status: "failed", failure: { code: "invalid_query" } });
+    await expect(handle.getCatalogFamilyFacts({
+      conceptId: "exercise:missing",
+      conceptKind: "exercise",
+      maxDepth: 2,
+      maxResults: 10,
+    })).resolves.toMatchObject({ status: "failed", failure: { code: "unresolved_concept" } });
+
+    const baseline = snapshot();
+    const exercise = baseline.nodes.find((node) => node.kind === "exercise")!;
+    const overflow: MovementGraphSnapshot = {
+      ...baseline,
+      nodes: [
+        ...baseline.nodes,
+        ...Array.from({ length: CATALOG_SAFETY_MAX_EXERCISES + 1 - 50 }, (_, index) => ({
+          ...exercise,
+          conceptId: `exercise:overflow-${index}`,
+          assertionId: `assertion:overflow-${index}`,
+        })),
+      ],
+    };
+    const overflowOpened = await new InMemoryMovementGraphReadProvider([overflow], { authority: "canonical" }).openActive();
+    if (overflowOpened.status !== "ready") throw new Error("overflow graph unavailable");
+    await expect(overflowOpened.handle.getCatalogExerciseFacts({ maxResults: CATALOG_SAFETY_MAX_EXERCISES }))
+      .resolves.toMatchObject({
+        status: "failed",
+        failure: { code: "traversal_limit_exceeded", maxResults: CATALOG_SAFETY_MAX_EXERCISES },
+      });
+
+    const broken = structuredClone(baseline);
+    const familyEdge = broken.edges.find((edge) => edge.kind === "variant-of")!;
+    Object.assign(familyEdge, { fromConceptId: "exercise:missing" });
+    const brokenOpened = await new InMemoryMovementGraphReadProvider([broken], { authority: "canonical" }).openActive();
+    if (brokenOpened.status !== "ready") throw new Error("broken graph unavailable");
+    await expect(brokenOpened.handle.getCatalogFamilyFacts({
+      conceptId: familyEdge.toConceptId,
+      conceptKind: "exercise",
+      maxDepth: 2,
+      maxResults: 10,
+    })).resolves.toMatchObject({ status: "failed", failure: { code: "broken_assertion" } });
   });
 
   it("fails closed for invalid queries, unresolved concepts, and caps", async () => {

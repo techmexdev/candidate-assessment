@@ -1,4 +1,5 @@
 import type { MovementGraphSnapshot } from "../../domain/contracts/movement-graph";
+import { CATALOG_SAFETY_MAX_FAMILY_DEPTH } from "../../domain/contracts/catalog-safety";
 import {
   ALLOWED_SKOS_RELATIONS,
   CLINICAL_RULE_EFFECT_TARGET_EDGE,
@@ -11,7 +12,8 @@ export type MovementGraphValidationErrorCode =
   | "duplicate_concept_id" | "duplicate_assertion_id" | "dangling_reference" | "invalid_endpoint"
   | "forbidden_direct_clinical_edge" | "unsupported_mapping_relation" | "incomplete_mapping"
   | "invalid_local_only_mapping" | "rule_effect_mismatch" | "incomplete_clinical_rule" | "anatomy_cycle"
-  | "incomplete_substitution" | "invalid_source_manifest" | "mixed_revision" | "bounds_exceeded";
+  | "incomplete_substitution" | "incomplete_variant" | "variant_cycle" | "variant_depth_exceeded"
+  | "invalid_source_manifest" | "mixed_revision" | "bounds_exceeded";
 export type MovementGraphValidationError = { readonly code: MovementGraphValidationErrorCode; readonly message: string; readonly assertionId?: string };
 export type MovementGraphValidationReport =
   | { readonly status: "valid"; readonly errors: readonly [] }
@@ -77,6 +79,30 @@ export function validateMovementGraph(snapshot: MovementGraphSnapshot): Movement
   const visiting = new Set<string>(); const visited = new Set<string>();
   const cycle = (id: string): boolean => { if (visiting.has(id)) return true; if (visited.has(id)) return false; visiting.add(id); if ((children.get(id) ?? []).some(cycle)) return true; visiting.delete(id); visited.add(id); return false; };
   if ([...children.keys()].some(cycle)) add("anatomy_cycle", "PART_OF must be acyclic and child-to-parent");
+  const variantParents = new Map<string, string[]>();
+  for (const edge of snapshot.edges.filter((item) => item.kind === "variant-of")) {
+    variantParents.set(edge.fromConceptId, [...(variantParents.get(edge.fromConceptId) ?? []), edge.toConceptId]);
+  }
+  const variantVisiting = new Set<string>();
+  const variantVisited = new Set<string>();
+  const variantCycle = (id: string): boolean => {
+    if (variantVisiting.has(id)) return true;
+    if (variantVisited.has(id)) return false;
+    variantVisiting.add(id);
+    if ((variantParents.get(id) ?? []).some(variantCycle)) return true;
+    variantVisiting.delete(id);
+    variantVisited.add(id);
+    return false;
+  };
+  if ([...variantParents.keys()].some(variantCycle)) add("variant_cycle", "VARIANT_OF must be acyclic");
+  const variantDepth = (id: string, path = new Set<string>()): number => {
+    if (path.has(id)) return 0;
+    const nextPath = new Set(path).add(id);
+    return Math.max(0, ...(variantParents.get(id) ?? []).map((parent) => 1 + variantDepth(parent, nextPath)));
+  };
+  if ([...variantParents.keys()].some((id) => variantDepth(id) > CATALOG_SAFETY_MAX_FAMILY_DEPTH)) {
+    add("variant_depth_exceeded", `VARIANT_OF exceeds depth ${CATALOG_SAFETY_MAX_FAMILY_DEPTH}`);
+  }
   return errors.length ? { status: "invalid", errors } : { status: "valid", errors: [] };
 }
 
