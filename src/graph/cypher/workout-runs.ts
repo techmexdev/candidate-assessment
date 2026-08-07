@@ -44,16 +44,15 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       idempotencyKeyDigest: $idempotencyKeyDigest
     })
     OPTIONAL MATCH (predecessor:WorkoutRun {runId: $predecessorRunId, coachId: $coachId, memberId: $memberId, state: 'completed'})
+    OPTIONAL MATCH (retrySource:WorkoutRun {runId: $retryOfRunId, coachId: $coachId, memberId: $memberId, state: 'failed'})
+    OPTIONAL MATCH (successor:WorkoutRun)-[:ADJUSTS_FROM]->(predecessor)
+    WITH reservation, predecessor, retrySource, count(successor) AS successorCount
     WHERE NOT reservation:WorkoutRun
       AND reservation.runId = $runId
       AND reservation.requestDigest = $requestDigest
       AND reservation.reservationOwnerId = $ownerId
-      AND ($retryOfRunId IS NULL OR EXISTS {
-        MATCH (source:WorkoutRun {runId: $retryOfRunId, coachId: $coachId, memberId: $memberId, state: 'failed'})
-      })
-      AND ($predecessorRunId IS NULL OR (predecessor.workoutVersionId = $predecessorWorkoutVersionId AND NOT EXISTS {
-        MATCH (:WorkoutRun)-[:ADJUSTS_FROM]->predecessor
-      }))
+      AND ($retryOfRunId IS NULL OR retrySource IS NOT NULL)
+      AND ($predecessorRunId IS NULL OR (predecessor.workoutVersionId = $predecessorWorkoutVersionId AND successorCount = 0))
     SET reservation:WorkoutRun,
       reservation.authorizationReferenceId = $authorizationReferenceId,
       reservation.state = 'queued', reservation.claimGeneration = 0,

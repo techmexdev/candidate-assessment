@@ -5,12 +5,15 @@ import { createMockCoachSessionAuthority, parseMockCoachSession, readMockCoachSe
 const environment = process.env as Record<string, string | undefined>;
 const previousNodeEnvironment = environment.NODE_ENV;
 const previousSecret = environment.WORKOUT_ROUTE_SECRET;
+const previousBypass = environment.WORKOUT_TEST_BYPASS;
 
 afterEach(() => {
   if (previousNodeEnvironment === undefined) delete environment.NODE_ENV;
   else environment.NODE_ENV = previousNodeEnvironment;
   if (previousSecret === undefined) delete environment.WORKOUT_ROUTE_SECRET;
   else environment.WORKOUT_ROUTE_SECRET = previousSecret;
+  if (previousBypass === undefined) delete environment.WORKOUT_TEST_BYPASS;
+  else environment.WORKOUT_TEST_BYPASS = previousBypass;
 });
 
 function request(path: string, init: RequestInit = {}) {
@@ -50,6 +53,20 @@ describe("explicit mock coach session", () => {
     const tampered = await GET(request("/api/session", { headers: { cookie: "axon_coach_session=tampered" } }));
     expect(await missing.json()).toEqual({ status: "signed_out" });
     expect(await tampered.json()).toEqual({ status: "signed_out" });
+  });
+
+  it("never lets test bypass recover from a tampered or expired cookie", async () => {
+    environment.NODE_ENV = "test";
+    environment.WORKOUT_TEST_BYPASS = "1";
+    const secret = "axon-local-workout-route-secret-change-before-production";
+    const expired = mockCoachSessionClaims({ now: new Date(Date.now() - 2_000).toISOString(), ttlMs: 1_000 });
+    expect(expired).toBeDefined();
+    const missing = await GET(request("/api/session"));
+    const tampered = await GET(request("/api/session", { headers: { cookie: "axon_coach_session=tampered" } }));
+    const expiredResponse = await GET(request("/api/session", { headers: { cookie: `axon_coach_session=${sealMockCoachSession(secret, expired!)}` } }));
+    expect(await missing.json()).toMatchObject({ status: "authenticated" });
+    expect(await tampered.json()).toEqual({ status: "signed_out" });
+    expect(await expiredResponse.json()).toEqual({ status: "signed_out" });
   });
 
   it("requires same-origin mutation and keeps test bypass explicit and production-inert", async () => {

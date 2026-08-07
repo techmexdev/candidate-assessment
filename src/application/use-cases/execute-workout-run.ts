@@ -285,6 +285,8 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           safetyEnvelopeDigest,
           catalogSafety,
           candidateProfiles: resolved.candidateProfiles,
+          preferredCandidateIds: [...substitutionResults.values()]
+            .flatMap((substitution) => [...substitution.candidates].sort((left, right) => left.rank - right.rank).map((candidate) => candidate.exerciseConceptId)),
         });
         if (composerInput.candidates.length === 0) return fail("proposal-invalid", "composition");
         const proposalDigests: string[] = [];

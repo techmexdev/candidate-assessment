@@ -1,6 +1,6 @@
 # Workout runtime evaluation
 
-> Synthetic inputs are executed through the real deterministic workout use case and in-memory repository. Expected values never populate observations. Safety validity and provenance completeness are release gates; provider latency and style are unavailable in this offline harness and therefore non-gating.
+> Component evaluation only: synthetic inputs are executed through the real deterministic workout use case and in-memory repository. Expected values never populate observations. Safety validity and provenance completeness are release gates; provider latency and style are unavailable in this offline harness and therefore non-gating. Connected Neo4j acceptance is a separate gate (`pnpm test:connected`) with evidence in [`docs/evidence/connected-acceptance-capture.json`](./evidence/connected-acceptance-capture.json).
 
 ## Current result
 
@@ -36,3 +36,5 @@ The harness creates a queued run, executes `createExecuteWorkoutRun` against `In
 Completed runs require a valid stored PROV-O projection with pinned revisions and complete decision evidence. Non-completed runs require pinned run identity and the absence of a fabricated completion trace. A score below 100.0% on either hard gate exits `pnpm eval:workout-runtime` unsuccessfully.
 
 This offline corpus does not call a model provider, so provider latency and style are explicitly unavailable. They must be measured by a separate provider-backed canary before becoming observational signals; they never soften a failed hard gate.
+
+This report proves component lifecycle, validation, privacy, and provenance invariants only. It must not be cited as provider quality or connected graph proof; use the connected capture and U5 adapter tests for those claims.

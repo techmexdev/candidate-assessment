@@ -11,7 +11,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "cypher-shell -a neo4j://127.0.0.1:7687 -u $${MOVEMENT_NEO4J_USERNAME} -p $${MOVEMENT_NEO4J_PASSWORD} 'RETURN 1'"
+        - "/var/lib/neo4j/bin/cypher-shell -a neo4j://127.0.0.1:7687 -u $${MOVEMENT_NEO4J_USERNAME} -p $${MOVEMENT_NEO4J_PASSWORD} 'RETURN 1'"
       interval: 5s
       timeout: 5s
       retries: 30

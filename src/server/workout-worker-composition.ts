@@ -27,6 +27,7 @@ import type { WorkoutRunId } from "../domain/contracts/workout";
 import type { ConceptMention, ConceptResolution } from "../domain/contracts/concept-resolution";
 import type { MovementLaterality } from "../domain/contracts/movement-safety";
 import type { WorkoutCompositionCandidate } from "../domain/policies/workout-composition";
+import { DEFAULT_RESOLUTION_POLICY } from "../domain/policies/concept-resolution";
 import { validateWorkoutAdjustment, type WorkoutAdjustment, type WorkoutClarificationField, type WorkoutClarificationFieldKey } from "../domain/contracts/workout-run";
 import { MEMBER_CONTEXT_CYPHER } from "../graph/cypher/member-context";
 import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
@@ -179,6 +180,24 @@ const defaultCandidate = (exerciseConceptId: string): WorkoutCompositionCandidat
 function reviewedReferences(references: readonly { readonly state: string; readonly graph?: string; readonly stableConceptId?: string }[]) {
   return references.flatMap((reference) => reference.state === "reviewed"
     && reference.graph === "movement-clinical" && reference.stableConceptId ? [reference.stableConceptId] : []);
+}
+
+/**
+ * An explicit exclusion may have low-scoring fuzzy suggestions even when the
+ * pinned catalog contains no related exercise family.  Those suggestions are
+ * not safe candidates to present as a clarification: below the resolver's
+ * clarification floor they are an empty family search and must be attested as
+ * such.  Higher-confidence suggestions remain fail-closed and require a
+ * typed clarification instead.
+ */
+function isZeroMatchExclusion(
+  resolution: ConceptResolution,
+) {
+  if (resolution.status === "resolved") return false;
+  return resolution.reason === "no-candidate"
+    || (resolution.reason === "below-threshold"
+      && resolution.candidates.length > 0
+      && resolution.candidates.every((candidate) => Math.max(candidate.fuzzyScore, candidate.vectorScore) < DEFAULT_RESOLUTION_POLICY.clarificationFloor));
 }
 
 type InjuryAnswer = {
@@ -434,15 +453,14 @@ export function createCanonicalWorkoutRuntimeDependencies(
     const hardResolutionFailure = promptResolution.resolutions.some((resolution) => resolution.status !== "resolved"
       && ["graph-unavailable", "non-authoritative", "invalid-input", "deprecated-mapping"].includes(resolution.reason));
     if (hardResolutionFailure) return { status: "failed", reason: "graph-unavailable" };
-    const unresolvedExclusions = promptResolution.resolutions.filter((resolution) => {
-      if (resolution.mention.role !== "exclusion") return false;
-      return resolution.status !== "resolved"
-        || !["exercise", "movement-pattern"].includes(resolution.conceptId.split(":", 1)[0]!);
-    });
-    if (unresolvedExclusions.length > 0) {
+    const unresolvedExclusions = promptResolution.resolutions.filter((resolution) => resolution.mention.role === "exclusion"
+      && (resolution.status !== "resolved"
+        || !["exercise", "movement-pattern"].includes(resolution.conceptId.split(":", 1)[0]!)));
+    const zeroMatchExclusions = unresolvedExclusions.filter((resolution) => isZeroMatchExclusion(resolution));
+    if (unresolvedExclusions.length > zeroMatchExclusions.length) {
       return {
         status: "clarification-required",
-        candidateConceptIds: unresolvedExclusions.flatMap((resolution) => resolution.status === "resolved"
+        candidateConceptIds: unresolvedExclusions.filter((resolution) => !zeroMatchExclusions.includes(resolution)).flatMap((resolution) => resolution.status === "resolved"
           ? [`constraint:exclusion:${resolution.mention.text}`]
           : resolution.candidates.length > 0
             ? resolution.candidates.map((candidate) => candidate.conceptId)
@@ -457,12 +475,22 @@ export function createCanonicalWorkoutRuntimeDependencies(
     const focusConceptIds = [...new Set(resolvedPrompt.filter((resolution) => resolution.mention.role === "target")
       .map((resolution) => resolution.conceptId))].sort();
     const promptEvidenceId = activeInput.protectedPromptSnapshotId;
-    const makeMatch = (purpose: "explicit-exclusion" | "preference", conceptId: string, evidenceId: string, rankPenalty?: number): CatalogSafetyResolvedMatch => {
+    const makeMatch = (
+      purpose: "explicit-exclusion" | "preference",
+      conceptId: string,
+      evidenceId: string,
+      options: {
+        readonly rankPenalty?: number;
+        readonly emptyResultAttestationId?: string;
+      } = {},
+    ): CatalogSafetyResolvedMatch => {
+      const zeroMatch = options.emptyResultAttestationId;
       const match = {
         conceptId: conceptId as CatalogSafetyResolvedMatch["conceptId"],
         conceptKind: conceptId.startsWith("exercise:") ? "exercise" as const : "movement-pattern" as const,
         evidenceId,
-        ...(rankPenalty === undefined ? {} : { rankPenalty }),
+        ...(options.rankPenalty === undefined ? {} : { rankPenalty: options.rankPenalty }),
+        ...(zeroMatch ? { zeroMatchAttested: true as const, emptyResultAttestationId: zeroMatch } : {}),
       };
       return {
         ...match,
@@ -472,17 +500,29 @@ export function createCanonicalWorkoutRuntimeDependencies(
           payloadDigest: matchPayloadDigest(match),
           maxDepth: 4,
           maxResults: 100,
+          ...(zeroMatch ? { emptyResultAttestationId: zeroMatch } : {}),
         }),
       };
     };
-    const explicitExclusions = resolvedPrompt.filter((resolution) => resolution.mention.role === "exclusion")
-      .map((resolution) => makeMatch("explicit-exclusion", resolution.conceptId, promptEvidenceId));
+    const explicitExclusions = [
+      ...resolvedPrompt.filter((resolution) => resolution.mention.role === "exclusion")
+        .map((resolution) => makeMatch("explicit-exclusion", resolution.conceptId, promptEvidenceId)),
+      ...zeroMatchExclusions.map((resolution) => {
+        const queryDigest = canonicalWorkoutDigest({ runId: run.runId, query: resolution.mention.text });
+        return makeMatch(
+          "explicit-exclusion",
+          `movement-pattern:zero-match-${queryDigest.slice("sha256:".length)}`,
+          promptEvidenceId,
+          { emptyResultAttestationId: `empty-result:${queryDigest}` },
+        );
+      }),
+    ];
     const promptPreferences = resolvedPrompt.filter((resolution) => resolution.mention.role === "preference"
       && (resolution.conceptId.startsWith("exercise:") || resolution.conceptId.startsWith("movement-pattern:")))
-      .map((resolution) => makeMatch("preference", resolution.conceptId, promptEvidenceId, 1));
+      .map((resolution) => makeMatch("preference", resolution.conceptId, promptEvidenceId, { rankPenalty: 1 }));
     const memberPreferences = constraints.data.preferences.flatMap((preference) => reviewedReferences(preference.domainReferences)
       .filter((conceptId) => conceptId.startsWith("exercise:") || conceptId.startsWith("movement-pattern:"))
-      .map((conceptId) => makeMatch("preference", conceptId, preference.evidenceId, 1)));
+      .map((conceptId) => makeMatch("preference", conceptId, preference.evidenceId, { rankPenalty: 1 })));
 
     const injuryApplicability: CatalogSafetyInjuryApplicability[] = [];
     const applicabilityAssertionIds: string[] = [];
@@ -584,8 +624,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
     const canonicalConstraintIds = [...new Set([
       ...constraints.data.equipment.flatMap(({ domainReference }) => domainReference.state === "reviewed"
         && domainReference.graph === "movement-clinical" && domainReference.stableConceptId ? [domainReference.stableConceptId] : []),
-      ...constraints.data.preferences.flatMap((preference) => preference.domainReferences.flatMap((reference) => reference.state === "reviewed"
-        && reference.graph === "movement-clinical" && reference.stableConceptId ? [reference.stableConceptId] : [])),
+      ...constraints.data.preferences.flatMap((preference) => reviewedReferences(preference.domainReferences)),
       ...focusConceptIds,
       ...explicitExclusions.map((match) => match.conceptId),
       ...promptPreferences.map((match) => match.conceptId),
@@ -604,13 +643,23 @@ export function createCanonicalWorkoutRuntimeDependencies(
       canonicalConstraintIds,
       applicabilityAssertionIds: [...new Set(applicabilityAssertionIds)].sort(),
       evidenceIds,
-      zeroMatchCertificates: [] as const,
+      zeroMatchCertificates: zeroMatchExclusions.map((resolution) => ({
+        resolverId: "resolver:canonical-concept/v1",
+        canonicalQuery: resolution.mention.text,
+        searchPolicyVersion: "canonical-exact-reference/v1",
+        maximumResults: 100,
+        emptyResult: true as const,
+        evidenceId: promptEvidenceId,
+      })),
       resolverVersion: "canonical-protected-input/v1",
       searchPolicyVersion: "canonical-exact-reference/v1",
     };
     // Recompute from the active protected input. A snapshot from an earlier
     // clarification revision must never override the revised input.
     const snapshot = { ...snapshotBase, digest: canonicalWorkoutDigest(snapshotBase) };
+    const memberEquipmentConceptIds = [...new Set(constraints.data.equipment.flatMap(({ domainReference }) => reviewedReferences([domainReference])
+      .filter((conceptId) => conceptId.startsWith("equipment:"))))];
+    const availableEquipmentConceptIds = adjustment?.equipment?.availableEquipmentConceptIds ?? memberEquipmentConceptIds;
     return {
       status: "ready",
       snapshot,
@@ -621,9 +670,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
       injuryApplicability,
       explicitExclusions,
       preferences: [...memberPreferences, ...promptPreferences],
-      ...(adjustment?.equipment?.availableEquipmentConceptIds
-        ? { availableEquipmentConceptIds: adjustment.equipment.availableEquipmentConceptIds }
-        : {}),
+      ...(availableEquipmentConceptIds.length > 0 ? { availableEquipmentConceptIds } : {}),
       candidateProfiles: catalog.data.map(({ exerciseConceptId }) => defaultCandidate(exerciseConceptId)),
       revisionSeals,
     };

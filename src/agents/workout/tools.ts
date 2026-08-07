@@ -11,6 +11,8 @@ export type CreateWorkoutComposerInput = {
   readonly safetyEnvelopeDigest: string;
   readonly catalogSafety: CatalogSafetyReadyResult;
   readonly candidateProfiles: readonly WorkoutCompositionCandidate[];
+  /** Server-ranked reviewed replacements may lead the bounded demo composer. */
+  readonly preferredCandidateIds?: readonly string[];
 };
 
 /** Model-facing projection. Citation IDs stay server-side and are rebound after parsing. */
@@ -50,6 +52,9 @@ export function createWorkoutComposerInput(input: CreateWorkoutComposerInput): W
       citationIds: [...new Set([...decision.evidenceIds, ...decision.assertionIds])].sort(),
     }];
   });
+  const preferredRanks = new Map((input.preferredCandidateIds ?? []).map((candidateId, index) => [candidateId, index]));
+  candidates.sort((left, right) => (preferredRanks.get(left.exerciseConceptId) ?? Number.MAX_SAFE_INTEGER)
+    - (preferredRanks.get(right.exerciseConceptId) ?? Number.MAX_SAFE_INTEGER));
   return Object.freeze({
     schemaVersion: "workout-composer-input/v1",
     authority: Object.freeze({

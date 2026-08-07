@@ -1,5 +1,6 @@
 import { asWorkoutRunId } from "../src/domain/contracts/workout";
 import { createConfiguredWorkoutWorkerComposition } from "../src/server/workout-worker-composition";
+import { runWorkoutWorkerPoll } from "../src/server/workout-worker-poll";
 
 function argument(name: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -35,12 +36,14 @@ try {
     if (result.status !== "completed" && result.status !== "awaiting-clarification") process.exitCode = 1;
   } else {
     const pollEveryMs = positiveEnvironment("WORKOUT_WORKER_POLL_MS", 1_000);
-    while (!controller.signal.aborted) {
-      const result = await composition.runNext({ signal: controller.signal });
-      if (result.status !== "not-claimable") process.stdout.write(`${JSON.stringify({ status: result.status })}\n`);
-      if (result.status === "claim-lost" && controller.signal.aborted) break;
-      if (result.status === "not-claimable") await new Promise((resolve) => setTimeout(resolve, pollEveryMs));
-    }
+    await runWorkoutWorkerPoll({
+      runNext: (input) => composition.runNext(input),
+      signal: controller.signal,
+      pollEveryMs,
+      onResult: (result) => {
+        if (result.status !== "not-claimable") process.stdout.write(`${JSON.stringify({ status: result.status })}\n`);
+      },
+    });
   }
 } finally {
   process.off("SIGINT", stop);

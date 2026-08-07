@@ -1,14 +1,22 @@
-import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { asWorkoutRunId } from "../../src/domain/contracts/workout";
+import { mockCoachSessionClaims, sealMockCoachSession } from "../../src/server/auth/mock-coach-session";
 import { createWorkoutGrantAuthorization } from "../../src/server/workout-route-composition";
 
 const SECRET = "unit-test-workout-route-secret-32-bytes-minimum";
 
 function routeScope(memberIds: readonly string[], expiresAt = new Date(Date.now() + 60_000).toISOString()) {
-  const encoded = Buffer.from(JSON.stringify({ coachId: "coach:one", memberIds, expiresAt })).toString("base64url");
-  const signature = createHmac("sha256", SECRET).update(encoded).digest("base64url");
-  return `route-scope:${encoded}.${signature}`;
+  const expiresTimestamp = Date.parse(expiresAt);
+  const now = new Date(Math.min(Date.now(), expiresTimestamp - 1_000)).toISOString();
+  const claims = mockCoachSessionClaims({
+    now,
+    coachId: "coach:one",
+    sessionId: `session:test:${expiresTimestamp}`,
+    memberIds,
+    ttlMs: expiresTimestamp - Date.parse(now),
+  });
+  if (!claims) throw new Error("session claims missing");
+  return `route-scope:${sealMockCoachSession(SECRET, claims)}`;
 }
 
 describe("workout route current-session authorization", () => {

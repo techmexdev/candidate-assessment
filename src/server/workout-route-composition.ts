@@ -61,6 +61,8 @@ export type WorkoutRouteComposition = {
   readonly retry: ReturnType<typeof createRetryWorkoutRun>;
   /** Optional for existing route test doubles; present in production composition. */
   readonly fullGraph?: RetrieveFullGraph;
+  /** Test/process lifecycle hook; HTTP callers keep the shared client open. */
+  readonly close?: () => Promise<void>;
 };
 
 type GrantPayload = {
@@ -376,6 +378,7 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
     answer: createAnswerWorkoutClarification({ repository, authorization, protectPrompt, createId, now }),
     retry: createRetryWorkoutRun({ repository, authorization, createId, now, modelConfigurationId, policyRevision }),
     fullGraph: retrieveFullGraph,
+    close: () => client.close(),
   });
 }
 
@@ -449,4 +452,5 @@ export const configuredWorkoutRouteComposition: WorkoutRouteComposition = {
       }
     },
   },
+  close: async () => { await composition().close?.(); },
 };

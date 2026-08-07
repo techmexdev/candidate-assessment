@@ -1,8 +1,10 @@
 # Workout runtime demo scenarios
 
-> Synthetic data only. These examples contain no member PHI and are generated from `tests/fixtures/workout-generation-scenarios.ts`.
+> Synthetic data only. These are component-only fixtures generated from `tests/fixtures/workout-generation-scenarios.ts`; they are not connected Neo4j or provider evidence.
 
 Run `pnpm eval:workout-runtime` to execute these inputs through the deterministic workout use case and repository, score captured outputs, and verify documentation drift.
+
+The headline connected capture is [`docs/evidence/connected-acceptance-capture.json`](./evidence/connected-acceptance-capture.json), produced by `pnpm capture:connected` through the production routes, worker, and real Neo4j.
 
 ## `jordan-knee-applicability` — Current knee applicability excludes loading
 

@@ -141,7 +141,7 @@ async function main() {
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
-    const started = await run("docker", ["compose", "up", "-d", "neo4j"], environment);
+    const started = await run("docker", ["compose", "up", "-d", "--wait", "neo4j"], environment);
     if (started.code !== 0) throw new Error("Neo4j container could not start.");
     const healthy = await run("docker", ["compose", "ps", "--status", "running", "neo4j"], environment);
     if (healthy.code !== 0) throw new Error("Neo4j container is not running.");
@@ -166,4 +166,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exitCode = 1;
   });
 }
-
