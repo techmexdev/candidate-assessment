@@ -7,6 +7,7 @@ import { canonicalWorkoutDecisionSetDigest } from "../../src/graph/schema/workou
 import { workoutDecision, TEST_MEMBER_REVISION, TEST_MOVEMENT_REVISION } from "../fixtures/workout-runtime-builder";
 import {
   WORKOUT_GENERATION_SCENARIOS,
+  executeWorkoutGenerationCorpus,
   renderWorkoutRuntimeDemoScenarios,
   renderWorkoutRuntimeEvaluation,
   scoreWorkoutGenerationCorpus,
@@ -135,8 +136,9 @@ describe("workout provenance", () => {
 });
 
 describe("workout runtime deterministic evaluation", () => {
-  it("hard-gates every required synthetic scenario at 100% safety validity and provenance completeness", () => {
-    const evaluation = scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
+  it("hard-gates every required synthetic scenario at 100% safety validity and provenance completeness", async () => {
+    const captures = await executeWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
+    const evaluation = scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS, captures);
 
     expect(evaluation.scenarios.map((scenario) => scenario.scenarioId)).toEqual([
       "jordan-knee-applicability",
@@ -161,29 +163,37 @@ describe("workout runtime deterministic evaluation", () => {
     expect(evaluation.scenarios.every((scenario) => scenario.synthetic)).toBe(true);
   });
 
-  it("fails provenance completeness when a selected decision loses its assertion source", () => {
+  it("fails the release gate when an executed capture is deliberately corrupted", async () => {
     const baseline = WORKOUT_GENERATION_SCENARIOS.find((scenario) => scenario.id === "jordan-knee-applicability");
     expect(baseline).toBeDefined();
     if (!baseline) return;
+    const capture = (await executeWorkoutGenerationCorpus([baseline]))[0]!;
     const corrupted = {
-      ...baseline,
-      provenance: {
-        ...baseline.provenance,
-        decisions: baseline.provenance.decisions.map((decision, index) => index === 0
+      ...capture,
+      provenance: capture.provenance ? {
+        ...capture.provenance,
+        decisions: capture.provenance.decisions.map((decision, index) => index === 0
           ? { ...decision, sourceAssertionIds: [] }
           : decision),
+      } : undefined,
+      observed: {
+        ...capture.observed,
+        selectedExerciseIds: [...capture.observed.selectedExerciseIds, "exercise:runtime-corruption"],
       },
     };
 
-    const score = scoreWorkoutGenerationScenario(corrupted);
+    const score = scoreWorkoutGenerationScenario(baseline, corrupted);
+    expect(score.recommendationValidity).toBeLessThan(1);
     expect(score.provenanceCompleteness).toBeLessThan(1);
+    expect(score.hardGateFailures).toContain("recommendation-validity");
     expect(score.hardGateFailures).toContain("provenance-completeness");
     expect(score.releaseReady).toBe(false);
   });
 
-  it("renders documentation from the same fixture IDs and expected outcomes used by evaluation", () => {
+  it("renders documentation from executed captures and the same fixture IDs used by evaluation", async () => {
+    const captures = await executeWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
     const demo = renderWorkoutRuntimeDemoScenarios(WORKOUT_GENERATION_SCENARIOS);
-    const evaluation = renderWorkoutRuntimeEvaluation(scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS));
+    const evaluation = renderWorkoutRuntimeEvaluation(scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS, captures));
 
     for (const scenario of WORKOUT_GENERATION_SCENARIOS) {
       expect(demo).toContain(`\`${scenario.id}\``);

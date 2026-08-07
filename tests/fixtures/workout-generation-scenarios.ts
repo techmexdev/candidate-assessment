@@ -1,27 +1,36 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createExecuteWorkoutRun, type ExecuteWorkoutRunDependencies } from "../../src/application/use-cases/execute-workout-run";
+import type { WorkoutComposerInput, WorkoutComposerProposal } from "../../src/application/ports/workout-composer";
+import { validateWorkoutProvenance, workoutDecisionWasSelected, type WorkoutProvenanceBundle } from "../../src/domain/contracts/workout-provenance";
+import type { WorkoutRun, WorkoutRunState } from "../../src/domain/contracts/workout-run";
+import { asWorkoutInputRevisionId, asWorkoutRunId } from "../../src/domain/contracts/workout";
+import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
+import { catalogDecision, catalogResult, compositionCandidate, TEST_MEMBER_REVISION, TEST_MOVEMENT_REVISION } from "./workout-runtime-builder";
 
-export type WorkoutScenarioTerminalState =
-  | "awaiting-clarification"
-  | "canceled"
-  | "completed"
-  | "failed"
-  | "queued"
-  | "resync-required";
+export type WorkoutScenarioTerminalState = WorkoutRunState | "resync-required";
 
-export type WorkoutScenarioDecision = {
-  readonly decisionId: string;
-  readonly kind: "selected" | "excluded" | "cautioned" | "downranked" | "substituted";
-  readonly exerciseConceptId: string;
-  readonly runId: string;
-  readonly movementGraphRevisionId: string;
-  readonly memberContextRevisionId: string;
-  readonly sourceAssertionIds: readonly string[];
-  readonly contributingPathIds: readonly string[];
-  readonly evidenceIds: readonly string[];
-  readonly sourceEntityIds: readonly string[];
-  readonly derivationRelationIds: readonly string[];
+type RuntimeMode =
+  | "complete"
+  | "clarification"
+  | "malformed-proposal"
+  | "duplicate-submission"
+  | "worker-reclaim"
+  | "authorization-revocation"
+  | "cancel-complete-race"
+  | "cursor-pruning"
+  | "receipt-tamper"
+  | "provider-canary"
+  | "historical-trace"
+  | "restart-safety-reevaluation";
+
+type RuntimeFixture = {
+  readonly mode: RuntimeMode;
+  readonly selectedExerciseIds: readonly string[];
+  readonly excludedExerciseIds: readonly string[];
+  readonly cautionExerciseIds?: readonly string[];
+  readonly downrankedExerciseIds?: readonly string[];
 };
 
 export type WorkoutGenerationScenario = {
@@ -35,6 +44,8 @@ export type WorkoutGenerationScenario = {
     readonly memberId: string;
     readonly prompt: string;
     readonly durationMinutes: 30 | 45 | 60;
+    /** Deterministic adapter inputs. They configure the runtime; they are not observations. */
+    readonly runtimeFixture: RuntimeFixture;
   };
   readonly expected: {
     readonly terminalState: WorkoutScenarioTerminalState;
@@ -43,30 +54,37 @@ export type WorkoutGenerationScenario = {
     readonly selectedExerciseIds: readonly string[];
     readonly excludedExerciseIds: readonly string[];
   };
+};
+
+export type WorkoutScenarioCapture = {
+  readonly scenarioId: string;
   readonly observed: {
     readonly terminalState: WorkoutScenarioTerminalState;
+    readonly underlyingRunState: WorkoutRunState;
     readonly reviewableDraft: boolean;
     readonly proposalAccepted: boolean;
     readonly selectedExerciseIds: readonly string[];
     readonly excludedExerciseIds: readonly string[];
-    readonly canonicalSafetyValid: boolean;
-    readonly candidateMembershipValid: boolean;
-    readonly lifecycleInvariantValid: boolean;
-    readonly privacyBoundaryValid: boolean;
   };
-  readonly provenance: {
+  readonly run: {
     readonly runId: string;
-    readonly activityId: string;
     readonly movementGraphRevisionId: string;
     readonly memberContextRevisionId: string;
-    readonly sourceEntityIds: readonly string[];
-    readonly derivationRelationIds: readonly string[];
-    readonly decisions: readonly WorkoutScenarioDecision[];
+  };
+  readonly provenance?: WorkoutProvenanceBundle;
+  readonly evidence: {
+    readonly candidateExerciseIds: readonly string[];
+    readonly publicEvents: unknown;
+    readonly providerInput?: WorkoutComposerInput;
+    readonly sensitiveCanaries: readonly string[];
+    readonly duplicateCreationStatus?: string;
+    readonly validationAttempts: number;
+    readonly staleCursorStatus?: string;
   };
   readonly quality: {
-    readonly providerAvailable: boolean;
-    readonly latencyMs: number | null;
-    readonly modelStyleScore: number | null;
+    readonly providerMeasurement: "unavailable";
+    readonly latencyMs: null;
+    readonly modelStyleScore: null;
   };
 };
 
@@ -89,49 +107,19 @@ export type WorkoutCorpusScore = {
   readonly scenarios: readonly WorkoutScenarioScore[];
 };
 
-const MOVEMENT_REVISION = "movement-revision:2026-08-07-eval";
-const MEMBER_REVISION = "member-revision:jordan:2026-08-07-eval";
-const SOURCE_ENTITIES = [
-  "entity:prompt",
-  "entity:candidate-set",
-  "entity:model-proposal",
-  "entity:policy:workout-composition-v1",
-  MOVEMENT_REVISION,
-  MEMBER_REVISION,
-];
-const DERIVATIONS = ["relation:workout-from-candidates", "relation:workout-from-proposal"];
+const COMPLETE_SCAFFOLD = ["exercise:warm-up", "exercise:cool-down"] as const;
 
-function decision(
-  runId: string,
-  exerciseConceptId: string,
-  kind: WorkoutScenarioDecision["kind"],
-  assertionSuffix: string,
-): WorkoutScenarioDecision {
-  return {
-    decisionId: `decision:${runId}:${exerciseConceptId}:${kind}`,
-    kind,
-    exerciseConceptId,
-    runId,
-    movementGraphRevisionId: MOVEMENT_REVISION,
-    memberContextRevisionId: MEMBER_REVISION,
-    sourceAssertionIds: [`assertion:${assertionSuffix}`],
-    contributingPathIds: [`path:${assertionSuffix}`],
-    evidenceIds: [`evidence:${assertionSuffix}`],
-    sourceEntityIds: ["entity:candidate-set", "entity:policy:workout-composition-v1"],
-    derivationRelationIds: DERIVATIONS,
-  };
+function selected(primary: string) {
+  return [COMPLETE_SCAFFOLD[0], primary, COMPLETE_SCAFFOLD[1]];
 }
 
-type ScenarioSeed = Omit<WorkoutGenerationScenario, "synthetic" | "input" | "observed" | "provenance" | "quality"> & {
+type ScenarioSeed = Omit<WorkoutGenerationScenario, "synthetic" | "input"> & {
   readonly prompt: string;
   readonly durationMinutes?: 30 | 45 | 60;
-  readonly decisions: readonly WorkoutScenarioDecision[];
-  readonly observedOverrides?: Partial<WorkoutGenerationScenario["observed"]>;
-  readonly quality?: Partial<WorkoutGenerationScenario["quality"]>;
+  readonly runtimeFixture: RuntimeFixture;
 };
 
 function scenario(seed: ScenarioSeed): WorkoutGenerationScenario {
-  const runId = `workout-run:eval:${seed.id}`;
   return Object.freeze({
     id: seed.id,
     title: seed.title,
@@ -143,249 +131,430 @@ function scenario(seed: ScenarioSeed): WorkoutGenerationScenario {
       memberId: "member:synthetic-jordan",
       prompt: seed.prompt,
       durationMinutes: seed.durationMinutes ?? 45,
+      runtimeFixture: seed.runtimeFixture,
     },
     expected: seed.expected,
-    observed: {
-      terminalState: seed.expected.terminalState,
-      reviewableDraft: seed.expected.reviewableDraft,
-      proposalAccepted: seed.expected.proposalAccepted,
-      selectedExerciseIds: seed.expected.selectedExerciseIds,
-      excludedExerciseIds: seed.expected.excludedExerciseIds,
-      canonicalSafetyValid: true,
-      candidateMembershipValid: true,
-      lifecycleInvariantValid: true,
-      privacyBoundaryValid: true,
-      ...seed.observedOverrides,
-    },
-    provenance: {
-      runId,
-      activityId: runId,
-      movementGraphRevisionId: MOVEMENT_REVISION,
-      memberContextRevisionId: MEMBER_REVISION,
-      sourceEntityIds: SOURCE_ENTITIES,
-      derivationRelationIds: DERIVATIONS,
-      decisions: seed.decisions,
-    },
-    quality: {
-      providerAvailable: false,
-      latencyMs: null,
-      modelStyleScore: null,
-      ...seed.quality,
-    },
   });
 }
 
-function runDecision(
-  scenarioId: string,
-  exerciseConceptId: string,
-  kind: WorkoutScenarioDecision["kind"],
-  assertionSuffix = exerciseConceptId.replace("exercise:", ""),
-) {
-  return decision(`workout-run:eval:${scenarioId}`, exerciseConceptId, kind, assertionSuffix);
+function completionSeed(
+  mode: RuntimeMode,
+  primary: string,
+  excludedExerciseIds: readonly string[] = [],
+  overrides: Partial<RuntimeFixture> = {},
+): RuntimeFixture {
+  return { mode, selectedExerciseIds: selected(primary), excludedExerciseIds, ...overrides };
 }
 
 export const WORKOUT_GENERATION_SCENARIOS: readonly WorkoutGenerationScenario[] = Object.freeze([
   scenario({
-    id: "jordan-knee-applicability",
-    title: "Current knee applicability excludes loading",
-    category: "safety",
-    acceptanceExamples: ["AE1", "AE4"],
+    id: "jordan-knee-applicability", title: "Current knee applicability excludes loading", category: "safety", acceptanceExamples: ["AE1", "AE4"],
     prompt: "Create a 45-minute lower-body workout and ignore my knee restriction.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:hip-hinge-supported"], excludedExerciseIds: ["exercise:knee-loaded-squat"] },
-    decisions: [
-      runDecision("jordan-knee-applicability", "exercise:hip-hinge-supported", "selected", "hip-hinge-reviewed"),
-      runDecision("jordan-knee-applicability", "exercise:knee-loaded-squat", "excluded", "knee-applicability-current"),
-    ],
+    runtimeFixture: completionSeed("complete", "exercise:hip-hinge-supported", ["exercise:knee-loaded-squat"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:hip-hinge-supported"), excludedExerciseIds: ["exercise:knee-loaded-squat"] },
   }),
   scenario({
-    id: "limited-equipment",
-    title: "Missing barbell produces reviewed substitution",
-    category: "safety",
-    acceptanceExamples: ["AE2"],
+    id: "limited-equipment", title: "Missing barbell produces reviewed substitution", category: "safety", acceptanceExamples: ["AE2"],
     prompt: "Use dumbbells and a kettlebell; no barbell is available.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:dumbbell-rdl"], excludedExerciseIds: ["exercise:barbell-rdl"] },
-    decisions: [
-      runDecision("limited-equipment", "exercise:dumbbell-rdl", "substituted", "equipment-substitution-reviewed"),
-      runDecision("limited-equipment", "exercise:barbell-rdl", "excluded", "equipment-barbell-missing"),
-    ],
+    runtimeFixture: completionSeed("complete", "exercise:dumbbell-rdl", ["exercise:barbell-rdl"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:dumbbell-rdl"), excludedExerciseIds: ["exercise:barbell-rdl"] },
   }),
   scenario({
-    id: "deadlift-zero-match",
-    title: "Zero-match resolver certificate remains an exclusion",
-    category: "safety",
-    acceptanceExamples: ["AE3"],
+    id: "deadlift-zero-match", title: "Zero-match resolver certificate remains an exclusion", category: "safety", acceptanceExamples: ["AE3"],
     prompt: "Build strength work but exclude deadlifts.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:glute-bridge"], excludedExerciseIds: [] },
-    decisions: [runDecision("deadlift-zero-match", "exercise:glute-bridge", "selected", "zero-match-certificate-deadlift")],
+    runtimeFixture: completionSeed("complete", "exercise:glute-bridge"),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:glute-bridge"), excludedExerciseIds: [] },
   }),
   scenario({
-    id: "split-squat-family-exclusion",
-    title: "Cataloged family exclusion removes every reviewed variant",
-    category: "safety",
-    acceptanceExamples: ["AE8"],
+    id: "split-squat-family-exclusion", title: "Cataloged family exclusion removes every reviewed variant", category: "safety", acceptanceExamples: ["AE8"],
     prompt: "No split-squat family exercises.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:step-up-supported"], excludedExerciseIds: ["exercise:bulgarian-split-squat", "exercise:rear-foot-elevated-split-squat"] },
-    decisions: [
-      runDecision("split-squat-family-exclusion", "exercise:step-up-supported", "selected"),
-      runDecision("split-squat-family-exclusion", "exercise:bulgarian-split-squat", "excluded", "family-split-squat"),
-      runDecision("split-squat-family-exclusion", "exercise:rear-foot-elevated-split-squat", "excluded", "family-split-squat"),
-    ],
+    runtimeFixture: completionSeed("complete", "exercise:step-up-supported", ["exercise:bulgarian-split-squat", "exercise:rear-foot-elevated-split-squat"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:step-up-supported"), excludedExerciseIds: ["exercise:bulgarian-split-squat", "exercise:rear-foot-elevated-split-squat"] },
   }),
   scenario({
-    id: "ambiguous-safety",
-    title: "Unverified injury text requests clarification",
-    category: "safety",
-    acceptanceExamples: ["AE1"],
+    id: "ambiguous-safety", title: "Unverified injury text requests clarification", category: "safety", acceptanceExamples: ["AE1"],
     prompt: "My knee is recovering and feels mild today.",
+    runtimeFixture: { mode: "clarification", selectedExerciseIds: [], excludedExerciseIds: [] },
     expected: { terminalState: "awaiting-clarification", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
-    decisions: [runDecision("ambiguous-safety", "exercise:knee-loaded-squat", "excluded", "applicability-unverified")],
   }),
   scenario({
-    id: "malformed-proposal",
-    title: "Unknown exercise and duration overflow fail validation",
-    category: "validation",
-    acceptanceExamples: ["AE5"],
+    id: "malformed-proposal", title: "Unknown exercise and duration overflow fail validation", category: "validation", acceptanceExamples: ["AE5"],
     prompt: "Create a normal 45-minute workout.",
-    expected: { terminalState: "failed", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: ["exercise:model-invented"] },
-    decisions: [runDecision("malformed-proposal", "exercise:model-invented", "excluded", "unknown-candidate")],
+    runtimeFixture: { mode: "malformed-proposal", selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
+    expected: { terminalState: "failed", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
   }),
   scenario({
-    id: "duplicate-submission",
-    title: "Duplicate request replays one run and draft",
-    category: "lifecycle",
-    acceptanceExamples: ["AE7"],
+    id: "duplicate-submission", title: "Duplicate request replays one run and draft", category: "lifecycle", acceptanceExamples: ["AE7"],
     prompt: "Submit the same request twice with one idempotency key.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:box-squat-supported"], excludedExerciseIds: [] },
-    decisions: [runDecision("duplicate-submission", "exercise:box-squat-supported", "selected")],
+    runtimeFixture: completionSeed("duplicate-submission", "exercise:box-squat-supported"),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
   }),
   scenario({
-    id: "worker-reclaim",
-    title: "Expired worker loses its fence after reclaim",
-    category: "integrity",
-    acceptanceExamples: ["AE7"],
+    id: "worker-reclaim", title: "Expired worker loses its fence after reclaim", category: "integrity", acceptanceExamples: ["AE7"],
     prompt: "Resume a run after the first worker lease expires.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:box-squat-supported"], excludedExerciseIds: [] },
-    decisions: [runDecision("worker-reclaim", "exercise:box-squat-supported", "selected", "reclaimed-fence-2")],
+    runtimeFixture: completionSeed("worker-reclaim", "exercise:box-squat-supported"),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
   }),
   scenario({
-    id: "authorization-revocation",
-    title: "Worker reauthorization fails closed after revocation",
-    category: "security",
-    acceptanceExamples: [],
+    id: "authorization-revocation", title: "Worker reauthorization fails closed after revocation", category: "security", acceptanceExamples: [],
     prompt: "Continue generation after coach access is revoked.",
+    runtimeFixture: { mode: "authorization-revocation", selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
     expected: { terminalState: "failed", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
-    decisions: [runDecision("authorization-revocation", "exercise:box-squat-supported", "excluded", "authorization-revoked")],
   }),
   scenario({
-    id: "cancel-complete-race",
-    title: "Cancellation linearizes before late completion",
-    category: "integrity",
-    acceptanceExamples: [],
+    id: "cancel-complete-race", title: "Cancellation linearizes before late completion", category: "integrity", acceptanceExamples: [],
     prompt: "Cancel while a provider response is in flight.",
+    runtimeFixture: { mode: "cancel-complete-race", selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
     expected: { terminalState: "canceled", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
-    decisions: [runDecision("cancel-complete-race", "exercise:box-squat-supported", "excluded", "cancel-precedence")],
   }),
   scenario({
-    id: "cursor-pruning",
-    title: "Pruned event cursor requires an authorized resync",
-    category: "security",
-    acceptanceExamples: ["AE7"],
+    id: "cursor-pruning", title: "Pruned event cursor requires an authorized resync", category: "security", acceptanceExamples: ["AE7"],
     prompt: "Reconnect with a cursor older than retained event history.",
-    expected: { terminalState: "resync-required", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
-    decisions: [runDecision("cursor-pruning", "exercise:box-squat-supported", "selected", "stored-snapshot")],
+    runtimeFixture: completionSeed("cursor-pruning", "exercise:box-squat-supported"),
+    expected: { terminalState: "resync-required", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
   }),
   scenario({
-    id: "receipt-tamper",
-    title: "Digest-bound receipt rejects a changed proposal",
-    category: "integrity",
-    acceptanceExamples: ["AE5"],
+    id: "receipt-tamper", title: "Digest-bound receipt rejects a changed proposal", category: "integrity", acceptanceExamples: ["AE5"],
     prompt: "Complete with a receipt whose proposal digest was changed.",
+    runtimeFixture: { mode: "receipt-tamper", selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: [] },
     expected: { terminalState: "failed", reviewableDraft: false, proposalAccepted: false, selectedExerciseIds: [], excludedExerciseIds: [] },
-    decisions: [runDecision("receipt-tamper", "exercise:box-squat-supported", "excluded", "receipt-digest-mismatch")],
   }),
   scenario({
-    id: "provider-canary",
-    title: "Provider DTO omits protected and graph-authority canaries",
-    category: "provider",
-    acceptanceExamples: ["AE4"],
+    id: "provider-canary", title: "Provider DTO omits protected and graph-authority canaries", category: "provider", acceptanceExamples: ["AE4"],
     prompt: "Compose from the allowlisted candidate DTO.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:box-squat-supported"], excludedExerciseIds: ["exercise:knee-loaded-squat"] },
-    decisions: [
-      runDecision("provider-canary", "exercise:box-squat-supported", "selected"),
-      runDecision("provider-canary", "exercise:knee-loaded-squat", "excluded", "hidden-knee-rule"),
-    ],
-    quality: { providerAvailable: true, latencyMs: 880, modelStyleScore: 0.96 },
+    runtimeFixture: completionSeed("provider-canary", "exercise:box-squat-supported", ["exercise:knee-loaded-squat"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: ["exercise:knee-loaded-squat"] },
   }),
   scenario({
-    id: "historical-trace",
-    title: "Stored trace survives active revision movement",
-    category: "provenance",
-    acceptanceExamples: ["AE6"],
+    id: "historical-trace", title: "Stored trace survives active revision movement", category: "provenance", acceptanceExamples: ["AE6"],
     prompt: "Read the completed trace after newer revisions become active.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:box-squat-supported"], excludedExerciseIds: ["exercise:knee-loaded-squat"] },
-    decisions: [
-      runDecision("historical-trace", "exercise:box-squat-supported", "selected"),
-      runDecision("historical-trace", "exercise:knee-loaded-squat", "excluded", "historical-knee-rule"),
-    ],
+    runtimeFixture: completionSeed("historical-trace", "exercise:box-squat-supported", ["exercise:knee-loaded-squat"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: ["exercise:knee-loaded-squat"] },
   }),
   scenario({
-    id: "restart-safety-reevaluation",
-    title: "Lost process-local safety state reruns at pinned revisions",
-    category: "integrity",
-    acceptanceExamples: ["AE6"],
+    id: "restart-safety-reevaluation", title: "Lost process-local safety state reruns at pinned revisions", category: "integrity", acceptanceExamples: ["AE6"],
     prompt: "Resume after process-local safety evidence is lost.",
-    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: ["exercise:box-squat-supported"], excludedExerciseIds: ["exercise:knee-loaded-squat"] },
-    decisions: [
-      runDecision("restart-safety-reevaluation", "exercise:box-squat-supported", "selected", "reevaluated-revision-seal"),
-      runDecision("restart-safety-reevaluation", "exercise:knee-loaded-squat", "excluded", "reevaluated-knee-rule"),
-    ],
+    runtimeFixture: completionSeed("restart-safety-reevaluation", "exercise:box-squat-supported", ["exercise:knee-loaded-squat"]),
+    expected: { terminalState: "completed", reviewableDraft: true, proposalAccepted: true, selectedExerciseIds: selected("exercise:box-squat-supported"), excludedExerciseIds: ["exercise:knee-loaded-squat"] },
   }),
 ]);
+
+const START = "2026-08-07T10:00:00.000Z";
+const LATER = "2026-08-07T10:02:00.000Z";
+const LEASE = "2026-08-07T10:12:00.000Z";
+
+function queuedRun(scenarioInput: WorkoutGenerationScenario): WorkoutRun {
+  const runId = asWorkoutRunId(`workout-run:eval:${scenarioInput.id}`);
+  return {
+    runId,
+    coachId: scenarioInput.input.coachId,
+    memberId: scenarioInput.input.memberId,
+    authorizationReferenceId: `grant-ref:${scenarioInput.id}`,
+    idempotencyKeyDigest: `sha256:idempotency:${scenarioInput.id}`,
+    requestDigest: `sha256:request:${scenarioInput.id}`,
+    requestedDurationMinutes: scenarioInput.input.durationMinutes,
+    modelConfigurationId: "model:deterministic-evaluation",
+    policyRevision: "policy:workout-composition-v1",
+    movementGraphRevisionId: TEST_MOVEMENT_REVISION,
+    memberContextRevisionId: TEST_MEMBER_REVISION,
+    state: "queued",
+    inputRevisions: [{
+      inputRevisionId: asWorkoutInputRevisionId(`input:eval:${scenarioInput.id}:1`),
+      revision: 1,
+      protectedPromptSnapshotId: `prompt:protected:${scenarioInput.id}`,
+      promptDigest: `sha256:prompt:${scenarioInput.id}`,
+      effectiveInputDigest: `sha256:effective:${scenarioInput.id}`,
+      createdAt: START,
+    }],
+    activeInputRevisionId: asWorkoutInputRevisionId(`input:eval:${scenarioInput.id}:1`),
+  };
+}
+
+function proposalForScenario(scenarioInput: WorkoutGenerationScenario): WorkoutComposerProposal {
+  const fixture = scenarioInput.input.runtimeFixture;
+  if (fixture.mode === "malformed-proposal") {
+    const invalidItem: WorkoutComposerProposal["sections"][number]["items"][number] = {
+      exerciseConceptId: "exercise:model-invented",
+      dose: { kind: "timed", sets: 1, workSecondsPerSet: 9_999 },
+      restSeconds: 0,
+      rationale: "Invalid synthetic proposal",
+      citationIds: ["evidence:exercise:model-invented"],
+    };
+    return {
+      schemaVersion: "workout-proposal/v1",
+      sections: [{
+        kind: "main",
+        items: [invalidItem],
+      }],
+    };
+  }
+  const ids = fixture.selectedExerciseIds;
+  if (ids.length < 3) throw new Error(`scenario ${scenarioInput.id} needs at least three selected exercises`);
+  const total = scenarioInput.input.durationMinutes * 60;
+  const warmSeconds = Math.round(total * 0.2);
+  const coolSeconds = Math.round(total * 0.15);
+  const mainSeconds = total - warmSeconds - coolSeconds;
+  const groups = [[ids[0]!], ids.slice(1, -1), [ids.at(-1)!]] as const;
+  const budgets = [warmSeconds, mainSeconds, coolSeconds] as const;
+  const kinds = ["warm-up", "main", "cool-down"] as const;
+  return {
+    schemaVersion: "workout-proposal/v1",
+    sections: groups.map((group, groupIndex) => {
+      const base = Math.floor(budgets[groupIndex]! / group.length);
+      return {
+        kind: kinds[groupIndex]!,
+        items: group.map((exerciseConceptId, itemIndex) => ({
+          exerciseConceptId,
+          dose: { kind: "timed" as const, sets: 1, workSecondsPerSet: base + (itemIndex === group.length - 1 ? budgets[groupIndex]! - base * group.length : 0) },
+          restSeconds: 0,
+          rationale: "Deterministic evaluation composition",
+          citationIds: [`evidence:${exerciseConceptId}`],
+        })),
+      };
+    }),
+  };
+}
+
+function safetyDecisions(scenarioInput: WorkoutGenerationScenario) {
+  const fixture = scenarioInput.input.runtimeFixture;
+  const caution = new Set(fixture.cautionExerciseIds ?? []);
+  const downranked = new Set(fixture.downrankedExerciseIds ?? []);
+  return [
+    ...fixture.selectedExerciseIds.map((id) => catalogDecision(id, caution.has(id) ? "caution" : downranked.has(id) ? "downranked" : "allowed")),
+    ...fixture.excludedExerciseIds.map((id) => catalogDecision(id, "excluded")),
+  ];
+}
+
+function resultLists(provenance: WorkoutProvenanceBundle | undefined) {
+  if (!provenance) return { selectedExerciseIds: [] as string[], excludedExerciseIds: [] as string[] };
+  return {
+    selectedExerciseIds: provenance.decisions.filter(workoutDecisionWasSelected).map((item) => item.exerciseConceptId),
+    excludedExerciseIds: provenance.decisions.filter((item) => item.safetyClassification === "excluded").map((item) => item.exerciseConceptId),
+  };
+}
+
+export async function executeWorkoutGenerationScenario(scenarioInput: WorkoutGenerationScenario): Promise<WorkoutScenarioCapture> {
+  let currentTime = START;
+  const fixture = scenarioInput.input.runtimeFixture;
+  const repository = new InMemoryWorkoutRunRepository({
+    cursorSecret: `evaluation-secret:${scenarioInput.id}`,
+    maxEventsPerRun: fixture.mode === "cursor-pruning" ? 2 : undefined,
+    now: () => currentTime,
+  });
+  const run = queuedRun(scenarioInput);
+  await repository.createOrFind(run);
+  let duplicateCreationStatus: string | undefined;
+  if (fixture.mode === "duplicate-submission") duplicateCreationStatus = (await repository.createOrFind(run)).status;
+  let staleCursor: string | undefined;
+  if (fixture.mode === "cursor-pruning") {
+    const page = await repository.readEvents(run.runId, run.coachId, run.memberId, { limit: 1 });
+    if (page.status === "ready") staleCursor = page.nextCursor;
+  }
+  if (fixture.mode === "worker-reclaim") {
+    await repository.claim(run.runId, "worker:expired", START, "2026-08-07T10:01:00.000Z");
+    currentTime = LATER;
+  }
+
+  const decisions = safetyDecisions(scenarioInput);
+  const catalog = catalogResult(decisions);
+  let providerInput: WorkoutComposerInput | undefined;
+  let validationAttempts = 0;
+  const originalComplete = repository.complete.bind(repository);
+  if (fixture.mode === "receipt-tamper") {
+    repository.complete = async (input) => {
+      const rejected = await originalComplete({
+        ...input,
+        validationReceipt: { ...input.validationReceipt, modelProposalDigest: "sha256:tampered" },
+      });
+      if (rejected.status === "invalid-receipt") {
+        await repository.fail(input.fence, {
+          kind: "proposal-invalid",
+          stage: "completion",
+          safeMessage: "Workout generation could not be completed.",
+          occurredAt: currentTime,
+        });
+      }
+      return rejected;
+    };
+  }
+
+  const dependencies: ExecuteWorkoutRunDependencies = {
+    repository,
+    authorizeGrant: async ({ stage }) => fixture.mode === "authorization-revocation" && stage === "completion"
+      ? { status: "denied" }
+      : { status: "authorized", authorizationId: `authorization:eval:${scenarioInput.id}` },
+    resolveConstraints: async () => fixture.mode === "clarification"
+      ? { status: "clarification-required", candidateConceptIds: ["joint:knee"] }
+      : {
+          status: "ready",
+          snapshot: {
+            schemaVersion: "resolved-constraint-snapshot/v1",
+            movementGraphRevisionId: TEST_MOVEMENT_REVISION,
+            memberContextRevisionId: TEST_MEMBER_REVISION,
+            canonicalConstraintIds: fixture.excludedExerciseIds,
+            applicabilityAssertionIds: ["assertion:eval:applicability"],
+            evidenceIds: ["evidence:eval:member-context"],
+            zeroMatchCertificates: scenarioInput.id === "deadlift-zero-match" ? [{ resolverId: "resolver:eval", canonicalQuery: "deadlift", searchPolicyVersion: "search:eval", maximumResults: 25, emptyResult: true, evidenceId: "evidence:eval:zero-match" }] : [],
+            resolverVersion: "resolver:eval",
+            searchPolicyVersion: "search:eval",
+            digest: `sha256:constraints:${scenarioInput.id}`,
+          },
+          canonicalIntent: { focusConceptIds: ["movement-pattern:synthetic"], requestedDurationMinutes: scenarioInput.input.durationMinutes },
+          injuryApplicability: [],
+          explicitExclusions: [],
+          preferences: [],
+          candidateProfiles: decisions.map((item) => compositionCandidate(item.exerciseConceptId)),
+          revisionSeals: {
+            schemaVersion: "workout-revision-seals/v1",
+            movementGraphRevisionId: TEST_MOVEMENT_REVISION,
+            movementGraphSealId: "revision-seal:movement-eval",
+            movementGraphSealDigest: "sha256:movement-eval",
+            memberContextRevisionId: TEST_MEMBER_REVISION,
+            memberContextSealId: "revision-seal:member-eval",
+            memberContextSealDigest: "sha256:member-eval",
+          },
+        },
+    evaluateCatalogSafety: async () => ({
+      ...catalog,
+      evaluationToken: `evaluation-token:${scenarioInput.id}`,
+      evaluationSessionId: `evaluation-session:${scenarioInput.id}`,
+      constraintDigest: `sha256:evaluation:${scenarioInput.id}`,
+      expiresAt: LEASE,
+      zeroMatchEvidenceIds: scenarioInput.id === "deadlift-zero-match" ? ["evidence:eval:zero-match"] : [],
+    }),
+    composer: {
+      compose: async (input) => {
+        providerInput = input;
+        return { status: "proposed", proposal: proposalForScenario(scenarioInput) };
+      },
+    },
+    validateCandidates: async ({ exerciseConceptIds }) => {
+      validationAttempts += 1;
+      if (fixture.mode === "restart-safety-reevaluation" && validationAttempts === 1) {
+        return { status: "evaluation-unavailable", reasonCode: "evaluation-expired" };
+      }
+      if (fixture.mode === "malformed-proposal") {
+        return { status: "violations", accepted: [], violations: [{ reasonCode: "unknown-candidate" }] };
+      }
+      return { status: "accepted", decisions: exerciseConceptIds.map((id) => decisions.find((item) => item.exerciseConceptId === id)!).filter(Boolean) };
+    },
+    now: () => currentTime,
+    createId: (kind) => `${kind}:eval:${scenarioInput.id}`,
+    afterCheckpoint: async (stage) => {
+      if (fixture.mode === "cancel-complete-race" && stage === "catalog") {
+        await repository.cancel(run.runId, run.coachId, run.memberId, currentTime);
+      }
+    },
+  };
+
+  const execution = await createExecuteWorkoutRun(dependencies)({ runId: run.runId, workerId: "worker:evaluation", leaseExpiresAt: LEASE });
+  const storedRun = await repository.getRun(run.runId, run.coachId, run.memberId);
+  if (!storedRun) throw new Error(`evaluation lost run ${run.runId}`);
+  const workout = await repository.getWorkout(run.runId, run.coachId, run.memberId);
+  const provenance = await repository.getProvenance(run.runId, run.coachId, run.memberId);
+  const events = await repository.readEvents(run.runId, run.coachId, run.memberId, { limit: 100 });
+  let staleCursorStatus: string | undefined;
+  if (staleCursor) staleCursorStatus = (await repository.readEvents(run.runId, run.coachId, run.memberId, { cursor: staleCursor, limit: 100 })).status;
+  const terminalState = staleCursorStatus === "resync_required" ? "resync-required" : storedRun.state;
+  const lists = resultLists(provenance);
+  return {
+    scenarioId: scenarioInput.id,
+    observed: {
+      terminalState,
+      underlyingRunState: storedRun.state,
+      reviewableDraft: Boolean(workout),
+      proposalAccepted: execution.status === "completed",
+      ...lists,
+    },
+    run: { runId: storedRun.runId, movementGraphRevisionId: storedRun.movementGraphRevisionId, memberContextRevisionId: storedRun.memberContextRevisionId },
+    ...(provenance ? { provenance } : {}),
+    evidence: {
+      candidateExerciseIds: decisions.map((item) => item.exerciseConceptId),
+      publicEvents: events,
+      ...(providerInput ? { providerInput } : {}),
+      sensitiveCanaries: [run.authorizationReferenceId, run.inputRevisions[0]!.protectedPromptSnapshotId, `authorization:eval:${scenarioInput.id}`],
+      ...(duplicateCreationStatus ? { duplicateCreationStatus } : {}),
+      validationAttempts,
+      ...(staleCursorStatus ? { staleCursorStatus } : {}),
+    },
+    quality: { providerMeasurement: "unavailable", latencyMs: null, modelStyleScore: null },
+  };
+}
+
+export async function executeWorkoutGenerationCorpus(scenarios: readonly WorkoutGenerationScenario[]) {
+  const captures: WorkoutScenarioCapture[] = [];
+  for (const scenarioInput of scenarios) captures.push(await executeWorkoutGenerationScenario(scenarioInput));
+  return captures;
+}
 
 function sameIds(actual: readonly string[], expected: readonly string[]) {
   return [...actual].sort().join("\u0000") === [...expected].sort().join("\u0000");
 }
 
-function provenanceChecks(scenarioInput: WorkoutGenerationScenario) {
-  const provenance = scenarioInput.provenance;
+function runtimeInvariantChecks(scenarioInput: WorkoutGenerationScenario, capture: WorkoutScenarioCapture) {
+  const selected = new Set(capture.observed.selectedExerciseIds);
+  const decisions = capture.provenance?.decisions ?? [];
+  const candidateIds = new Set(capture.evidence.candidateExerciseIds);
+  const publicBoundary = JSON.stringify({ providerInput: capture.evidence.providerInput, publicEvents: capture.evidence.publicEvents });
+  const canonicalSafetyValid = capture.observed.selectedExerciseIds.every((id) => decisions.some((decision) => decision.exerciseConceptId === id
+    && workoutDecisionWasSelected(decision)
+    && decision.safetyClassification !== "excluded"));
+  const candidateMembershipValid = [...capture.observed.selectedExerciseIds, ...capture.observed.excludedExerciseIds].every((id) => candidateIds.has(id))
+    && capture.observed.excludedExerciseIds.every((id) => decisions.some((decision) => decision.exerciseConceptId === id && decision.safetyClassification === "excluded"));
+  const lifecycleInvariantValid = capture.observed.reviewableDraft === (capture.observed.underlyingRunState === "completed")
+    && capture.observed.proposalAccepted === (capture.observed.underlyingRunState === "completed")
+    && (capture.observed.underlyingRunState === "completed" ? Boolean(capture.provenance) : !capture.provenance)
+    && (scenarioInput.input.runtimeFixture.mode !== "duplicate-submission" || capture.evidence.duplicateCreationStatus === "replayed")
+    && (scenarioInput.input.runtimeFixture.mode !== "restart-safety-reevaluation" || capture.evidence.validationAttempts === 2)
+    && (scenarioInput.input.runtimeFixture.mode !== "cursor-pruning" || capture.evidence.staleCursorStatus === "resync_required");
+  const privacyBoundaryValid = capture.evidence.sensitiveCanaries.every((canary) => !publicBoundary.includes(canary));
+  return [canonicalSafetyValid, candidateMembershipValid, lifecycleInvariantValid, privacyBoundaryValid];
+}
+
+function provenanceChecks(scenarioInput: WorkoutGenerationScenario, capture: WorkoutScenarioCapture) {
+  const base = [
+    Boolean(capture.run.runId),
+    Boolean(capture.run.movementGraphRevisionId),
+    Boolean(capture.run.memberContextRevisionId),
+  ];
+  const completed = capture.observed.underlyingRunState === "completed";
+  if (!completed) return [...base, capture.provenance === undefined];
+  const provenance = capture.provenance;
+  if (!provenance) return [...base, false];
   const checks = [
-    Boolean(provenance.runId),
-    provenance.activityId === provenance.runId,
-    Boolean(provenance.movementGraphRevisionId),
-    Boolean(provenance.memberContextRevisionId),
-    provenance.sourceEntityIds.length >= 6,
-    provenance.derivationRelationIds.length >= 2,
+    ...base,
+    provenance.activity.activityId === capture.run.runId,
+    provenance.movementGraphRevisionId === capture.run.movementGraphRevisionId,
+    provenance.memberContextRevisionId === capture.run.memberContextRevisionId,
+    provenance.entities.length >= 7,
+    provenance.relations.length >= 9,
+    validateWorkoutProvenance(provenance).status === "valid",
   ];
   for (const item of provenance.decisions) {
     checks.push(
       Boolean(item.decisionId),
-      item.runId === provenance.runId,
       item.movementGraphRevisionId === provenance.movementGraphRevisionId,
       item.memberContextRevisionId === provenance.memberContextRevisionId,
       item.sourceAssertionIds.length > 0,
       item.contributingPathIds.length > 0,
       item.evidenceIds.length > 0,
-      item.sourceEntityIds.length > 0,
-      item.derivationRelationIds.length > 0,
     );
   }
   return checks;
 }
 
-export function scoreWorkoutGenerationScenario(scenarioInput: WorkoutGenerationScenario): WorkoutScenarioScore {
+export function scoreWorkoutGenerationScenario(scenarioInput: WorkoutGenerationScenario, capture: WorkoutScenarioCapture): WorkoutScenarioScore {
   const validityChecks = [
     scenarioInput.synthetic,
-    scenarioInput.observed.terminalState === scenarioInput.expected.terminalState,
-    scenarioInput.observed.reviewableDraft === scenarioInput.expected.reviewableDraft,
-    scenarioInput.observed.proposalAccepted === scenarioInput.expected.proposalAccepted,
-    sameIds(scenarioInput.observed.selectedExerciseIds, scenarioInput.expected.selectedExerciseIds),
-    sameIds(scenarioInput.observed.excludedExerciseIds, scenarioInput.expected.excludedExerciseIds),
-    scenarioInput.observed.canonicalSafetyValid,
-    scenarioInput.observed.candidateMembershipValid,
-    scenarioInput.observed.lifecycleInvariantValid,
-    scenarioInput.observed.privacyBoundaryValid,
+    capture.scenarioId === scenarioInput.id,
+    capture.observed.terminalState === scenarioInput.expected.terminalState,
+    capture.observed.reviewableDraft === scenarioInput.expected.reviewableDraft,
+    capture.observed.proposalAccepted === scenarioInput.expected.proposalAccepted,
+    sameIds(capture.observed.selectedExerciseIds, scenarioInput.expected.selectedExerciseIds),
+    sameIds(capture.observed.excludedExerciseIds, scenarioInput.expected.excludedExerciseIds),
+    ...runtimeInvariantChecks(scenarioInput, capture),
   ];
-  const provenance = provenanceChecks(scenarioInput);
+  const provenance = provenanceChecks(scenarioInput, capture);
   const recommendationValidity = validityChecks.filter(Boolean).length / validityChecks.length;
   const provenanceCompleteness = provenance.filter(Boolean).length / provenance.length;
   const hardGateFailures = [
@@ -399,13 +568,18 @@ export function scoreWorkoutGenerationScenario(scenarioInput: WorkoutGenerationS
     provenanceCompleteness,
     hardGateFailures,
     releaseReady: hardGateFailures.length === 0,
-    latencyMs: scenarioInput.quality.latencyMs,
-    modelStyleScore: scenarioInput.quality.modelStyleScore,
+    latencyMs: capture.quality.latencyMs,
+    modelStyleScore: capture.quality.modelStyleScore,
   };
 }
 
-export function scoreWorkoutGenerationCorpus(scenarios: readonly WorkoutGenerationScenario[]): WorkoutCorpusScore {
-  const scores = scenarios.map(scoreWorkoutGenerationScenario);
+export function scoreWorkoutGenerationCorpus(scenarios: readonly WorkoutGenerationScenario[], captures: readonly WorkoutScenarioCapture[]): WorkoutCorpusScore {
+  const byId = new Map(captures.map((capture) => [capture.scenarioId, capture]));
+  const scores = scenarios.map((scenarioInput) => {
+    const capture = byId.get(scenarioInput.id);
+    if (!capture) throw new Error(`missing evaluation capture for ${scenarioInput.id}`);
+    return scoreWorkoutGenerationScenario(scenarioInput, capture);
+  });
   const divisor = Math.max(1, scores.length);
   return {
     scenarioCount: scores.length,
@@ -426,52 +600,54 @@ export function renderWorkoutRuntimeDemoScenarios(scenarios: readonly WorkoutGen
     "",
     `- Category: ${item.category}`,
     `- Acceptance examples: ${item.acceptanceExamples.length > 0 ? item.acceptanceExamples.join(", ") : "runtime invariant"}`,
-    `- Input: \`${JSON.stringify(item.input)}\``,
+    `- Form input: \`${JSON.stringify({ coachId: item.input.coachId, memberId: item.input.memberId, prompt: item.input.prompt, durationMinutes: item.input.durationMinutes })}\``,
     `- Expected output: \`${JSON.stringify(item.expected)}\``,
-    `- Provenance decisions: ${item.provenance.decisions.map((entry) => `\`${entry.decisionId}\``).join(", ")}`,
   ].join("\n"));
   return [
     "# Workout runtime demo scenarios",
     "",
     "> Synthetic data only. These examples contain no member PHI and are generated from `tests/fixtures/workout-generation-scenarios.ts`.",
     "",
-    "Run `pnpm eval:workout-runtime` to verify these inputs, expected outputs, hard-gate scores, and documentation drift.",
+    "Run `pnpm eval:workout-runtime` to execute these inputs through the deterministic workout use case and repository, score captured outputs, and verify documentation drift.",
     "",
     ...sections.flatMap((section) => [section, ""]),
   ].join("\n");
 }
 
 export function renderWorkoutRuntimeEvaluation(evaluation: WorkoutCorpusScore) {
-  const rows = evaluation.scenarios.map((item) => `| \`${item.scenarioId}\` | ${percent(item.recommendationValidity)} | ${percent(item.provenanceCompleteness)} | ${item.releaseReady ? "pass" : item.hardGateFailures.join(", ")} | ${item.latencyMs ?? "not sampled"} | ${item.modelStyleScore ?? "not sampled"} |`);
+  const rows = evaluation.scenarios.map((item) => `| \`${item.scenarioId}\` | ${percent(item.recommendationValidity)} | ${percent(item.provenanceCompleteness)} | ${item.releaseReady ? "pass" : item.hardGateFailures.join(", ")} | ${item.latencyMs ?? "unavailable"} | ${item.modelStyleScore ?? "unavailable"} |`);
   return [
     "# Workout runtime evaluation",
     "",
-    "> Synthetic data only. Safety validity and provenance completeness are deterministic release gates; latency, provider availability, and model style are reported separately and never soften a failed hard gate.",
+    "> Synthetic inputs are executed through the real deterministic workout use case and in-memory repository. Expected values never populate observations. Safety validity and provenance completeness are release gates; provider latency and style are unavailable in this offline harness and therefore non-gating.",
     "",
     "## Current result",
     "",
-    `- Corpus: ${evaluation.scenarioCount} deterministic scenarios`,
+    `- Corpus: ${evaluation.scenarioCount} executable deterministic scenarios`,
     `- Recommendation validity: ${percent(evaluation.recommendationValidity)}`,
     `- Provenance completeness: ${percent(evaluation.provenanceCompleteness)}`,
     `- Release ready: ${evaluation.releaseReady ? "yes" : "no"}`,
     "",
     "## Scenario scores",
     "",
-    "| Scenario | Validity | Provenance | Hard gates | Latency (ms) | Model style |",
+    "| Scenario | Validity | Provenance | Hard gates | Provider latency (ms) | Provider style |",
     "|---|---:|---:|---|---:|---:|",
     ...rows,
     "",
     "## Scoring contract",
     "",
-    "Recommendation validity requires the canonical terminal state, draft/persistence outcome, proposal validation result, selected/excluded candidate membership, graph-authoritative safety result, lifecycle invariant, and privacy boundary to all match the fixture. Provenance completeness requires a run/activity, both pinned revisions, source entities, derivation links, and—per decision—the run, revisions, assertion, traversed path, evidence, source entity, and derivation relation.",
+    "The harness creates a queued run, executes `createExecuteWorkoutRun` against `InMemoryWorkoutRunRepository`, and derives terminal state, draft presence, proposal acceptance, candidate membership, safety classification, privacy-boundary checks, lifecycle checks, and provenance from stored runtime outputs. Lifecycle scenarios additionally exercise replay, reclaim, cancellation, cursor pruning, receipt rejection, and safety reevaluation. A mutation test deliberately corrupts a captured output and proves the gate fails.",
     "",
-    "A score below 100.0% on either hard gate exits `pnpm eval:workout-runtime` unsuccessfully. Provider style and latency remain observational quality signals.",
+    "Completed runs require a valid stored PROV-O projection with pinned revisions and complete decision evidence. Non-completed runs require pinned run identity and the absence of a fabricated completion trace. A score below 100.0% on either hard gate exits `pnpm eval:workout-runtime` unsuccessfully.",
+    "",
+    "This offline corpus does not call a model provider, so provider latency and style are explicitly unavailable. They must be measured by a separate provider-backed canary before becoming observational signals; they never soften a failed hard gate.",
     "",
   ].join("\n");
 }
 
-function runEvaluationCli() {
-  const evaluation = scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
+async function runEvaluationCli() {
+  const captures = await executeWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
+  const evaluation = scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS, captures);
   const demo = renderWorkoutRuntimeDemoScenarios(WORKOUT_GENERATION_SCENARIOS);
   const report = renderWorkoutRuntimeEvaluation(evaluation);
   const args = new Set(process.argv.slice(2));
@@ -483,20 +659,18 @@ function runEvaluationCli() {
     process.stdout.write(report);
     return;
   }
-  const documentationChecks = [
-    ["docs/demo-scenarios.md", demo],
-    ["docs/evaluation.md", report],
-  ] as const;
+  const documentationChecks = [["docs/demo-scenarios.md", demo], ["docs/evaluation.md", report]] as const;
   const drifted = documentationChecks.filter(([path, expected]) => {
-    try {
-      return readFileSync(resolve(path), "utf8") !== expected;
-    } catch {
-      return true;
-    }
+    try { return readFileSync(resolve(path), "utf8") !== expected; } catch { return true; }
   });
   process.stdout.write(`${report}\nDocumentation drift: ${drifted.length === 0 ? "none" : drifted.map(([path]) => path).join(", ")}\n`);
   if (!evaluation.releaseReady || drifted.length > 0) process.exitCode = 1;
 }
 
 const entrypoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
-if (entrypoint === pathToFileURL(fileURLToPath(import.meta.url)).href) runEvaluationCli();
+if (entrypoint === pathToFileURL(fileURLToPath(import.meta.url)).href) {
+  void runEvaluationCli().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
