@@ -13,7 +13,7 @@ import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
 import { createWorkoutComposerInput, proposalCitationsAreGrounded } from "../../agents/workout/tools";
 import { parseWorkoutProposal } from "../../agents/workout/schemas";
 import type { WorkoutComposer } from "../ports/workout-composer";
-import type { WorkoutRunRepository } from "../ports/workout-run-repository";
+import type { ClaimWorkoutRunResult, WorkoutRunRepository } from "../ports/workout-run-repository";
 import type {
   CatalogSafetyInjuryApplicability,
   CatalogSafetyResolvedMatch,
@@ -119,10 +119,20 @@ function proposalIds(proposal: { readonly sections: readonly { readonly items: r
 }
 
 export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependencies) {
-  return async (input: { readonly runId: WorkoutRunId; readonly workerId: string; readonly leaseExpiresAt: string }): Promise<ExecuteWorkoutRunResult> => {
-    const claimed = await dependencies.repository.claim(input.runId, input.workerId, dependencies.now(), input.leaseExpiresAt);
+  return async (input: {
+    readonly runId: WorkoutRunId;
+    readonly workerId: string;
+    readonly leaseExpiresAt: string;
+    readonly claimed?: Extract<ClaimWorkoutRunResult, { readonly status: "claimed" }>;
+    readonly signal?: AbortSignal;
+  }): Promise<ExecuteWorkoutRunResult> => {
+    const claimed = input.claimed ?? await dependencies.repository.claim(input.runId, input.workerId, dependencies.now(), input.leaseExpiresAt);
     if (claimed.status !== "claimed") return { status: "not-claimable" };
+    if (claimed.run.runId !== input.runId || claimed.fence.workerId !== input.workerId || claimed.fence.runId !== input.runId) {
+      return { status: "not-claimable" };
+    }
     const { run, fence } = claimed;
+    const claimWasCanceled = () => input.signal?.aborted === true;
 
     const authorize = (stage: Parameters<ExecuteWorkoutRunDependencies["authorizeGrant"]>[0]["stage"]) => dependencies.authorizeGrant({
       authorizationReferenceId: run.authorizationReferenceId,
@@ -141,6 +151,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
       return failed.status === "updated" ? { status: "failed", reason: kind } : { status: "claim-lost" };
     };
     const checkpoint = async (stage: "constraints" | "catalog" | "proposal" | "validation", stageDigest: string) => {
+      if (claimWasCanceled()) return false;
       const saved = await dependencies.repository.appendEvent(fence, {
         kind: "stage",
         occurredAt: dependencies.now(),
@@ -152,6 +163,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
     };
 
     try {
+      if (claimWasCanceled()) return { status: "claim-lost" };
       if ((await authorize("claim")).status !== "authorized") return fail("authorization-denied", "claim");
       const constraintsGrant = await authorize("constraints");
       if (constraintsGrant.status !== "authorized") return fail("authorization-denied", "constraints");
@@ -160,6 +172,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         authorizationId: constraintsGrant.authorizationId,
         persistedSnapshot: run.constraintSnapshot,
       });
+      if (claimWasCanceled()) return { status: "claim-lost" };
       if (resolved.status === "clarification-required") {
         const mutation = await dependencies.repository.awaitClarification(fence, dependencies.now(), resolved.candidateConceptIds);
         return mutation.status === "updated" ? { status: "awaiting-clarification" } : { status: "claim-lost" };
@@ -188,6 +201,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           explicitExclusions: resolved.explicitExclusions,
           preferences: resolved.preferences,
         });
+        if (claimWasCanceled()) return { status: "claim-lost" };
         if (evaluated.status === "denied") return fail("authorization-denied", "catalog");
         if (evaluated.status === "clarification_required") {
           const mutation = await dependencies.repository.awaitClarification(fence, dependencies.now(), ["constraint:clarification"]);
@@ -224,7 +238,8 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           candidateProfiles: resolved.candidateProfiles,
         });
         if (composerInput.candidates.length === 0) return fail("proposal-invalid", "composition");
-        const composed = await dependencies.composer.compose(composerInput);
+        const composed = await dependencies.composer.compose(composerInput, { signal: input.signal });
+        if (claimWasCanceled()) return { status: "claim-lost" };
         if (composed.status !== "proposed") return fail("provider-failure", "composition");
         const parsed = parseWorkoutProposal(composed.proposal);
         if (parsed.status !== "valid" || !proposalCitationsAreGrounded(parsed.proposal, composerInput)) {
@@ -251,6 +266,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           exerciseConceptIds: selectedIds,
           binding,
         });
+        if (claimWasCanceled()) return { status: "claim-lost" };
         if (candidateValidation.status === "evaluation-unavailable" && attempt === 0) continue;
         if (candidateValidation.status === "denied") return fail("authorization-denied", "validation");
         if (candidateValidation.status !== "accepted") return fail("proposal-invalid", "validation");
