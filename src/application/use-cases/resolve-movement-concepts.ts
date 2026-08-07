@@ -9,7 +9,7 @@ import {
 import type { MovementGraphReadProvider } from "../../domain/contracts/movement-clinical-queries";
 import { decideConceptResolution, DEFAULT_RESOLUTION_POLICY } from "../../domain/policies/concept-resolution";
 
-export const CONCEPT_RESOLUTION_LIMITS = Object.freeze({ maxMentions: 16, maxTextLength: 200, maxCandidates: 20 });
+export const CONCEPT_RESOLUTION_LIMITS = Object.freeze({ maxMentions: 16, maxTextLength: 200, maxCandidates: 256 });
 
 export type ResolveMovementConceptsRequest = {
   readonly mentions: readonly ConceptMention[];

@@ -23,7 +23,12 @@ import type {
   MovementGraphNodeAssertion,
   MovementGraphSnapshot,
 } from "../../domain/contracts/movement-graph";
-import { normalizeConceptText } from "../../domain/policies/text-normalization";
+import {
+  createConceptTextProfile,
+  fuzzyConceptProfileScore,
+  localVectorProfileScore,
+  type ConceptTextProfile,
+} from "../../domain/policies/text-normalization";
 import {
   CLINICAL_RULE_TARGET_EDGE_KINDS,
   MOVEMENT_GRAPH_QUERY_LIMITS,
@@ -31,12 +36,14 @@ import {
 
 const byAssertionId = (left: { assertionId: string }, right: { assertionId: string }) => left.assertionId.localeCompare(right.assertionId);
 const resolvableKinds = new Set<string>(RESOLVABLE_CONCEPT_KINDS);
-function tokenScore(query: string, candidate: string) {
-  const queryTokens = new Set(normalizeConceptText(query).split(" ").filter(Boolean));
-  const candidateTokens = new Set(normalizeConceptText(candidate).split(" ").filter(Boolean));
-  if (queryTokens.size === 0 || candidateTokens.size === 0) return 0;
-  return [...queryTokens].filter((token) => candidateTokens.has(token)).length / Math.max(queryTokens.size, candidateTokens.size);
-}
+type AliasScore = { readonly alias: string; readonly score: number };
+type AliasProfile = { readonly alias: string; readonly profile: ConceptTextProfile };
+const bestAliasScore = (aliases: readonly AliasProfile[], score: (profile: ConceptTextProfile) => number): AliasScore => aliases
+  .reduce<AliasScore | undefined>((best, alias) => {
+    const candidate = { alias: alias.alias, score: score(alias.profile) };
+    if (!best || candidate.score > best.score || (candidate.score === best.score && candidate.alias.localeCompare(best.alias) < 0)) return candidate;
+    return best;
+  }, undefined)!;
 
 type ProviderOptions = { readonly authority?: GraphAuthority; readonly activeRevisionId?: string };
 
@@ -95,12 +102,14 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
   }
 
   async resolveConceptCandidates(query: ResolveConceptCandidatesQuery): Promise<GraphQueryResult<readonly ConceptCandidateFact[]>> {
-    if (!this.validateBounds(query) || !normalizeConceptText(query.text) || query.kinds.length === 0) return this.failure({ code: "invalid_query", message: "A non-empty query, kind list, and valid bounds are required" });
-    const normalized = normalizeConceptText(query.text);
+    if (!this.validateBounds(query) || query.kinds.length === 0) return this.failure({ code: "invalid_query", message: "A non-empty query, kind list, and valid bounds are required" });
+    const queryProfile = createConceptTextProfile(query.text);
+    if (!queryProfile.normalized) return this.failure({ code: "invalid_query", message: "A non-empty query, kind list, and valid bounds are required" });
     const facts = this.snapshot.nodes.flatMap((node): ConceptCandidateFact[] => {
       if (!resolvableKinds.has(node.kind) || !query.kinds.includes(node.kind as ConceptCandidateFact["kind"])) return [];
       const kind = node.kind as ConceptCandidateFact["kind"];
-      const aliases = [node.label, ...("aliases" in node ? node.aliases : [])];
+      const aliases = [...new Set([node.label, ...("aliases" in node ? node.aliases : [])])].sort();
+      const aliasProfiles = aliases.map((alias) => ({ alias, profile: createConceptTextProfile(alias) }));
       const mappingEdges = (this.edgesByFrom.get(node.conceptId) ?? []).filter((edge): edge is Extract<MovementGraphEdgeAssertion, { kind: "maps-to" }> => edge.kind === "maps-to");
       const activeMapping = mappingEdges.some((edge) => {
         const target = this.nodesById.get(edge.toConceptId);
@@ -108,11 +117,28 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
       });
       const groundingStatus = activeMapping ? "active-mapping" : mappingEdges.length > 0 ? "deprecated-mapping" : "local-only";
       const mappingAssertionIds = mappingEdges.map((edge) => edge.assertionId).sort();
-      const exact = aliases.filter((alias) => normalizeConceptText(alias) === normalized).sort()[0];
-      if (exact) return [{ conceptId: node.conceptId, assertionId: node.assertionId, kind, label: node.label, matchedAlias: exact, exact: true, score: 1, groundingStatus, mappingAssertionIds }];
-      const best = aliases.map((alias) => ({ alias, score: tokenScore(query.text, alias) })).sort((a, b) => b.score - a.score || a.alias.localeCompare(b.alias))[0];
-      return best && best.score > 0 ? [{ conceptId: node.conceptId, assertionId: node.assertionId, kind, label: node.label, matchedAlias: best.alias, exact: false, score: best.score, groundingStatus, mappingAssertionIds }] : [];
-    }).sort((a, b) => b.score - a.score || a.conceptId.localeCompare(b.conceptId));
+      const exactMatchedAlias = aliasProfiles.find((alias) => alias.profile.normalized === queryProfile.normalized)?.alias;
+      const fuzzy = bestAliasScore(aliasProfiles, (alias) => fuzzyConceptProfileScore(queryProfile, alias));
+      const vector = bestAliasScore(aliasProfiles, (alias) => localVectorProfileScore(queryProfile, alias));
+      if (!exactMatchedAlias && fuzzy.score === 0 && vector.score === 0) return [];
+      return [{
+        conceptId: node.conceptId,
+        assertionId: node.assertionId,
+        kind,
+        label: node.label,
+        ...(exactMatchedAlias ? { exactMatchedAlias } : {}),
+        fuzzyMatchedAlias: fuzzy.alias,
+        fuzzyScore: fuzzy.score,
+        vectorMatchedAlias: vector.alias,
+        vectorScore: vector.score,
+        groundingStatus,
+        mappingAssertionIds,
+      }];
+    }).sort((left, right) => Number(Boolean(right.exactMatchedAlias)) - Number(Boolean(left.exactMatchedAlias))
+      || Math.max(right.fuzzyScore, right.vectorScore) - Math.max(left.fuzzyScore, left.vectorScore)
+      || right.fuzzyScore - left.fuzzyScore
+      || right.vectorScore - left.vectorScore
+      || left.conceptId.localeCompare(right.conceptId));
     if (facts.length > query.maxResults) return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth ?? 1, maxResults: query.maxResults });
     return this.result(facts);
   }

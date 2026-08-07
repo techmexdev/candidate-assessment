@@ -7,7 +7,7 @@ import type {
 export const MOVEMENT_GRAPH_SCHEMA_VERSION = "movement-clinical-schema:1";
 export const MOVEMENT_GRAPH_COMPILER_VERSION = "movement-clinical-compiler:1";
 export const MOVEMENT_GRAPH_LIMITS = Object.freeze({ maxNodes: 512, maxEdges: 4096 });
-export const MOVEMENT_GRAPH_QUERY_LIMITS = Object.freeze({ maxResults: 100, maxDepth: 16 });
+export const MOVEMENT_GRAPH_QUERY_LIMITS = Object.freeze({ maxResults: 256, maxDepth: 16 });
 
 export const MOVEMENT_EDGE_ENDPOINTS = Object.freeze({
   targets: { from: ["exercise"], to: ["muscle"] },

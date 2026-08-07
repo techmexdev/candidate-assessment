@@ -28,9 +28,33 @@ describe("in-memory movement graph read contract", () => {
     expect(fixtureResult.data).toEqual(canonicalResult.data);
     expect(fixtureResult.authority).toBe("fixture");
     expect(canonicalResult.authority).toBe("canonical");
-    expect(fixtureResult.data.map((fact) => fact.conceptId)).toEqual(
-      [...fixtureResult.data.map((fact) => fact.conceptId)].sort(),
-    );
+    expect(fixtureResult.data[0]).toMatchObject({
+      conceptId: "joint:knee",
+      exactMatchedAlias: "knee",
+      fuzzyMatchedAlias: "knee",
+      fuzzyScore: 1,
+      vectorMatchedAlias: "knee",
+      vectorScore: 1,
+    });
+    await expect(fixture.handle.resolveConceptCandidates({ ...query, maxResults: 1 }))
+      .resolves.toMatchObject({ status: "failed", failure: { code: "traversal_limit_exceeded", maxResults: 1 } });
+  });
+
+  it("keeps fuzzy and local-vector candidate signals separate", async () => {
+    const { handle } = await openHandle("canonical");
+    const typo = await handle.resolveConceptCandidates({ text: "ketlebell", kinds: ["equipment"], maxResults: 20 });
+    expect(typo.status).toBe("ok");
+    if (typo.status === "ok") {
+      expect(typo.data[0]).toMatchObject({ conceptId: "equipment:kettlebell", fuzzyScore: expect.any(Number), vectorScore: 0 });
+      expect(typo.data[0]!.fuzzyScore).toBeGreaterThan(0.9);
+    }
+
+    const phrase = await handle.resolveConceptCandidates({ text: "bad lower back", kinds: ["joint", "body-region"], maxResults: 10 });
+    expect(phrase.status).toBe("ok");
+    if (phrase.status === "ok") {
+      expect(phrase.data[0]).toMatchObject({ conceptId: "body-region:lumbar-back", vectorMatchedAlias: "lower back region", vectorScore: 1 });
+      expect(phrase.data[0]!.fuzzyScore).toBeLessThan(0.9);
+    }
   });
 
   it("preserves the full bounded knee descendant path and assertion lookup", async () => {

@@ -19,7 +19,7 @@ export type ConceptMention = {
   readonly safetyCritical: boolean;
 };
 
-export type ResolutionMethod = "exact" | "fuzzy" | "semantic";
+export type ResolutionMethod = "exact" | "fuzzy" | "vector";
 export type CandidateSummary = {
   readonly conceptId: string;
   readonly assertionId: string;
@@ -27,6 +27,11 @@ export type CandidateSummary = {
   readonly kind: ResolvableConceptKind;
   readonly matchedAlias: string;
   readonly confidence: number;
+  readonly exactMatchedAlias?: string;
+  readonly fuzzyMatchedAlias: string;
+  readonly fuzzyScore: number;
+  readonly vectorMatchedAlias: string;
+  readonly vectorScore: number;
   readonly groundingStatus: "active-mapping" | "deprecated-mapping" | "local-only";
   readonly mappingAssertionIds: readonly string[];
 };
@@ -67,6 +72,7 @@ export type ConceptResolutionPolicy = {
   readonly revision: string;
   readonly exactThreshold: number;
   readonly fuzzyThreshold: number;
+  readonly vectorThreshold: number;
   readonly safetyCriticalThreshold: number;
   readonly clarificationFloor: number;
   readonly minimumMargin: number;

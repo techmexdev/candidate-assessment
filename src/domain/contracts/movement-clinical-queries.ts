@@ -41,9 +41,11 @@ export type ConceptCandidateFact = {
   readonly assertionId: string;
   readonly kind: ResolvableConceptKind;
   readonly label: string;
-  readonly matchedAlias: string;
-  readonly exact: boolean;
-  readonly score: number;
+  readonly exactMatchedAlias?: string;
+  readonly fuzzyMatchedAlias: string;
+  readonly fuzzyScore: number;
+  readonly vectorMatchedAlias: string;
+  readonly vectorScore: number;
   readonly groundingStatus: "active-mapping" | "deprecated-mapping" | "local-only";
   readonly mappingAssertionIds: readonly string[];
 };
