@@ -113,6 +113,47 @@ The service starts with member facts from a named Member Context revision. It re
 
 `stresses` alone is not harm. A stress link with no applicable rule leaves the exercise allowed. Unknown concepts, missing member inputs, broken paths, a missing revision, a query cap, fixture authority, or an empty safe alternative set must fail closed. The service must not guess.
 
+## Complete-catalog safety boundary
+
+Catalog safety is one graph-controlled evaluation of the complete bounded exercise catalog, not a prompt instruction or a sequence of independent model judgments. The application authorizes one Member Context snapshot, pins one sealed canonical Movement/Clinical snapshot, walks the typed edges for every exercise, and publishes a result only after every catalog member has been classified. The catalog read is capped at 100 exercises; a missing, duplicated, partial, over-cap, mixed-revision, fixture-authority, or graph-inconsistent result fails closed and returns no partial allowed set.
+
+Every exercise receives exactly one decision status:
+
+- `excluded`: a hard clinical contraindication, missing required equipment, or an explicit exclusion applies;
+- `caution`: the strongest contribution is a reviewable clinical caution;
+- `downranked`: the exercise remains eligible, but an ordinary preference or clinical down-rank lowers its order; or
+- `allowed`: no stronger contribution applies.
+
+Hard exclusions win over caution and down-rank, but the result retains all contributing paths. Equal-rank decisions use stable exercise-ID ordering. Missing equipment and explicit exclusions are hard filters; ordinary preferences are soft ranking signals and cannot weaken a clinical or equipment result.
+
+Explicit exclusions and reviewed preferences use only the domain contract's path kinds: `exact-exercise`, bounded inverse `variant-of`, or exact `expresses`. Family membership comes from reviewed graph assertions, never label or substring matching. A clinical injury contribution requires both a condition-rule target match and bounded anatomy corroboration from the affected anatomy to the exercise's modeled load. For anatomy descendants, the service retains the child-to-parent `part-of` assertions together with the exercise's `stresses` assertion. Modeled stresses alone never creates a restriction. Incomplete applicability fails closed, and a rule-target match whose required anatomy corroboration is missing is a graph-consistency failure rather than an allowed decision.
+
+A successful result is a dual-revision provenance envelope. It carries `memberContextRevisionId`, `movementGraphRevisionId`, stable exercise IDs, decision and effect codes, assertion and evidence IDs, clinical rule IDs, and mapping IDs when applicable. Source member facts and separately cited run constraints retain distinct evidence. The workout runtime consumes this result through the server-owned candidate validator; prompt text cannot authorize safety or widen the evaluated set.
+
+### Catalog knee traversal walkthrough
+
+A synthetic active knee fact supplies a reviewed condition ID, `joint:knee`, and a separately cited complete applicability constraint. The graph follows the condition-rule path, then the exercise's `stresses` assertion to `joint:patellofemoral`, and the reviewed `part-of` assertion from `joint:patellofemoral` to `joint:knee`. Only the matching condition-rule plus that anatomy evidence contributes the configured clinical effect. A stress edge without the condition-rule match leaves the exercise eligible; it is not an injury conclusion.
+
+### Catalog equipment walkthrough
+
+The authorized Member Context projection supplies the complete set of available equipment with its assertion and evidence IDs. If an exercise has a `requires` edge to `equipment:barbell` while only dumbbells and a kettlebell are available, the decision is `excluded` and retains the `requires` assertion. Equipment-valid candidates remain eligible unless another contribution is stronger.
+
+### Catalog family-exclusion walkthrough
+
+A synthetic coach exclusion resolves to a reviewed split-squat exercise or movement family at the pinned Movement revision. The service walks only the matching `exact-exercise`, inverse `variant-of`, or `expresses` assertions. The root and reviewed variants are `excluded`; unrelated lunge and squat exercises are unchanged even when their labels look similar.
+
+### Catalog preference walkthrough
+
+A reviewed or server-resolved dislike uses the same typed family paths, but contributes only a soft down-rank. A matching otherwise-safe exercise is `downranked`, not excluded. If a hard clinical or equipment contribution also exists, the hard result wins and both paths remain in the trace.
+
+### Catalog fail-closed walkthrough
+
+An unavailable or unsealed revision, denied member scope, broken edge, incomplete applicability, invalid bound, mixed revision, or incomplete catalog returns a typed non-ready or fail-closed result. It returns no allowed subset. A revision that was sealed and pinned while valid stays authoritative for that in-flight evaluation even if the active pointer advances.
+
+### Catalog zero-match walkthrough
+
+A server-owned resolver may certify that a canonical explicit-exclusion query has no catalog match at the exact pinned Movement revision. The certificate records resolver identity, canonical query, policy version, bounds, empty-result attestation, and evidence ID. The evaluation records that evidence and changes no classification. A missing, expired, ambiguous, or different-revision certificate requires re-resolution; the original prompt sentence never becomes a rule.
+
 ## Exact walkthroughs
 
 The current curated revision is `graph:sha256:c94ad209883875ba3294388d3db82f4d2bcae2aefd55a11b7d1f52ddccb1217a`. A future build gets a new ID if its canonical source payload changes.

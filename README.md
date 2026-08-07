@@ -119,3 +119,11 @@ If Neo4j is unavailable, canonical resolution, safety, substitution, and histori
 The service accepts only bounded, static graph reads. It does not accept model-authored Cypher, mix graph revisions, infer safety from an anatomy stress edge, invent ontology mappings, or guess substitutes when the reviewed set is empty.
 
 See [the Movement and Clinical schema](./docs/graph/movement-clinical-schema.md) for every role, edge, safety consequence, walkthrough, boundary, and revision state. See [the ontology model](./docs/ontology-model.md) for the SNOMED CT, OPE, SKOS, PROV-O, release, and license rationale.
+
+## Graph-controlled catalog safety
+
+The catalog-safety boundary evaluates the complete catalog through bounded graph traversal at one authorized Member Context revision and one sealed Movement/Clinical revision. Injury decisions require a matching clinical rule plus the reviewed anatomy path; missing equipment and explicit reviewed-family exclusions are hard filters, while ordinary preferences only down-rank. Within this boundary, prompt text cannot authorize safety, and a model cannot supply Cypher, traversal bounds, or an allowed candidate.
+
+Incomplete applicability, denied scope, unavailable or unsealed revisions, broken paths, mixed revisions, fixture authority, and incomplete or over-cap catalogs fail closed without a partial allowed set. Successful results carry both revision IDs and stable assertion/evidence paths, then remain behind a short-lived, server-owned evaluation token whose claims are re-authorized for candidate validation. Expired, superseded, revoked, explicitly invalidated, or locally absent sessions require a fresh evaluation and reveal no retained candidate classifications.
+
+This workflow and all of its facts, rules, examples, and fixtures are synthetic take-home material. It is not clinically validated guidance and must not be used for diagnosis or care. See the [Movement and Clinical schema](./docs/graph/movement-clinical-schema.md#complete-catalog-safety-boundary) and [Member Context schema](./docs/graph/member-context-schema.md#workout-safety-constraint-projection) for traversal, provenance, redaction, and token-lifecycle details.

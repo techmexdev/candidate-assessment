@@ -14,6 +14,10 @@ const ontologyDoc = readFileSync(
   "utf8",
 );
 const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+const catalogSafetyContract = readFileSync(
+  new URL("../../src/domain/contracts/catalog-safety.ts", import.meta.url),
+  "utf8",
+);
 
 describe("Movement and Clinical graph documentation contract", () => {
   it("names every public node role and edge kind", () => {
@@ -99,5 +103,45 @@ describe("Movement and Clinical graph documentation contract", () => {
     ]) expect(readme).toContain(name);
     expect(readme).toContain("No reset-all or prune command is provided");
     expect(readme).toContain("COPPER belongs to the Member Context graph");
+  });
+
+  it("keeps complete-catalog decisions and family path kinds aligned with the domain contract", () => {
+    for (const status of ["excluded", "caution", "downranked", "allowed"]) {
+      expect(catalogSafetyContract).toContain(`"${status}"`);
+      expect(schemaDoc).toContain(`\`${status}\``);
+    }
+    for (const pathKind of ["exact-exercise", "variant-of", "expresses"]) {
+      expect(catalogSafetyContract).toContain(`"${pathKind}"`);
+      expect(schemaDoc).toContain(`\`${pathKind}\``);
+    }
+  });
+
+  it("documents graph-traversed catalog safety and its synthetic acceptance walkthroughs", () => {
+    for (const requiredText of [
+      "Complete-catalog safety boundary",
+      "Catalog knee traversal walkthrough",
+      "Catalog equipment walkthrough",
+      "Catalog family-exclusion walkthrough",
+      "Catalog preference walkthrough",
+      "Catalog fail-closed walkthrough",
+      "Catalog zero-match walkthrough",
+      "condition-rule",
+      "part-of",
+      "stresses alone",
+      "incomplete applicability",
+      "memberContextRevisionId",
+      "movementGraphRevisionId",
+    ]) expect(schemaDoc).toContain(requiredText);
+  });
+
+  it("keeps the README safety posture visible", () => {
+    for (const requiredText of [
+      "Graph-controlled catalog safety",
+      "complete catalog",
+      "fail closed",
+      "synthetic",
+      "not clinically validated",
+      "prompt text cannot authorize safety",
+    ]) expect(readme).toContain(requiredText);
   });
 });

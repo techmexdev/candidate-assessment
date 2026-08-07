@@ -181,3 +181,27 @@ A later workout or Copilot consumer follows this pin-and-cite sequence:
 5. If the revision becomes stale, the workflow restarts deliberately; it never mixes revisions in one answer or recommendation.
 
 The graph makes grounded retrieval possible but does not generate answers, rank passages, authenticate users, create charts, stream tokens, or deliver workouts. Semantic indexes are deferred: full-text search, vector indexes, embeddings, and retrieval-quality evaluation belong to a later Copilot implementation, after exact bounded behavior has a measurable baseline.
+
+## Workout safety constraint projection
+
+`getWorkoutConstraints` is the authorized Member Context read used by the graph-controlled catalog-safety boundary. It returns the member's available-equipment, injury, and preference source truth at one `memberContextRevisionId`, including assertion/evidence IDs and reviewed stable Movement/Clinical references. It does not expose nodes, Cypher, traversal controls, or a clinical conclusion. Unresolved preferences stay unresolved, unavailable equipment stays unavailable, and source-stated injury fields are not upgraded into applicability by inference.
+
+The safety coordinator combines this pinned projection with one sealed canonical `movementGraphRevisionId`. Complete injury applicability may arrive only as a separately cited run constraint whose concepts and vocabulary re-resolve at that Movement revision. When incomplete applicability, a stale or denied member scope, an unresolved safety-critical reference, or a revision mismatch is present, the workflow must fail closed without an allowed catalog. A successful handoff retains both revision IDs and the contributing stable assertion/evidence IDs, so a reviewer can trace the member source through Movement graph paths to the typed decision.
+
+Raw injury, applicability, and preference values stay inside the authorized coordinator. They are not copied into the agent-facing catalog result, token response, routine log, diagnostic, or typed failure.
+
+## Evaluation session lifecycle
+
+The candidate validator is server-owned. After a complete successful evaluation, orchestration retains the immutable result behind an opaque token minted from a cryptographically secure random source with at least 128 bits of entropy. The record binds the token to the authorized coach/member claims, a server-minted `evaluationSessionId`, the `memberContextRevisionId`, the `movementGraphRevisionId`, and the resolved-constraint digest. Tokens are not derived from request IDs, counters, or prompt values.
+
+Validation receives the expected session ID from trusted orchestration, re-authorizes the presenting coach/member scope, compares every claim and revision binding, and then performs a server-side lookup. Callers cannot submit or modify a retained decision envelope. The store is process-local, so a restart, another instance, or a locally absent token returns `evaluation-unavailable` and requires a fresh dual-revision evaluation.
+
+Sessions expire after 10 minutes. Each coach/member scope permits at most 128 active sessions after expired entries are removed. At capacity, admission rejects the new evaluation instead of evicting a live token. A replacement evaluation for the same run performs supersession of the prior token. Revocation, run completion, and the authorized endpoint perform explicit invalidation. Expiry, supersession, revocation, explicit invalidation, token alteration, or any binding mismatch reveals no retained candidate classifications; recovery always discards old candidates and requests a fresh dual-revision evaluation.
+
+### Diagnostic allowlist
+
+Agent-facing responses, routine logs, diagnostics, typed failures, and security audit events may contain only bounded stable IDs, revision IDs, effect, status and reason codes, and assertion/evidence IDs. They must omit raw injury, applicability, preference, or prompt values. Authorization denial, rejected tokens, supersession or revocation invalidation, explicit invalidation, and fail-closed evaluation emit exactly one redacted security event for the attempted operation.
+
+The typed security-event status codes are `authorization-denied`, `evaluation-fail-closed`, `token-rejected`, `session-superseded`, and `session-invalidated`. These codes describe the boundary outcome; they do not authorize extra diagnostic fields.
+
+All facts, constraints, examples, and fixtures in this workflow remain synthetic. Neither graph nor this session boundary is clinically validated guidance.
