@@ -29,13 +29,15 @@ function applies(path: MatchedClinicalRulePath, context: MovementSafetyPolicyInp
 function contributingPath(path: MatchedClinicalRulePath): MovementSafetyContributingPath {
   return {
     conditionConceptId: path.conditionConceptId,
+    affectedAnatomyConceptId: path.affectedAnatomyConceptId,
     ruleConceptId: path.ruleConceptId,
     targetConceptId: path.targetConceptId,
     effect: path.effect,
-    assertionIds: [...new Set([...path.pathAssertionIds, ...path.exercisePathAssertionIds, ...path.mappingAssertionIds, ...path.evidenceAssertionIds])].sort(),
+    assertionIds: [...new Set([...path.pathAssertionIds, ...path.exercisePathAssertionIds, ...path.affectedAnatomyPathAssertionIds, ...path.mappingAssertionIds, ...path.evidenceAssertionIds])].sort(),
     ruleAssertionIds: [path.ruleAssertionId],
     mappingAssertionIds: [...new Set(path.mappingAssertionIds)].sort(),
     evidenceAssertionIds: [...new Set(path.evidenceAssertionIds)].sort(),
+    affectedAnatomyPathAssertionIds: [...new Set(path.affectedAnatomyPathAssertionIds)].sort(),
   };
 }
 
@@ -50,7 +52,24 @@ export function decideMovementSafety(input: MovementSafetyPolicyInput): Movement
     return { status: "fail_closed", graphRevisionId: input.graphRevisionId, authority: input.authority, exerciseConceptId: input.exerciseConceptId, reason: "insufficient_member_context", assertionIds: [input.exerciseAssertionId] };
   }
 
-  const paths = relevant.flatMap(({ context, matchedPaths }) => matchedPaths.filter((path) => applies(path, context)))
+  const applicable = relevant.flatMap(({ context, matchedPaths }) => matchedPaths.filter((path) => applies(path, context)));
+  const missingCorroboration = applicable.find((path) => path.affectedAnatomyPathAssertionIds.length === 0);
+  if (missingCorroboration) {
+    return {
+      status: "fail_closed",
+      graphRevisionId: input.graphRevisionId,
+      authority: input.authority,
+      exerciseConceptId: input.exerciseConceptId,
+      reason: "graph_consistency_failure",
+      assertionIds: [...new Set([
+        input.exerciseAssertionId,
+        missingCorroboration.conditionAssertionId,
+        missingCorroboration.ruleAssertionId,
+        ...missingCorroboration.exercisePathAssertionIds,
+      ])].sort(),
+    };
+  }
+  const paths = applicable
     .sort((left, right) => effectPriority[left.effect] - effectPriority[right.effect]
       || left.ruleConceptId.localeCompare(right.ruleConceptId)
       || left.targetConceptId.localeCompare(right.targetConceptId));

@@ -8,6 +8,7 @@ export type MovementLaterality = "left" | "right" | "bilateral" | "unknown";
 
 export type MovementSafetyContext = {
   readonly conditionConceptId: string;
+  readonly affectedAnatomyConceptId: string;
   readonly conditionStatus?: string;
   readonly recoveryStage?: string;
   readonly severityBand?: string;
@@ -16,7 +17,9 @@ export type MovementSafetyContext = {
 };
 
 export type MatchedClinicalRulePath = ClinicalRuleFact & {
+  readonly affectedAnatomyConceptId: string;
   readonly exercisePathAssertionIds: readonly string[];
+  readonly affectedAnatomyPathAssertionIds: readonly string[];
 };
 
 export type MovementSafetyPolicyInput = {
@@ -38,6 +41,7 @@ export type MovementSafetyRequest = {
 
 export type MovementSafetyContributingPath = {
   readonly conditionConceptId: string;
+  readonly affectedAnatomyConceptId: string;
   readonly ruleConceptId: string;
   readonly targetConceptId: string;
   readonly effect: ClinicalRuleFact["effect"];
@@ -45,6 +49,7 @@ export type MovementSafetyContributingPath = {
   readonly ruleAssertionIds: readonly string[];
   readonly mappingAssertionIds: readonly string[];
   readonly evidenceAssertionIds: readonly string[];
+  readonly affectedAnatomyPathAssertionIds: readonly string[];
 };
 
 type MovementSafetySuccessContext = {
@@ -63,7 +68,7 @@ export type MovementSafetyResult =
       readonly graphRevisionId?: string;
       readonly authority?: GraphAuthority;
       readonly exerciseConceptId: string;
-      readonly reason: "graph_unavailable" | "non_authoritative_graph" | "unresolved_exercise" | "unresolved_condition" | "insufficient_member_context" | "broken_rule_path" | "query_limit_exceeded" | "invalid_input";
+      readonly reason: "graph_unavailable" | "non_authoritative_graph" | "unresolved_exercise" | "unresolved_condition" | "insufficient_member_context" | "broken_rule_path" | "graph_consistency_failure" | "query_limit_exceeded" | "invalid_input";
       readonly assertionIds: readonly string[];
     };
 

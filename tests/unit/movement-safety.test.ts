@@ -23,6 +23,7 @@ function withPfpsRuleTarget(targetConceptId: "joint:knee" | "joint:patellofemora
 
 const activePfps: MovementSafetyContext = {
   conditionConceptId: "condition:patellofemoral-pain-syndrome",
+  affectedAnatomyConceptId: "joint:knee",
   conditionStatus: "active",
   recoveryStage: "return-to-training",
   severityBand: "moderate",
@@ -33,11 +34,13 @@ const activePfps: MovementSafetyContext = {
 function path(effect: MatchedClinicalRulePath["effect"], ruleConceptId: string): MatchedClinicalRulePath {
   return {
     conditionConceptId: "condition:test", conditionAssertionId: "assertion:condition", ruleConceptId,
+    affectedAnatomyConceptId: "joint:test",
     ruleAssertionId: `assertion:${ruleConceptId}`, effect,
     applicability: { conditionStatuses: ["active"], recoveryStages: ["managed"], severityBands: ["low"], lateralityPolicy: "either-side" },
     overridePolicy: { allowed: true, rationaleRequired: true }, targetConceptId: "movement-demand:test", targetKind: "movement-demand",
     pathAssertionIds: [`assertion:path:${ruleConceptId}`], mappingAssertionIds: [`assertion:mapping:${ruleConceptId}`], evidenceAssertionIds: [`assertion:evidence:${ruleConceptId}`],
     exercisePathAssertionIds: [`assertion:exercise:${ruleConceptId}`],
+    affectedAnatomyPathAssertionIds: [`assertion:anatomy:${ruleConceptId}`],
   };
 }
 
@@ -95,11 +98,11 @@ describe("movement safety", () => {
       conditions: [{ ...activePfps, loadedLaterality: "unknown" }],
     });
     expect(missingSideProof.status).toBe("excluded");
-    const provenOpposite = await evaluateMovementSafety(provider, {
+    const callerClaimedOpposite = await evaluateMovementSafety(provider, {
       exerciseConceptId: BARBELL_LUNGE,
       conditions: [{ ...activePfps, loadedLaterality: "right" }],
     });
-    expect(provenOpposite.status).toBe("allowed");
+    expect(callerClaimedOpposite.status).toBe("excluded");
   });
 
   it("fails closed on missing applicability data, unknown exercise, and fixture authority", async () => {
@@ -115,9 +118,17 @@ describe("movement safety", () => {
       .resolves.toMatchObject({ status: "fail_closed", reason: "non_authoritative_graph" });
   });
 
+  it("fails closed when a matching rule target lacks affected-anatomy corroboration", async () => {
+    const provider = new InMemoryMovementGraphReadProvider([snapshot()], { authority: "canonical" });
+    await expect(evaluateMovementSafety(provider, {
+      exerciseConceptId: BARBELL_LUNGE,
+      conditions: [{ ...activePfps, affectedAnatomyConceptId: "joint:shoulder" }],
+    })).resolves.toMatchObject({ status: "fail_closed", reason: "graph_consistency_failure" });
+  });
+
   it("keeps every applicable path while fixed precedence chooses the strongest effect", () => {
     const context: MovementSafetyContext = {
-      conditionConceptId: "condition:test", conditionStatus: "active", recoveryStage: "managed", severityBand: "low",
+      conditionConceptId: "condition:test", affectedAnatomyConceptId: "joint:test", conditionStatus: "active", recoveryStage: "managed", severityBand: "low",
       affectedLaterality: "unknown", loadedLaterality: "unknown",
     };
     const result = decideMovementSafety({

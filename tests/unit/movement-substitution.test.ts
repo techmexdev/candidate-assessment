@@ -15,6 +15,7 @@ function snapshot() {
 
 const condition = {
   conditionConceptId: "condition:patellofemoral-pain-syndrome",
+  affectedAnatomyConceptId: "joint:knee",
   conditionStatus: "active",
   recoveryStage: "return-to-training",
   severityBand: "moderate",

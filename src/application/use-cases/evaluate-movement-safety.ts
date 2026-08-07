@@ -41,18 +41,52 @@ async function matchRuleToExercise(
   handle: MovementGraphReadHandle,
   exercise: ExerciseConstraintFact,
   rule: ClinicalRuleFact,
+  affectedAnatomyConceptId: string,
 ): Promise<MatchedClinicalRulePath | Extract<MovementSafetyResult, { status: "fail_closed" }> | undefined> {
   const directKind = rule.targetKind === "movement-demand" ? "has-demand"
     : rule.targetKind === "movement-pattern" ? "expresses" : undefined;
+  let exercisePathAssertionIds: readonly string[] | undefined;
   if (directKind) {
     const relation = exercise.relations.find((fact) => fact.kind === directKind && fact.targetConceptId === rule.targetConceptId);
-    return relation ? { ...rule, exercisePathAssertionIds: [exercise.exerciseAssertionId, relation.edgeAssertionId, relation.targetAssertionId] } : undefined;
+    exercisePathAssertionIds = relation
+      ? [exercise.exerciseAssertionId, relation.edgeAssertionId, relation.targetAssertionId]
+      : undefined;
+  } else {
+    const targetMatch = await matchAnatomyToExercise(handle, exercise, rule.targetConceptId);
+    if (targetMatch && "status" in targetMatch) return targetMatch;
+    exercisePathAssertionIds = targetMatch;
   }
+  if (!exercisePathAssertionIds) return undefined;
 
+  const affectedAnatomyMatch = await matchAnatomyToExercise(handle, exercise, affectedAnatomyConceptId);
+  if (affectedAnatomyMatch && "status" in affectedAnatomyMatch) return affectedAnatomyMatch;
+  if (!affectedAnatomyMatch) {
+    return {
+      status: "fail_closed",
+      graphRevisionId: handle.graphRevisionId,
+      authority: handle.authority,
+      exerciseConceptId: exercise.exerciseConceptId,
+      reason: "graph_consistency_failure",
+      assertionIds: [...new Set([exercise.exerciseAssertionId, rule.conditionAssertionId, rule.ruleAssertionId, ...exercisePathAssertionIds])].sort(),
+    };
+  }
+  return {
+    ...rule,
+    affectedAnatomyConceptId,
+    exercisePathAssertionIds,
+    affectedAnatomyPathAssertionIds: affectedAnatomyMatch,
+  };
+}
+
+async function matchAnatomyToExercise(
+  handle: MovementGraphReadHandle,
+  exercise: ExerciseConstraintFact,
+  anatomyConceptId: string,
+): Promise<readonly string[] | Extract<MovementSafetyResult, { status: "fail_closed" }> | undefined> {
   const stresses = exercise.relations.filter((fact) => fact.kind === "stresses");
   if (stresses.length === 0) return undefined;
   const anatomy = await handle.getAnatomyPaths({
-    conceptId: rule.targetConceptId,
+    conceptId: anatomyConceptId,
     includeSelf: true,
     maxDepth: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyDepth,
     maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyPaths,
@@ -69,10 +103,7 @@ async function matchRuleToExercise(
   }
   for (const stress of stresses) {
     const path = anatomy.data.find((fact) => fact.descendantConceptId === stress.targetConceptId);
-    if (path) return {
-      ...rule,
-      exercisePathAssertionIds: [exercise.exerciseAssertionId, stress.edgeAssertionId, stress.targetAssertionId, ...path.nodeAssertionIds, ...path.edgeAssertionIds],
-    };
+    if (path) return [exercise.exerciseAssertionId, stress.edgeAssertionId, stress.targetAssertionId, ...path.nodeAssertionIds, ...path.edgeAssertionIds];
   }
   return undefined;
 }
@@ -104,11 +135,17 @@ export async function evaluateMovementSafetyFactsWithHandle(
     if (rulesResult.status !== "ok") return fail(request, failureReason(rulesResult.failure, "unresolved_condition"), handle);
     const matchedPaths: MatchedClinicalRulePath[] = [];
     for (const rule of rulesResult.data) {
-      const matched = await matchRuleToExercise(handle, exercise, rule);
+      const matched = await matchRuleToExercise(handle, exercise, rule, context.affectedAnatomyConceptId);
       if (matched && "status" in matched) return matched;
       if (matched) matchedPaths.push(matched);
     }
-    evaluations.push({ context, matchedPaths });
+    evaluations.push({
+      context: {
+        ...context,
+        loadedLaterality: exercise.attributes.isBilateral ? "bilateral" as const : "unknown" as const,
+      },
+      matchedPaths,
+    });
   }
   return decideMovementSafety({
     graphRevisionId: handle.graphRevisionId,
