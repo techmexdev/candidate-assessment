@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { evaluateMovementSafety } from "../../src/application/use-cases/evaluate-movement-safety";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createMovementSafetyReadCache,
+  evaluateMovementSafety,
+  evaluateMovementSafetyFactsWithHandle,
+} from "../../src/application/use-cases/evaluate-movement-safety";
+import type { MovementGraphReadHandle } from "../../src/domain/contracts/movement-clinical-queries";
 import { decideMovementSafety } from "../../src/domain/policies/movement-safety";
 import type { MatchedClinicalRulePath, MovementSafetyContext } from "../../src/domain/contracts/movement-safety";
 import { compileDefaultMovementGraph } from "../../src/graph/ingest/movement-clinical";
@@ -124,6 +129,28 @@ describe("movement safety", () => {
       exerciseConceptId: BARBELL_LUNGE,
       conditions: [{ ...activePfps, affectedAnatomyConceptId: "joint:shoulder" }],
     })).resolves.toMatchObject({ status: "fail_closed", reason: "graph_consistency_failure" });
+  });
+
+  it("reuses pinned rule and anatomy reads across a catalog evaluation", async () => {
+    const provider = new InMemoryMovementGraphReadProvider([snapshot()], { authority: "canonical" });
+    const opened = await provider.openActive();
+    if (opened.status !== "ready") throw new Error("Movement graph did not open");
+    const facts = await opened.handle.getExerciseConstraintFacts({ exerciseConceptId: BARBELL_LUNGE, maxResults: 32 });
+    if (facts.status !== "ok") throw new Error("Exercise facts unavailable");
+    const clinical = vi.spyOn(opened.handle, "getClinicalRuleFacts");
+    const anatomy = vi.spyOn(opened.handle, "getAnatomyPaths");
+    const cache = createMovementSafetyReadCache();
+
+    for (let index = 0; index < 2; index += 1) {
+      await evaluateMovementSafetyFactsWithHandle(opened.handle as MovementGraphReadHandle, {
+        graphRevisionId: opened.handle.graphRevisionId,
+        exerciseConceptId: BARBELL_LUNGE,
+        conditions: [activePfps],
+      }, facts.data, cache);
+    }
+
+    expect(clinical).toHaveBeenCalledOnce();
+    expect(anatomy).toHaveBeenCalledOnce();
   });
 
   it("keeps every applicable path while fixed precedence chooses the strongest effect", () => {

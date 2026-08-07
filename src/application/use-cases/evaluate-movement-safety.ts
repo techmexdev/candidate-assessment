@@ -14,6 +14,50 @@ import { decideMovementSafety } from "../../domain/policies/movement-safety";
 
 export const MOVEMENT_SAFETY_QUERY_LIMITS = Object.freeze({ maxConditions: 8, maxExerciseFacts: 32, maxRules: 32, maxAnatomyDepth: 4, maxAnatomyPaths: 32 });
 
+export type MovementSafetyReadCache = {
+  readonly clinicalRules: Map<string, ReturnType<MovementGraphReadHandle["getClinicalRuleFacts"]>>;
+  readonly anatomyPaths: Map<string, ReturnType<MovementGraphReadHandle["getAnatomyPaths"]>>;
+};
+
+export function createMovementSafetyReadCache(): MovementSafetyReadCache {
+  return { clinicalRules: new Map(), anatomyPaths: new Map() };
+}
+
+function readClinicalRules(
+  handle: MovementGraphReadHandle,
+  conditionConceptId: string,
+  cache?: MovementSafetyReadCache,
+) {
+  const query = { conditionConceptId, maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxRules };
+  if (!cache) return handle.getClinicalRuleFacts(query);
+  const key = `${conditionConceptId}\0${query.maxResults}`;
+  const cached = cache.clinicalRules.get(key);
+  if (cached) return cached;
+  const result = handle.getClinicalRuleFacts(query);
+  cache.clinicalRules.set(key, result);
+  return result;
+}
+
+function readAnatomyPaths(
+  handle: MovementGraphReadHandle,
+  conceptId: string,
+  cache?: MovementSafetyReadCache,
+) {
+  const query = {
+    conceptId,
+    includeSelf: true,
+    maxDepth: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyDepth,
+    maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyPaths,
+  } as const;
+  if (!cache) return handle.getAnatomyPaths(query);
+  const key = `${conceptId}\0${query.maxDepth}\0${query.maxResults}`;
+  const cached = cache.anatomyPaths.get(key);
+  if (cached) return cached;
+  const result = handle.getAnatomyPaths(query);
+  cache.anatomyPaths.set(key, result);
+  return result;
+}
+
 function fail(
   request: MovementSafetyRequest,
   reason: Extract<MovementSafetyResult, { status: "fail_closed" }>["reason"],
@@ -42,6 +86,7 @@ async function matchRuleToExercise(
   exercise: ExerciseConstraintFact,
   rule: ClinicalRuleFact,
   affectedAnatomyConceptId: string,
+  cache?: MovementSafetyReadCache,
 ): Promise<MatchedClinicalRulePath | Extract<MovementSafetyResult, { status: "fail_closed" }> | undefined> {
   const directKind = rule.targetKind === "movement-demand" ? "has-demand"
     : rule.targetKind === "movement-pattern" ? "expresses" : undefined;
@@ -52,13 +97,13 @@ async function matchRuleToExercise(
       ? [exercise.exerciseAssertionId, relation.edgeAssertionId, relation.targetAssertionId]
       : undefined;
   } else {
-    const targetMatch = await matchAnatomyToExercise(handle, exercise, rule.targetConceptId);
+    const targetMatch = await matchAnatomyToExercise(handle, exercise, rule.targetConceptId, cache);
     if (targetMatch && "status" in targetMatch) return targetMatch;
     exercisePathAssertionIds = targetMatch;
   }
   if (!exercisePathAssertionIds) return undefined;
 
-  const affectedAnatomyMatch = await matchAnatomyToExercise(handle, exercise, affectedAnatomyConceptId);
+  const affectedAnatomyMatch = await matchAnatomyToExercise(handle, exercise, affectedAnatomyConceptId, cache);
   if (affectedAnatomyMatch && "status" in affectedAnatomyMatch) return affectedAnatomyMatch;
   if (!affectedAnatomyMatch) {
     return {
@@ -82,15 +127,11 @@ async function matchAnatomyToExercise(
   handle: MovementGraphReadHandle,
   exercise: ExerciseConstraintFact,
   anatomyConceptId: string,
+  cache?: MovementSafetyReadCache,
 ): Promise<readonly string[] | Extract<MovementSafetyResult, { status: "fail_closed" }> | undefined> {
   const stresses = exercise.relations.filter((fact) => fact.kind === "stresses");
   if (stresses.length === 0) return undefined;
-  const anatomy = await handle.getAnatomyPaths({
-    conceptId: anatomyConceptId,
-    includeSelf: true,
-    maxDepth: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyDepth,
-    maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxAnatomyPaths,
-  });
+  const anatomy = await readAnatomyPaths(handle, anatomyConceptId, cache);
   if (anatomy.status !== "ok") {
     return {
       status: "fail_closed",
@@ -124,6 +165,7 @@ export async function evaluateMovementSafetyFactsWithHandle(
   handle: MovementGraphReadHandle,
   request: MovementSafetyRequest,
   exercise: ExerciseConstraintFact,
+  cache?: MovementSafetyReadCache,
 ): Promise<MovementSafetyResult> {
   if (handle.authority !== "canonical") return fail(request, "non_authoritative_graph", handle);
   if (!request.exerciseConceptId || request.conditions.length > MOVEMENT_SAFETY_QUERY_LIMITS.maxConditions) return fail(request, "invalid_input", handle);
@@ -131,11 +173,11 @@ export async function evaluateMovementSafetyFactsWithHandle(
 
   const evaluations = [];
   for (const context of request.conditions) {
-    const rulesResult = await handle.getClinicalRuleFacts({ conditionConceptId: context.conditionConceptId, maxResults: MOVEMENT_SAFETY_QUERY_LIMITS.maxRules });
+    const rulesResult = await readClinicalRules(handle, context.conditionConceptId, cache);
     if (rulesResult.status !== "ok") return fail(request, failureReason(rulesResult.failure, "unresolved_condition"), handle);
     const matchedPaths: MatchedClinicalRulePath[] = [];
     for (const rule of rulesResult.data) {
-      const matched = await matchRuleToExercise(handle, exercise, rule, context.affectedAnatomyConceptId);
+      const matched = await matchRuleToExercise(handle, exercise, rule, context.affectedAnatomyConceptId, cache);
       if (matched && "status" in matched) return matched;
       if (matched) matchedPaths.push(matched);
     }

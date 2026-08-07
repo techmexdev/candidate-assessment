@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   CatalogExplicitExclusionInput,
   CatalogPreferenceInput,
@@ -10,9 +9,10 @@ import {
   CATALOG_SAFETY_MAX_EXERCISES,
   CATALOG_SAFETY_MAX_FAMILY_DEPTH,
 } from "../../domain/contracts/catalog-safety";
-import type { MovementGraphReadHandle } from "../../domain/contracts/movement-clinical-queries";
+import type { CatalogFamilyFact, MovementGraphReadHandle } from "../../domain/contracts/movement-clinical-queries";
 import type { MovementLaterality } from "../../domain/contracts/movement-safety";
 import { classifyCatalogSafety } from "../../domain/policies/catalog-safety";
+import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
 import type {
   CatalogSafetySessionStore,
   CatalogSafetyTokenSource,
@@ -21,7 +21,7 @@ import { CATALOG_SAFETY_SESSION_TTL_MS } from "../ports/catalog-safety-sessions"
 import type { CatalogSafetyGraphBoundary } from "../ports/graph-repositories";
 import type { CatalogSafetySecurityAudit } from "../ports/security-audit";
 import { recordCatalogSafetyAudit } from "../ports/security-audit";
-import { evaluateMovementSafetyFactsWithHandle } from "./evaluate-movement-safety";
+import { createMovementSafetyReadCache, evaluateMovementSafetyFactsWithHandle } from "./evaluate-movement-safety";
 import { createRetrieveMemberContext } from "./retrieve-member-context";
 
 export type CatalogSafetyResolutionProof = {
@@ -119,15 +119,6 @@ function validResolution(proof: CatalogSafetyResolutionProof, revisionId: string
     && proof.maxResults <= CATALOG_SAFETY_MAX_EXERCISES;
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    const record = value as Readonly<Record<string, unknown>>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function digestConstraints(request: EvaluateCatalogSafetyRequest) {
   const authority = {
     runId: request.runId,
@@ -135,25 +126,26 @@ function digestConstraints(request: EvaluateCatalogSafetyRequest) {
     explicitExclusions: request.explicitExclusions,
     preferences: request.preferences,
   };
-  return `sha256:${createHash("sha256").update(stableJson(authority)).digest("hex")}`;
+  return `sha256:${sha256(canonicalJson(authority))}`;
 }
 
 function randomHex(source: CatalogSafetyTokenSource) {
   const bytes = source.randomBytes(16);
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 16) return undefined;
-  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  return Buffer.from(bytes).toString("hex");
 }
 
-async function resolveMatches(
+async function resolveMatches<T extends CatalogExplicitExclusionInput | CatalogPreferenceInput>(
   handle: MovementGraphReadHandle,
   matches: readonly CatalogSafetyResolvedMatch[],
   kind: "explicit" | "preference",
+  contributionFor: (match: CatalogSafetyResolvedMatch, fact: CatalogFamilyFact) => T,
 ): Promise<{
   readonly status: "ready";
-  readonly byExercise: ReadonlyMap<string, readonly (CatalogExplicitExclusionInput | CatalogPreferenceInput)[]>;
+  readonly byExercise: ReadonlyMap<string, readonly T[]>;
   readonly zeroMatchEvidenceIds: readonly string[];
 } | { readonly status: "clarification_required" | "fail_closed"; readonly reasonCode: string }> {
-  const byExercise = new Map<string, (CatalogExplicitExclusionInput | CatalogPreferenceInput)[]>();
+  const byExercise = new Map<string, T[]>();
   const zeroMatchEvidenceIds: string[] = [];
   for (const match of matches) {
     if (!match.evidenceId || !validResolution(match.resolution, handle.graphRevisionId)
@@ -179,21 +171,10 @@ async function resolveMatches(
       return { status: resolved.failure.code === "unresolved_concept" ? "clarification_required" : "fail_closed", reasonCode: "constraint-re-resolution-required" };
     }
     for (const fact of resolved.data) {
-      const contribution = kind === "explicit"
-        ? {
-            matchKind: fact.matchKind,
-            resolvedConceptId: match.conceptId,
-            evidenceId: match.evidenceId,
-            assertionIds: fact.pathAssertionIds,
-          } satisfies CatalogExplicitExclusionInput
-        : {
-            matchKind: fact.matchKind,
-            resolvedConceptId: match.conceptId,
-            evidenceId: match.evidenceId,
-            rankPenalty: match.rankPenalty!,
-            assertionIds: fact.pathAssertionIds,
-          } satisfies CatalogPreferenceInput;
-      byExercise.set(fact.exerciseConceptId, [...(byExercise.get(fact.exerciseConceptId) ?? []), contribution]);
+      const contribution = contributionFor(match, fact);
+      const contributions = byExercise.get(fact.exerciseConceptId);
+      if (contributions) contributions.push(contribution);
+      else byExercise.set(fact.exerciseConceptId, [contribution]);
     }
   }
   return { status: "ready", byExercise, zeroMatchEvidenceIds: [...new Set(zeroMatchEvidenceIds)].sort() };
@@ -245,12 +226,6 @@ function requiredEquipment(candidate: { readonly relations: readonly { readonly 
     equipmentAssertionId: relation.targetAssertionId,
     requiresAssertionId: relation.edgeAssertionId,
   }));
-}
-
-function isPreferenceInput(
-  item: CatalogExplicitExclusionInput | CatalogPreferenceInput,
-): item is CatalogPreferenceInput {
-  return "rankPenalty" in item && typeof item.rankPenalty === "number";
 }
 
 export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyDependencies) {
@@ -310,9 +285,21 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
 
     const catalog = await handle.getCatalogExerciseFacts({ maxResults: CATALOG_SAFETY_MAX_EXERCISES });
     if (catalog.status !== "ok") return fail("fail_closed", `catalog-${catalog.failure.code}`, safeEnvelope(revisions));
-    const exclusions = await resolveMatches(handle, request.explicitExclusions, "explicit");
+    const exclusions = await resolveMatches(handle, request.explicitExclusions, "explicit", (match, fact) => ({
+      matchKind: fact.matchKind,
+      resolvedConceptId: match.conceptId,
+      evidenceId: match.evidenceId,
+      assertionIds: fact.pathAssertionIds,
+    }));
     if (exclusions.status !== "ready") return fail(exclusions.status, exclusions.reasonCode, safeEnvelope(revisions));
-    const runPreferences = await resolveMatches(handle, request.preferences, "preference");
+    const preferenceContribution = (match: CatalogSafetyResolvedMatch, fact: CatalogFamilyFact): CatalogPreferenceInput => ({
+      matchKind: fact.matchKind,
+      resolvedConceptId: match.conceptId,
+      evidenceId: match.evidenceId,
+      rankPenalty: match.rankPenalty!,
+      assertionIds: fact.pathAssertionIds,
+    });
+    const runPreferences = await resolveMatches(handle, request.preferences, "preference", preferenceContribution);
     if (runPreferences.status !== "ready") return fail(runPreferences.status, runPreferences.reasonCode, safeEnvelope(revisions));
 
     const memberPreferences: CatalogSafetyResolvedMatch[] = constraints.data.preferences.flatMap((preference) => (
@@ -332,7 +319,7 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
         }] : []
       ))
     ));
-    const reviewedPreferences = await resolveMatches(handle, memberPreferences, "preference");
+    const reviewedPreferences = await resolveMatches(handle, memberPreferences, "preference", preferenceContribution);
     if (reviewedPreferences.status !== "ready") return fail("fail_closed", reviewedPreferences.reasonCode, safeEnvelope(revisions));
 
     const contexts = [];
@@ -381,12 +368,13 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
     }
 
     const candidates: CatalogSafetyCandidateInput[] = [];
+    const safetyReadCache = createMovementSafetyReadCache();
     for (const exercise of catalog.data) {
       const safety = await evaluateMovementSafetyFactsWithHandle(handle, {
         graphRevisionId: handle.graphRevisionId,
         exerciseConceptId: exercise.exerciseConceptId,
         conditions: contexts,
-      }, exercise);
+      }, exercise, safetyReadCache);
       if (safety.status === "fail_closed") {
         return fail("fail_closed", `movement-safety-${safety.reason}`, safeEnvelope({ ...revisions, assertionIds: safety.assertionIds, evidenceIds: [] }));
       }
@@ -398,12 +386,11 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
         evaluationComplete: true,
         requiredEquipment: requiredEquipment(exercise),
         clinicalEvaluations: clinicalInputs(safety, evidenceByCondition),
-        explicitExclusions: (exclusions.byExercise.get(exercise.exerciseConceptId) ?? [])
-          .filter((item): item is CatalogExplicitExclusionInput => !isPreferenceInput(item)),
+        explicitExclusions: exclusions.byExercise.get(exercise.exerciseConceptId) ?? [],
         preferences: [
           ...(runPreferences.byExercise.get(exercise.exerciseConceptId) ?? []),
           ...(reviewedPreferences.byExercise.get(exercise.exerciseConceptId) ?? []),
-        ].filter(isPreferenceInput),
+        ],
       });
     }
 

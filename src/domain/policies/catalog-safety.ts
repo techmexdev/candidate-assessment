@@ -65,7 +65,8 @@ function validateInput(input: CatalogSafetyPolicyInput): CatalogSafetyFailClosed
   if (duplicates(input.expectedExerciseConceptIds) || duplicates(candidateIds)) return failure(input, "duplicate_exercise");
   if (input.candidates.length > CATALOG_SAFETY_MAX_EXERCISES) return failure(input, "catalog_limit_exceeded");
   const expected = stable(input.expectedExerciseConceptIds);
-  if (expected.length !== candidateIds.length || expected.some((id, index) => id !== stable(candidateIds)[index])) {
+  const actual = stable(candidateIds);
+  if (expected.length !== candidateIds.length || expected.some((id, index) => id !== actual[index])) {
     return failure(input, "incomplete_catalog");
   }
   for (const candidate of input.candidates) {
@@ -129,18 +130,18 @@ function clinicalContributions(
 }
 
 function equipmentContributions(
-  input: CatalogSafetyPolicyInput,
+  availableEquipmentIds: ReadonlySet<string>,
+  equipmentEvidenceIds: readonly string[],
   candidate: CatalogSafetyCandidateInput,
 ): readonly CatalogEquipmentContribution[] {
-  const available = new Set(input.availableEquipment.map((item) => item.equipmentConceptId));
   return candidate.requiredEquipment
-    .filter((requirement) => !available.has(requirement.equipmentConceptId))
+    .filter((requirement) => !availableEquipmentIds.has(requirement.equipmentConceptId))
     .map((requirement) => ({
       kind: "equipment",
       effect: "hard-exclusion",
       equipmentConceptId: requirement.equipmentConceptId,
       assertionIds: stable([requirement.equipmentAssertionId, requirement.requiresAssertionId]),
-      evidenceIds: stable(input.equipmentEvidenceIds),
+      evidenceIds: equipmentEvidenceIds,
     }));
 }
 
@@ -181,12 +182,15 @@ function classification(contributions: readonly CatalogSafetyContribution[]) {
 function decideCandidate(
   input: CatalogSafetyPolicyInput,
   candidate: CatalogSafetyCandidateInput,
+  availableEquipmentById: ReadonlyMap<string, CatalogSafetyPolicyInput["availableEquipment"][number]>,
+  availableEquipmentIds: ReadonlySet<string>,
+  equipmentEvidenceIds: readonly string[],
 ): CatalogSafetyDecision | CatalogSafetyFailClosedResult {
   const clinical = clinicalContributions(input, candidate);
   if (isFailure(clinical)) return clinical;
   const contributions: CatalogSafetyContribution[] = [
     ...clinical,
-    ...equipmentContributions(input, candidate),
+    ...equipmentContributions(availableEquipmentIds, equipmentEvidenceIds, candidate),
     ...explicitContributions(candidate),
     ...preferenceContributions(candidate),
   ];
@@ -196,9 +200,8 @@ function decideCandidate(
   const preferenceRank = contributions.reduce((total, contribution) => (
     contribution.kind === "preference" ? total + contribution.rankPenalty : total
   ), 0);
-  const availableEquipment = new Map(input.availableEquipment.map((item) => [item.equipmentConceptId, item]));
   const satisfiedEquipment = candidate.requiredEquipment.flatMap((requirement) => {
-    const available = availableEquipment.get(requirement.equipmentConceptId);
+    const available = availableEquipmentById.get(requirement.equipmentConceptId);
     return available ? [available] : [];
   });
   return {
@@ -216,7 +219,7 @@ function decideCandidate(
       ...satisfiedEquipment.map((item) => item.assertionId),
     ]),
     evidenceIds: stable([
-      ...input.equipmentEvidenceIds,
+      ...equipmentEvidenceIds,
       ...contributions.flatMap((item) => item.evidenceIds),
       ...satisfiedEquipment.map((item) => item.evidenceId),
     ]),
@@ -230,9 +233,12 @@ function compareDecisions(left: CatalogSafetyDecision, right: CatalogSafetyDecis
 export function classifyCatalogSafety(input: CatalogSafetyPolicyInput): CatalogSafetyResult {
   const invalid = validateInput(input);
   if (invalid) return invalid;
+  const availableEquipmentById = new Map(input.availableEquipment.map((item) => [item.equipmentConceptId, item]));
+  const availableEquipmentIds = new Set(availableEquipmentById.keys());
+  const equipmentEvidenceIds = stable(input.equipmentEvidenceIds);
   const decisions: CatalogSafetyDecision[] = [];
   for (const candidate of input.candidates) {
-    const decision = decideCandidate(input, candidate);
+    const decision = decideCandidate(input, candidate, availableEquipmentById, availableEquipmentIds, equipmentEvidenceIds);
     if (isFailure(decision)) return decision;
     decisions.push(decision);
   }

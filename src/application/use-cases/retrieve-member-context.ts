@@ -8,6 +8,7 @@ import type {
   MemberContextAccessClaims,
   MemberContextReadBoundary,
 } from "../ports/graph-repositories";
+import { authorizeMemberContextSafely } from "../ports/graph-repositories";
 
 export type MemberContextAccessRequest = MemberContextAccessClaims & {
   readonly contextRevisionId?: string;
@@ -17,17 +18,6 @@ export type RetrieveMemberContextDependencies = MemberContextReadBoundary;
 
 const authorizedClaims = new WeakMap<object, MemberContextAccessClaims>();
 const genericUnavailableMessage = "Member context is unavailable.";
-
-async function isAuthorized(
-  dependencies: RetrieveMemberContextDependencies,
-  claims: Readonly<MemberContextAccessClaims>,
-): Promise<boolean> {
-  try {
-    return await dependencies.authorizeMemberContext(claims);
-  } catch {
-    return false;
-  }
-}
 
 function deniedQueryResult<T>(handle: MemberContextReadHandle): MemberContextQueryResult<T> {
   return {
@@ -59,7 +49,7 @@ function wrapWithFreshAuthorization(
   const invoke = async <T>(
     operation: () => Promise<MemberContextQueryResult<T>>,
   ): Promise<MemberContextQueryResult<T>> => {
-    if (!await isAuthorized(dependencies, claims)) return deniedQueryResult(handle);
+    if (!await authorizeMemberContextSafely(dependencies.authorizeMemberContext, claims)) return deniedQueryResult(handle);
     try {
       return await operation();
     } catch {
@@ -113,7 +103,7 @@ export function createRetrieveMemberContext(
       memberId: request.memberId,
       authorizationId: request.authorizationId,
     };
-    if (!await isAuthorized(dependencies, claims)) {
+    if (!await authorizeMemberContextSafely(dependencies.authorizeMemberContext, claims)) {
       return { status: "denied", message: genericUnavailableMessage };
     }
 

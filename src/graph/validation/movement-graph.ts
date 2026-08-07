@@ -94,11 +94,17 @@ export function validateMovementGraph(snapshot: MovementGraphSnapshot): Movement
     variantVisited.add(id);
     return false;
   };
-  if ([...variantParents.keys()].some(variantCycle)) add("variant_cycle", "VARIANT_OF must be acyclic");
+  const hasVariantCycle = [...variantParents.keys()].some(variantCycle);
+  if (hasVariantCycle) add("variant_cycle", "VARIANT_OF must be acyclic");
+  const variantDepths = new Map<string, number>();
   const variantDepth = (id: string, path = new Set<string>()): number => {
     if (path.has(id)) return 0;
+    const cached = variantDepths.get(id);
+    if (cached !== undefined) return cached;
     const nextPath = new Set(path).add(id);
-    return Math.max(0, ...(variantParents.get(id) ?? []).map((parent) => 1 + variantDepth(parent, nextPath)));
+    const depth = Math.max(0, ...(variantParents.get(id) ?? []).map((parent) => 1 + variantDepth(parent, nextPath)));
+    if (!hasVariantCycle) variantDepths.set(id, depth);
+    return depth;
   };
   if ([...variantParents.keys()].some((id) => variantDepth(id) > CATALOG_SAFETY_MAX_FAMILY_DEPTH)) {
     add("variant_depth_exceeded", `VARIANT_OF exceeds depth ${CATALOG_SAFETY_MAX_FAMILY_DEPTH}`);

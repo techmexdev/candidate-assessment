@@ -327,7 +327,6 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
         conceptId: matched.conceptId,
         depth: 0,
         pathAssertionIds: [matched.assertionId] as string[],
-        pathConceptIds: new Set([matched.conceptId]),
       }];
       const visited = new Set([matched.conceptId]);
       while (queue.length > 0) {
@@ -341,7 +340,7 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
         }
         for (const edge of children) {
           const exercise = this.nodesById.get(edge.fromConceptId);
-          if (!exercise || exercise.kind !== "exercise" || current.pathConceptIds.has(exercise.conceptId) || visited.has(exercise.conceptId)) {
+          if (!exercise || exercise.kind !== "exercise" || visited.has(exercise.conceptId)) {
             return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
           }
           visited.add(exercise.conceptId);
@@ -358,7 +357,6 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
             conceptId: exercise.conceptId,
             depth: current.depth + 1,
             pathAssertionIds,
-            pathConceptIds: new Set(current.pathConceptIds).add(exercise.conceptId),
           });
         }
       }

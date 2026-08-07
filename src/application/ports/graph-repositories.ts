@@ -11,6 +11,26 @@ export type MemberContextAccessAuthorizer = (
   claims: Readonly<MemberContextAccessClaims>,
 ) => boolean | Promise<boolean>;
 
+export async function authorizeMemberContextSafely(
+  authorize: MemberContextAccessAuthorizer,
+  claims: Readonly<MemberContextAccessClaims>,
+): Promise<boolean> {
+  try {
+    return await authorize(claims);
+  } catch {
+    return false;
+  }
+}
+
+export function sameMemberContextClaims(
+  left: Readonly<MemberContextAccessClaims>,
+  right: Readonly<MemberContextAccessClaims>,
+) {
+  return left.coachId === right.coachId
+    && left.memberId === right.memberId
+    && left.authorizationId === right.authorizationId;
+}
+
 export type GraphRepositories = {
   movement: MovementGraphReadProvider;
   memberContext: MemberContextReadProvider;

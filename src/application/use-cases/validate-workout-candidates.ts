@@ -1,6 +1,7 @@
 import type { CatalogSafetyDecision } from "../../domain/contracts/catalog-safety";
 import type { CatalogSafetySessionStore } from "../ports/catalog-safety-sessions";
 import type { MemberContextAccessAuthorizer, MemberContextAccessClaims } from "../ports/graph-repositories";
+import { authorizeMemberContextSafely, sameMemberContextClaims } from "../ports/graph-repositories";
 import type { CatalogSafetySecurityAudit } from "../ports/security-audit";
 import { recordCatalogSafetyAudit } from "../ports/security-audit";
 
@@ -30,21 +31,6 @@ export type ValidateWorkoutCandidatesDependencies = {
   readonly securityAudit: CatalogSafetySecurityAudit;
 };
 
-async function authorized(
-  authorize: MemberContextAccessAuthorizer,
-  claims: Readonly<MemberContextAccessClaims>,
-) {
-  try {
-    return await authorize(claims);
-  } catch {
-    return false;
-  }
-}
-
-function sameClaims(left: Readonly<MemberContextAccessClaims>, right: Readonly<MemberContextAccessClaims>) {
-  return left.coachId === right.coachId && left.memberId === right.memberId && left.authorizationId === right.authorizationId;
-}
-
 export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCandidatesDependencies) {
   return async (request: ValidateWorkoutCandidatesRequest): Promise<ValidateWorkoutCandidatesResult> => {
     const claims = { coachId: request.coachId, memberId: request.memberId, authorizationId: request.authorizationId };
@@ -62,7 +48,7 @@ export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCan
       return { status: "evaluation-unavailable", reasonCode: lookedUp.status === "expired" ? "evaluation-expired" : "evaluation-absent" };
     }
     const { record } = lookedUp;
-    if (!sameClaims(record.claims, claims)) {
+    if (!sameMemberContextClaims(record.claims, claims)) {
       await recordCatalogSafetyAudit(dependencies.securityAudit, {
         kind: "catalog-safety-security",
         statusCode: "token-rejected",
@@ -75,7 +61,7 @@ export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCan
       });
       return { status: "evaluation-unavailable", reasonCode: "evaluation-binding-mismatch" };
     }
-    if (!await authorized(dependencies.authorizeMemberContext, claims)) {
+    if (!await authorizeMemberContextSafely(dependencies.authorizeMemberContext, claims)) {
       dependencies.sessions.invalidate(request.evaluationToken);
       await recordCatalogSafetyAudit(dependencies.securityAudit, {
         kind: "catalog-safety-security",

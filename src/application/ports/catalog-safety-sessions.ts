@@ -50,12 +50,13 @@ export class InMemoryCatalogSafetySessionStore implements CatalogSafetySessionSt
     this.removeExpired(now);
     if (this.records.has(record.token)) return { status: "collision" };
     const scope = scopeKey(record);
-    const superseded = [...this.records.values()].filter((candidate) => (
-      scopeKey(candidate) === scope && candidate.runId === record.runId
-    ));
-    const activeOutsideRun = [...this.records.values()].filter((candidate) => (
-      scopeKey(candidate) === scope && candidate.runId !== record.runId
-    )).length;
+    const superseded: CatalogSafetySessionRecord[] = [];
+    let activeOutsideRun = 0;
+    for (const candidate of this.records.values()) {
+      if (scopeKey(candidate) !== scope) continue;
+      if (candidate.runId === record.runId) superseded.push(candidate);
+      else activeOutsideRun += 1;
+    }
     if (activeOutsideRun >= CATALOG_SAFETY_MAX_ACTIVE_SESSIONS_PER_SCOPE) return { status: "capacity" };
     for (const candidate of superseded) this.records.delete(candidate.token);
     this.records.set(record.token, record);

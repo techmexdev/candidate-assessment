@@ -529,10 +529,16 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
       return this.invalid("invalid-cursor", "Workout constraint queries do not use cursors.");
     }
 
-    const equipment = this.revisionNodes
-      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "equipment-availability" }> => (
-        node.kind === "equipment-availability"
-      ))
+    const equipmentNodes: Extract<MemberContextRevisionScopedNode, { kind: "equipment-availability" }>[] = [];
+    const injuryNodes: Extract<MemberContextRevisionScopedNode, { kind: "injury-episode" }>[] = [];
+    const preferenceNodes: Extract<MemberContextRevisionScopedNode, { kind: "preference" }>[] = [];
+    for (const node of this.revisionNodes) {
+      if (node.kind === "equipment-availability") equipmentNodes.push(node);
+      else if (node.kind === "injury-episode") injuryNodes.push(node);
+      else if (node.kind === "preference") preferenceNodes.push(node);
+    }
+
+    const equipment = equipmentNodes
       .sort((left, right) => compareCodePoints(left.originalLabel, right.originalLabel)
         || compareCodePoints(left.assertionId, right.assertionId))
       .map((node): WorkoutEquipmentConstraintProjection => ({
@@ -542,10 +548,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
         available: node.available,
         domainReference: node.domainReference,
       }));
-    const injuries = this.revisionNodes
-      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "injury-episode" }> => (
-        node.kind === "injury-episode"
-      ))
+    const injuries = injuryNodes
       .sort(compareEvidence)
       .map((node): WorkoutInjuryConstraintProjection => ({
         ...evidenceProjectionBase(node),
@@ -558,10 +561,7 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
         notes: node.notes,
         domainReferences: node.domainReferences,
       }));
-    const preferences = this.revisionNodes
-      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "preference" }> => (
-        node.kind === "preference"
-      ))
+    const preferences = preferenceNodes
       .sort(compareEvidence)
       .map((node): WorkoutPreferenceConstraintProjection => ({
         ...evidenceProjectionBase(node),
