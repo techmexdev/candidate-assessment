@@ -65,6 +65,10 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const [movementGraph, setMovementGraph] = useState<FullGraphReadResult | null>(null);
   const [movementGraphExpanded, setMovementGraphExpanded] = useState(false);
   const [movementGraphLoading, setMovementGraphLoading] = useState(false);
+  const [memberContextGraph, setMemberContextGraph] = useState<FullGraphReadResult | null>(null);
+  const [memberContextGraphMemberId, setMemberContextGraphMemberId] = useState<string | null>(null);
+  const [memberContextGraphExpanded, setMemberContextGraphExpanded] = useState(false);
+  const [memberContextGraphLoading, setMemberContextGraphLoading] = useState(false);
   const loadRequest = useRef(0);
   const adjustmentTimer = useRef<number | null>(null);
   const copilotAbort = useRef<AbortController | null>(null);
@@ -73,6 +77,8 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const conversationAbort = useRef<AbortController | null>(null);
   const fullGraphAbort = useRef<AbortController | null>(null);
   const fullGraphRequest = useRef(0);
+  const memberGraphAbort = useRef<AbortController | null>(null);
+  const memberGraphRequest = useRef(0);
   const generationInput = useRef(new Map<string, { prompt: string; durationMinutes: number; idempotencyKey: string }>());
   const generationRequest = useRef(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -156,6 +162,47 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     setMovementGraphLoading(false);
   }, []);
 
+  const readMemberContextGraph = useCallback(async (memberId: string) => {
+    const capability = adapter.capabilities.fullGraph;
+    const request = { domain: "member-context" as const, memberId };
+    if (!capability?.available || !capability.supports(request)) return;
+    memberGraphAbort.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++memberGraphRequest.current;
+    memberGraphAbort.current = controller;
+    setMemberContextGraphMemberId(memberId);
+    setMemberContextGraphLoading(true);
+    try {
+      const result = await capability.client.read({ ...request, signal: controller.signal });
+      if (controller.signal.aborted || requestId !== memberGraphRequest.current || state.activeMemberId !== memberId) return;
+      setMemberContextGraph(result);
+    } catch {
+      if (!controller.signal.aborted && requestId === memberGraphRequest.current && state.activeMemberId === memberId) {
+        setMemberContextGraph({ status: "unavailable", domain: "member-context", message: "Member context is unavailable." });
+      }
+    } finally {
+      if (memberGraphAbort.current === controller) {
+        memberGraphAbort.current = null;
+        setMemberContextGraphLoading(false);
+      }
+    }
+  }, [adapter, state.activeMemberId]);
+
+  const expandMemberContextGraph = useCallback(() => {
+    const memberId = state.activeMemberId;
+    if (!memberId) return;
+    setMemberContextGraphExpanded(true);
+    if (memberContextGraphMemberId !== memberId || !memberContextGraph || memberContextGraph.status !== "ready") {
+      void readMemberContextGraph(memberId);
+    }
+  }, [memberContextGraph, memberContextGraphMemberId, readMemberContextGraph, state.activeMemberId]);
+
+  const collapseMemberContextGraph = useCallback(() => {
+    setMemberContextGraphExpanded(false);
+    memberGraphAbort.current?.abort();
+    setMemberContextGraphLoading(false);
+  }, []);
+
   const checkSession = useCallback(async () => {
     const capability = adapter.capabilities.session;
     if (!capability?.available) {
@@ -236,6 +283,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     copilotAbort.current?.abort();
     conversationAbort.current?.abort();
     fullGraphAbort.current?.abort();
+    memberGraphAbort.current?.abort();
     clearOperationTimers();
     try { await capability?.client.signOut(); } catch { /* local state still clears */ }
     dispatch({ type: "reset-session" });
@@ -263,6 +311,12 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     stopCopilot();
     stopGeneration();
     stopConversation();
+    memberGraphAbort.current?.abort();
+    memberGraphRequest.current += 1;
+    setMemberContextGraph(null);
+    setMemberContextGraphMemberId(null);
+    setMemberContextGraphExpanded(false);
+    setMemberContextGraphLoading(false);
     dispatch({ type: "select-athlete", memberId, focusKey: captureReturnFocus(`today-row-athlete-${memberId}`) });
   };
 
@@ -378,6 +432,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     copilotAbort.current?.abort();
     conversationAbort.current?.abort();
     fullGraphAbort.current?.abort();
+    memberGraphAbort.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -529,6 +584,15 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           retryWorkoutGeneration={retryWorkoutGeneration}
           conversationAvailable={adapter.capabilities.conversation?.available === true}
           copilotAvailable={adapter.capabilities.copilot?.available === true && adapter.capabilities.copilot.supportsMember(state.activeMemberId!)}
+          memberContextGraph={memberContextGraphMemberId === state.activeMemberId ? memberContextGraph : null}
+          memberContextGraphExpanded={memberContextGraphExpanded}
+          memberContextGraphLoading={memberContextGraphLoading}
+          memberContextGraphUnavailableReason={adapter.capabilities.fullGraph?.available === false ? adapter.capabilities.fullGraph.reason : undefined}
+          onExpandMemberContextGraph={expandMemberContextGraph}
+          onCollapseMemberContextGraph={collapseMemberContextGraph}
+          onRetryMemberContextGraph={() => {
+            if (state.activeMemberId) void readMemberContextGraph(state.activeMemberId);
+          }}
         />
       )
       : <CoachDayWorkspace workspace={loadState.data.workspace} state={state} dispatch={dispatch} onSelectAthlete={selectAthlete} />;
@@ -815,7 +879,7 @@ function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading
   </section>;
 }
 
-function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable }: {
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
   route: AthleteRoute;
   workflow: AthleteWorkflowState;
   selectedDate: string;
@@ -833,13 +897,20 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   retryWorkoutGeneration: () => void;
   copilotAvailable: boolean;
   conversationAvailable: boolean;
+  memberContextGraph: FullGraphReadResult | null;
+  memberContextGraphExpanded: boolean;
+  memberContextGraphLoading: boolean;
+  memberContextGraphUnavailableReason?: string;
+  onExpandMemberContextGraph: () => void;
+  onCollapseMemberContextGraph: () => void;
+  onRetryMemberContextGraph: () => void;
 }) {
   if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
   if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen /></>;
   if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} /></>;
-  if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} />;
+  if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} memberContextGraph={memberContextGraph} memberContextGraphExpanded={memberContextGraphExpanded} memberContextGraphLoading={memberContextGraphLoading} memberContextGraphUnavailableReason={memberContextGraphUnavailableReason} onExpandMemberContextGraph={onExpandMemberContextGraph} onCollapseMemberContextGraph={onCollapseMemberContextGraph} onRetryMemberContextGraph={onRetryMemberContextGraph} />;
   if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
   if (route.id === "insight") return <InsightScreen detailId={route.detailId} state={workflow} onBack={onBack} />;
   if (route.id === "approve") return <ApproveScreen currentVersion={currentVersion} published={published} dispatch={dispatch} onBack={onBack} />;
@@ -1318,10 +1389,17 @@ function ScreenHeader({ title, kicker, onBack }: { title: string; kicker: string
   return <header className={styles.screenHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button><div><h1 className={styles.screenTitle}>{title}</h1><div className={styles.micro}>{kicker}</div></div></header>;
 }
 
-function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory }: {
+function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
   onBack: () => void;
   onOpenDecisionPath: (decisionId: DashboardDecisionId) => void;
   onOpenHistory: () => void;
+  memberContextGraph: FullGraphReadResult | null;
+  memberContextGraphExpanded: boolean;
+  memberContextGraphLoading: boolean;
+  memberContextGraphUnavailableReason?: string;
+  onExpandMemberContextGraph: () => void;
+  onCollapseMemberContextGraph: () => void;
+  onRetryMemberContextGraph: () => void;
 }) {
   const fixture = useDashboardViewModel();
   const injuryDecision = fixture.exclusions.find((item) => item.overridable);
@@ -1336,6 +1414,20 @@ function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory }: {
     <div className={styles.card}><div className={styles.bodyCopy}>{fixture.profile.preferences.preferred_session_minutes}-min sessions · {fixture.profile.preferences.training_days_per_week} days/wk · {fixture.profile.preferences.preferred_days.join(" ")}</div><div className={styles.bodyCopy}>{fixture.profile.preferences.notes}</div><div className={styles.chips}>{fixture.profile.preferences.dislikes.map((item) => <span className={styles.sourceChip} key={item}>NEVER · {item}</span>)}</div></div>
     <div className={styles.sectionLabel}>EQUIPMENT</div>
     <div className={styles.chips}>{fixture.profile.equipment.map((item) => <span className={styles.sourceChip} key={item}>{item}</span>)}</div>
+    <FullGraphExplorer
+      domain="member-context"
+      focusedLanes={[
+        { name: "MEMBER", text: `${fixture.member.name} · identity, goals, preferences, equipment, and activity.`, source: "MEMBER CONTEXT · FOCUSED PROFILE" },
+        { name: "DETAIL", text: "Expand when you want to inspect this member’s complete revision-pinned context and provenance.", source: "READ ONLY · SELECTED MEMBER ONLY" },
+      ]}
+      fullGraph={memberContextGraph}
+      expanded={memberContextGraphExpanded}
+      loading={memberContextGraphLoading}
+      unavailableReason={memberContextGraphUnavailableReason}
+      onExpand={onExpandMemberContextGraph}
+      onCollapse={onCollapseMemberContextGraph}
+      onRetry={onRetryMemberContextGraph}
+    />
     <div className={styles.sectionLabel}>RECENT WORKOUT HISTORY</div>
     <div className={styles.profileHistory}>
       {fixture.history.map((workout) => (

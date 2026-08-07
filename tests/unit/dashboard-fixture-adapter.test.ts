@@ -67,6 +67,35 @@ describe("dashboard fixture adapter", () => {
     });
   });
 
+  it("keeps fixture full graphs complete, scoped, and visibly fixture-authoritative", async () => {
+    const capability = fixtureDashboardAdapter.capabilities.fullGraph;
+    if (!capability || !capability.available) throw new Error("Expected fixture full graph capability");
+
+    const movement = await capability.client.read({ domain: "movement-clinical" });
+    expect(movement).toMatchObject({ status: "ready", data: { domain: "movement-clinical", authority: "fixture" } });
+    if (movement.status !== "ready") throw new Error("Expected movement fixture graph");
+    expect(movement.data.nodes).toHaveLength(movement.data.counts.nodes);
+    expect(movement.data.relationships).toHaveLength(movement.data.counts.relationships);
+
+    const memberIds = fixtureDashboardAdapter.initialState.status === "ready"
+      ? fixtureDashboardAdapter.initialState.data.workspace.athletes.map((athlete) => athlete.id)
+      : [];
+    expect(memberIds).toHaveLength(3);
+    const jordanId = fixtureDashboardAdapter.initialState.status === "ready"
+      ? fixtureDashboardAdapter.initialState.data.member.id
+      : "";
+    expect(capability.supports({ domain: "member-context", memberId: jordanId })).toBe(true);
+    const member = await capability.client.read({ domain: "member-context", memberId: jordanId });
+    expect(member).toMatchObject({ status: "ready", data: { domain: "member-context", memberId: jordanId, authority: "fixture" } });
+    if (member.status !== "ready") throw new Error("Expected member fixture graph");
+    expect(member.data.nodes).toHaveLength(member.data.counts.nodes);
+    expect(member.data.relationships).toHaveLength(member.data.counts.relationships);
+    expect(member.data.nodes.find((node) => node.kind === "member")?.provenance.directAssertion).toBe("none");
+    expect(member.data.nodes.find((node) => node.kind === "member-profile")?.provenance.source?.artifactDigest).toMatch(/^sha256:/);
+    expect(memberIds.filter((memberId) => memberId !== jordanId).every((memberId) => !capability.supports({ domain: "member-context", memberId }))).toBe(true);
+    expect(capability.supports({ domain: "member-context", memberId: "member:unknown" })).toBe(false);
+  });
+
   it("composes the full caseload independently from upcoming sessions", () => {
     const jordan = buildDashboardFixture(memberContext, exercises);
     const noSessionMember = structuredClone(memberContext);

@@ -39,6 +39,47 @@ const movementGraph = {
   },
 };
 
+const memberGraph = {
+  status: "ready",
+  data: {
+    domain: "member-context",
+    revisionId: "context:jordan-demo",
+    memberId: "mbr_01HX9JORDAN",
+    authority: "canonical",
+    sourceArtifactDigest: "sha256:jordan-demo",
+    counts: { nodes: 2, relationships: 1 },
+    nodes: [
+      {
+        id: "member:mbr_01HX9JORDAN",
+        kind: "member",
+        label: "Jordan Rivera",
+        category: "identity",
+        revisionId: "context:jordan-demo",
+        detail: [],
+        provenance: { directAssertion: "none", lineageIds: [] },
+      },
+      {
+        id: "profile:mbr_01HX9JORDAN",
+        kind: "member-profile",
+        label: "Jordan Rivera profile",
+        category: "domain",
+        revisionId: "context:jordan-demo",
+        detail: [{ key: "timezone", value: "America/Chicago" }],
+        provenance: { directAssertion: "present", assertionId: "assertion:profile", source: { locator: "member-profile.json#/profile", artifactDigest: "sha256:jordan-demo" }, lineageIds: [] },
+      },
+    ],
+    relationships: [{
+      id: "assertion:has-profile",
+      kind: "HAS_PROFILE",
+      fromId: "member:mbr_01HX9JORDAN",
+      toId: "profile:mbr_01HX9JORDAN",
+      revisionId: "context:jordan-demo",
+      detail: [],
+      provenance: { directAssertion: "present", assertionId: "assertion:has-profile", source: { locator: "member-profile.json#/profile", artifactDigest: "sha256:jordan-demo" }, lineageIds: [] },
+    }],
+  },
+};
+
 test("keeps Movement focused by default and expands to the complete graph on demand", async ({ page }) => {
   let graphRequests = 0;
   await page.route("**/api/movement-graph**", async (route) => {
@@ -62,4 +103,25 @@ test("keeps Movement focused by default and expands to the complete graph on dem
 
   await page.getByRole("button", { name: "← Focused view" }).click();
   await expect(page.getByRole("button", { name: "Show full graph" })).toBeVisible();
+});
+
+test("keeps the member profile focused by default and reads only the selected member graph", async ({ page }) => {
+  let graphRequests = 0;
+  await page.route("**/api/member-context/graph**", async (route) => {
+    graphRequests += 1;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(memberGraph) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+  await page.getByRole("button", { name: /Athlete profile/ }).click();
+  await expect(page.getByRole("button", { name: "Show full graph" })).toBeVisible();
+  expect(graphRequests).toBe(0);
+
+  await page.getByRole("button", { name: "Show full graph" }).click();
+  await expect(page.getByText("2 nodes", { exact: true })).toBeVisible();
+  expect(graphRequests).toBe(1);
+  await page.getByRole("button", { name: "Jordan Rivera, member" }).click();
+  await expect(page.getByRole("region", { name: "Source and provenance details" })).toContainText("none · identity or lineage node");
+  await expect(page.getByRole("region", { name: "Source and provenance details" })).toContainText("context:jordan-demo");
 });

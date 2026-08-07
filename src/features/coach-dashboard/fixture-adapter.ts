@@ -3,6 +3,9 @@ import averyMemberContextData from "../../../data/member-context-avery.json";
 import coachSessionsData from "../../../data/coach-sessions.json";
 import memberContextData from "../../../data/member-context.json";
 import morganMemberContextData from "../../../data/member-context-morgan.json";
+import { compileMemberContextGraph } from "../../graph/ingest/member-context";
+import { compileDefaultMovementGraph } from "../../graph/ingest/movement-clinical";
+import { projectMemberContextGraphSnapshot, projectMovementGraphSnapshot, type FullGraphReadResult } from "../../domain/contracts/full-graph-view";
 import type {
   CoachAthleteSummary,
   CoachDashboardMemberViewModel,
@@ -12,6 +15,8 @@ import type {
   CoachTodayProjection,
   DashboardAdapter,
   DashboardCopilotCard,
+  DashboardFullGraphClient,
+  DashboardFullGraphRequest,
   CoachSession,
   DashboardInsightId,
   DashboardWorkoutItem,
@@ -434,6 +439,48 @@ const coachSessions: CoachSession[] = coachSessionsData.map((session) => {
 });
 const dashboardWorkspace = buildCoachWorkspace([jordanFixture, averyFixture, noSessionFixture], coachSessions);
 
+function compileFixtureFullGraphs() {
+  const movement = compileDefaultMovementGraph();
+  if (movement.status !== "valid") throw new Error(JSON.stringify(movement.report));
+  // Only Jordan has a registered checked-in source identity. Keep the other
+  // fixture profiles explicitly unavailable rather than presenting derived
+  // dashboard copy as graph evidence.
+  const jordanSnapshot = compileMemberContextGraph(memberContextData);
+  return {
+    movement: projectMovementGraphSnapshot(movement.snapshot, "fixture"),
+    members: new Map([[jordanSnapshot.memberId, projectMemberContextGraphSnapshot(jordanSnapshot, "fixture")]]),
+  };
+}
+
+const fixtureFullGraphs = compileFixtureFullGraphs();
+
+function fixtureFullGraphUnavailable(domain: DashboardFullGraphRequest["domain"]): FullGraphReadResult {
+  return {
+    status: "unavailable",
+    domain,
+    message: domain === "movement-clinical" ? "Movement graph fixture is unavailable." : "Member context fixture is unavailable.",
+  };
+}
+
+const fixtureFullGraphClient: DashboardFullGraphClient = {
+  async read(input) {
+    if (input.signal?.aborted) return fixtureFullGraphUnavailable(input.domain);
+    const projection = input.domain === "movement-clinical"
+      ? fixtureFullGraphs.movement
+      : input.memberId ? fixtureFullGraphs.members.get(input.memberId) : undefined;
+    if (!projection) return fixtureFullGraphUnavailable(input.domain);
+    if (input.revisionId && input.revisionId !== projection.revisionId) {
+      return {
+        status: "stale",
+        domain: input.domain,
+        requestedRevisionId: input.revisionId,
+        activeRevisionId: projection.revisionId,
+      };
+    }
+    return { status: "ready", data: projection };
+  },
+};
+
 export const dashboardFixture: CoachDashboardViewModel = {
   ...jordanFixture,
   workspace: dashboardWorkspace,
@@ -450,8 +497,11 @@ export const fixtureDashboardAdapter: DashboardAdapter = {
       reason: "New drafts require a connected coaching service.",
     },
     fullGraph: {
-      available: false,
-      reason: "Full graph views require a connected coaching service.",
+      available: true,
+      client: fixtureFullGraphClient,
+      supports: (input) => input.domain === "movement-clinical"
+        ? input.memberId === undefined
+        : typeof input.memberId === "string" && fixtureFullGraphs.members.has(input.memberId),
     },
   },
 };
