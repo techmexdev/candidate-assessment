@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 
 import { SignalKicker } from "@/ui/axon/components/agentic/SignalKicker";
 import { VersionTimeline } from "@/ui/axon/components/data/VersionTimeline";
-import { createCopilotPin, type CopilotQuestionInput, type SignedCopilotContinuation } from "../../domain/contracts/copilot";
+import { calculateCalendarWindow } from "../../domain/policies/copilot-projections";
+import { createCopilotPin, createCopilotSupportingContextReference, type CopilotAnswerPacket, type CopilotQuestionInput, type CopilotSupportingContextReference, type SignedCopilotContinuation } from "../../domain/contracts/copilot";
 import type { FullGraphReadResult } from "../../domain/contracts/full-graph-view";
 import type {
   CoachDashboardMemberViewModel,
@@ -76,6 +77,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const copilotRequest = useRef(0);
   const generationAbort = useRef<AbortController | null>(null);
   const conversationAbort = useRef<AbortController | null>(null);
+  const conversationRequest = useRef(0);
   const fullGraphAbort = useRef<AbortController | null>(null);
   const fullGraphRequest = useRef(0);
   const memberGraphAbort = useRef<AbortController | null>(null);
@@ -271,6 +273,30 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       return;
     }
     dispatch({ type: "push-route", route: { id: screen, focusKey } });
+  };
+
+  const openSupportingContext = (answer: CopilotAnswerPacket, evidenceId: string) => {
+    const atom = answer.evidence.atoms.find((candidate) => candidate.evidenceId === evidenceId);
+    if (!atom || (atom.evidenceKind !== "message" && atom.evidenceKind !== "media-attachment")) return;
+    let reference: CopilotSupportingContextReference;
+    try {
+      reference = createCopilotSupportingContextReference({
+        schemaVersion: "copilot-supporting-context/v1",
+        memberId: answer.memberId,
+        contextRevisionId: answer.contextRevisionId,
+        authority: answer.authority,
+        answerId: answer.answerId,
+        anchor: { kind: "conversation", evidenceId },
+        evidenceAsOf: answer.evidenceAsOf,
+        memberTimezone: answer.memberTimezone,
+        window: calculateCalendarWindow({ evidenceAsOf: answer.evidenceAsOf, timezone: answer.memberTimezone, lookbackDays: 60 }),
+        continuation: answer.continuation,
+      });
+    } catch {
+      return;
+    }
+    const focusKey = captureReturnFocus(`supporting-context-${evidenceId}`);
+    dispatch({ type: "push-route", route: { id: "history", focusKey, supportingContext: reference } });
   };
 
   const openDecisionPath = (decisionId: DashboardDecisionId) => {
@@ -488,19 +514,35 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     const capability = adapter.capabilities.conversation;
     const memberId = state.activeMemberId;
     const workflow = memberId ? state.athleteStates[memberId] : null;
-    if (!capability?.available || !memberId || currentRoute?.id !== "history" || !workflow || workflow.conversation.status === "loading" || workflow.conversation.status === "ready") return;
+    const supportingContext = currentRoute?.id === "history" ? currentRoute.supportingContext : undefined;
+    const sameReference = workflow?.conversation.reference?.answerId === supportingContext?.answerId
+      && workflow?.conversation.reference?.anchor.evidenceId === supportingContext?.anchor.evidenceId
+      && workflow?.conversation.reference?.contextRevisionId === supportingContext?.contextRevisionId;
+    if (!capability?.available || !memberId || currentRoute?.id !== "history" || !workflow
+      || (workflow.conversation.status === "loading" && sameReference)
+      || (workflow.conversation.status === "ready" && sameReference)) return;
     const controller = new AbortController();
     conversationAbort.current = controller;
-    dispatch({ type: "request-conversation", memberId });
-    void capability.client.load({ memberId, signal: controller.signal })
-      .then((timeline) => dispatch({ type: "complete-conversation", memberId, status: "ready", timeline, message: "Conversation history ready." }))
-      .catch(() => {
-        if (!controller.signal.aborted) dispatch({ type: "complete-conversation", memberId, status: "error", message: "Conversation history is unavailable." });
-      })
+    const requestId = `conversation:${memberId}:${Date.now()}:${++conversationRequest.current}`;
+    const selectedTimestamp = Date.parse(`${state.selectedDate || new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const window = supportingContext?.window ?? {
+      fromInclusive: new Date((Number.isFinite(selectedTimestamp) ? selectedTimestamp : Date.now()) - 60 * 24 * 60 * 60 * 1_000).toISOString(),
+      toExclusive: new Date((Number.isFinite(selectedTimestamp) ? selectedTimestamp : Date.now()) + 24 * 60 * 60 * 1_000).toISOString(),
+    };
+    dispatch({ type: "request-conversation", memberId, requestId, ...(supportingContext ? { reference: supportingContext } : {}) });
+    void capability.client.load({
+      requestId,
+      memberId,
+      window,
+      ...(supportingContext?.contextRevisionId ? { contextRevisionId: supportingContext.contextRevisionId } : {}),
+      ...(supportingContext ? { supportingContext } : {}),
+      signal: controller.signal,
+    })
+      .then((outcome) => dispatch({ type: "complete-conversation", memberId, requestId, outcome }))
       .finally(() => {
         if (conversationAbort.current === controller) conversationAbort.current = null;
       });
-  }, [adapter, currentRoute?.id, state.activeMemberId, state.athleteStates]);
+  }, [adapter, currentRoute, state.activeMemberId, state.athleteStates, state.selectedDate]);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
@@ -598,6 +640,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           ask={ask}
           submitCopilot={submitCopilot}
           openScreen={openScreen}
+          openSupportingContext={openSupportingContext}
           openDecisionPath={openDecisionPath}
           openDialog={openDialog}
           workoutGenerationAvailable={adapter.capabilities.workoutGeneration?.available === true}
@@ -901,7 +944,7 @@ function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading
   </section>;
 }
 
-function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, speechInput, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openSupportingContext, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, speechInput, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph}: {
   route: AthleteRoute;
   workflow: AthleteWorkflowState;
   selectedDate: string;
@@ -912,6 +955,7 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   ask: (id: QuickPromptId) => void;
   submitCopilot: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
   openScreen: (screen: NestedScreen, detailId?: string) => void;
+  openSupportingContext: (answer: CopilotAnswerPacket, evidenceId: string) => void;
   openDecisionPath: (decisionId: DashboardDecisionId) => void;
   openDialog: (action: DashboardAction) => void;
   workoutGenerationAvailable: boolean;
@@ -930,9 +974,9 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
 }) {
   if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
-  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} speechInput={speechInput} selectedDate={selectedDate} copilotAvailable={copilotAvailable} /></>;
+  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} openSupportingContext={openSupportingContext} speechInput={speechInput} selectedDate={selectedDate} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen state={workflow} submit={submitCopilot} speechInput={speechInput} copilotAvailable={copilotAvailable} onBack={onBack} /></>;
-  if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} /></>;
+  if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} supportingContext={route.supportingContext ?? null} /></>;
   if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} memberContextGraph={memberContextGraph} memberContextGraphExpanded={memberContextGraphExpanded} memberContextGraphLoading={memberContextGraphLoading} memberContextGraphUnavailableReason={memberContextGraphUnavailableReason} onExpandMemberContextGraph={onExpandMemberContextGraph} onCollapseMemberContextGraph={onCollapseMemberContextGraph} onRetryMemberContextGraph={onRetryMemberContextGraph} />;
   if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
   if (route.id === "insight") return <InsightScreen detailId={route.detailId} state={workflow} onBack={onBack} />;
@@ -1295,24 +1339,27 @@ function WorkoutScreen({ workflow, currentVersion, published, openScreen, openDe
   );
 }
 
-function CopilotScreen({ state, dispatch, ask, submit, openScreen, speechInput, selectedDate, copilotAvailable }: {
+function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportingContext, speechInput, selectedDate, copilotAvailable }: {
   state: AthleteWorkflowState;
   dispatch: React.Dispatch<DashboardAction>;
   ask: (id: QuickPromptId) => void;
   submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
   openScreen: (screen: NestedScreen, detailId?: string) => void;
+  openSupportingContext: (answer: CopilotAnswerPacket, evidenceId: string) => void;
   speechInput: SpeechInputController;
   selectedDate: string;
   copilotAvailable: boolean;
 }) {
   const fixture = useDashboardViewModel();
-  const [question, setQuestion] = useState(() => state.capture.transcript);
+  const [draftQuestion, setDraftQuestion] = useState("");
   const captureSequence = useRef(0);
   const pending = state.copilot.pending;
   const continuation = state.copilot.lastReadyAnswer?.continuation;
   const lastRequest = state.copilot.lastRequest;
   const capture = state.capture;
   const captureScope = capture.scope;
+  const captureDraftActive = captureScope?.routeId === "voice" || captureScope?.routeId === "copilot";
+  const question = captureDraftActive ? capture.transcript : draftQuestion;
   const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? state.copilot.lastReadyAnswer;
   const voiceCaptureActive = capture.scope?.routeId === "copilot"
     && capture.status !== "idle"
@@ -1334,13 +1381,10 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, speechInput, 
     if (!value || pending) return;
     submit({ kind: "free-text", question: value }, value, continuation ? { continuation } : {});
     speechInput.clear();
-    setQuestion("");
+    setDraftQuestion("");
   };
-  useEffect(() => {
-    if ((capture.scope?.routeId === "voice" || capture.scope?.routeId === "copilot") && capture.transcript) setQuestion(capture.transcript);
-  }, [capture.scope?.captureId, capture.scope?.routeId, capture.status, capture.transcript]);
   const updateQuestion = (value: string) => {
-    setQuestion(value);
+    setDraftQuestion(value);
     if (captureScope) speechInput.setTranscript(captureScope, value);
   };
   const retry = () => lastRequest && submit(lastRequest.input, lastRequest.promptLabel, lastRequest.continuation ? { continuation: lastRequest.continuation } : {});
@@ -1396,7 +1440,7 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, speechInput, 
         const section = answer.sections.find((candidate) => candidate.sectionId === "answer") ?? answer.sections[0];
         const pinId = `${answer.answerId}:${section?.sectionId ?? "answer"}`;
         const pinned = state.copilot.pins.some((pin) => pin.pinId === pinId);
-        return <CopilotAnswerCard answer={answer} key={answer.answerId} actions={section ? <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-copilot-pin", pin: createCopilotPin({ pinId, answer, sectionId: section.sectionId, createdAt: new Date().toISOString() }) })}>{pinned ? "PINNED ✓" : "PIN TO TODAY"}</button> : null} />;
+        return <CopilotAnswerCard answer={answer} key={answer.answerId} onOpenContext={openSupportingContext} actions={section ? <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-copilot-pin", pin: createCopilotPin({ pinId, answer, sectionId: section.sectionId, createdAt: new Date().toISOString() }) })}>{pinned ? "PINNED ✓" : "PIN TO TODAY"}</button> : null} />;
       })}
       {state.copilot.outcome && state.copilot.outcome.status !== "ready" && state.copilot.outcome.status !== "cancelled" && <CopilotOutcomeNotice outcome={state.copilot.outcome} />}
       {state.copilot.outcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={retry}>Retry</button>}
@@ -1440,7 +1484,7 @@ function CopilotOutcomeNotice({ outcome }: { outcome: NonNullable<AthleteWorkflo
   return <div className={styles.capabilityNote} role="status" data-copilot-status={outcome.status}><strong>{labels[outcome.status]}</strong><span>{message}</span></div>;
 }
 
-function CopilotAnswerCard({ answer, compact = false, actions = null }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>; compact?: boolean; actions?: React.ReactNode }) {
+function CopilotAnswerCard({ answer, compact = false, actions = null, onOpenContext }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>; compact?: boolean; actions?: React.ReactNode; onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void }) {
   const freshness = answer.briefFreshness
     ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
     : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
@@ -1449,7 +1493,13 @@ function CopilotAnswerCard({ answer, compact = false, actions = null }: { answer
     {answer.sections.map((section) => <section className={styles.answerSection} key={section.sectionId} aria-label={section.sectionId.replaceAll("-", " ")}><div className={styles.dataLabel}>{section.sectionId.replaceAll("-", " ").toUpperCase()}</div>{section.clauses.map((clause) => <p className={section.sectionId === "answer" ? styles.copilotTitle : styles.bodyCopy} key={clause.clauseId}>{clause.text}</p>)}</section>)}
     {answer.churn && <CopilotChurnAssessment answer={answer} />}
     {!compact && answer.chart && <PacketChart chart={answer.chart} />}
-    <div className={styles.sources}>{answer.citations.map((citation) => <span className={styles.sourceChip} key={citation.citationId}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""}</span>)}</div>
+    <div className={styles.sources}>{answer.citations.map((citation) => {
+      const atom = answer.evidence.atoms.find((candidate) => candidate.evidenceId === citation.evidenceId);
+      const supporting = atom?.evidenceKind === "message" || atom?.evidenceKind === "media-attachment";
+      return supporting && onOpenContext
+        ? <button className={styles.sourceButton} data-focus-key={`supporting-context-${citation.evidenceId}`} type="button" key={citation.citationId} onClick={() => onOpenContext(answer, citation.evidenceId)}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""} · Inspect context →</button>
+        : <span className={styles.sourceChip} key={citation.citationId}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""}</span>;
+    })}</div>
     <div className={styles.micro}>REVISION · {answer.contextRevisionId}</div>
   </article>;
 }
@@ -1502,11 +1552,12 @@ function PacketChart({ chart }: { chart: NonNullable<NonNullable<AthleteWorkflow
   return <div className={styles.chartWrap}><div className={styles.barChart} role="img" aria-label={chart.textSummary}>{chart.points.map((point) => <div aria-hidden="true" className={styles.barColumn} key={point.pointId}><div className={styles.barFill} data-chart-value={point.value} style={{ height: point.value === 0 ? "0%" : `${Math.max(8, (Math.abs(point.value) / max) * 100)}%` }} /><div className={styles.barLabel}>{point.label}<br />{point.value} {chart.unit}</div></div>)}</div><p className={styles.chartSummary}>{chart.textSummary}</p></div>;
 }
 
-function HistoryScreen({ state, conversationAvailable }: { state: AthleteWorkflowState; conversationAvailable: boolean }) {
+function HistoryScreen({ state, conversationAvailable, supportingContext }: { state: AthleteWorkflowState; conversationAvailable: boolean; supportingContext: CopilotSupportingContextReference | null }) {
   const fixture = useDashboardViewModel();
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="History">
       <div><div className={styles.micro}>VERSION HISTORY</div><h1 className={styles.heroTitle}>Today’s workout trail</h1><div className={styles.subtle}>Content versions are immutable. Publication is recorded separately.</div></div>
+      {supportingContext && <div className={styles.card} data-testid="supporting-context-summary"><div className={styles.micro}>SUPPORTING CONTEXT · REVISION-PINNED</div><div className={styles.bodyStrong}>Conversation evidence for this Copilot answer</div><div className={styles.bodyCopy}>Anchor · {supportingContext.anchor.evidenceId}</div><div className={styles.micro}>EVIDENCE AS OF · {supportingContext.evidenceAsOf} · TIMEZONE · {supportingContext.memberTimezone}</div><div className={styles.micro}>WINDOW · {supportingContext.window.fromInclusive} → {supportingContext.window.toExclusive}</div><div className={styles.subtle}>This context is read-only and remains bound to the answer’s member and revision.</div></div>}
       <div className={styles.timelineWrap}>
         <VersionTimeline versions={[...state.contentVersions].reverse().map((version) => ({
           title: `v${version.number} · ${version.title}`,
@@ -1522,7 +1573,7 @@ function HistoryScreen({ state, conversationAvailable }: { state: AthleteWorkflo
       <div className={styles.sectionLabel}>CONVERSATION</div>
       {!conversationAvailable && <div className={styles.card}><div className={styles.bodyStrong}>Conversation history unavailable</div><div className={styles.bodyCopy}>The connected member-context service is not configured.</div></div>}
       {conversationAvailable && state.conversation.status === "loading" && <div className={styles.card} aria-busy="true"><div className={styles.bodyStrong}>Loading revision-pinned conversation…</div></div>}
-      {conversationAvailable && state.conversation.status === "error" && <div className={styles.card} role="status"><div className={styles.bodyStrong}>Conversation history unavailable</div><div className={styles.bodyCopy}>{state.conversation.message}</div></div>}
+      {conversationAvailable && ["empty", "denied", "unavailable", "invalid", "stale", "cancelled"].includes(state.conversation.status) && <div className={styles.card} role="status" data-conversation-status={state.conversation.status}><div className={styles.bodyStrong}>{state.conversation.status === "empty" ? "No conversation in this window" : state.conversation.status === "stale" ? "Supporting context is stale" : state.conversation.status === "cancelled" ? "Conversation loading cancelled" : "Conversation history unavailable"}</div><div className={styles.bodyCopy}>{state.conversation.message}</div></div>}
       {conversationAvailable && state.conversation.status === "ready" && state.conversation.timeline && <ConversationTimeline timeline={state.conversation.timeline} />}
     </section>
   );
@@ -1530,16 +1581,17 @@ function HistoryScreen({ state, conversationAvailable }: { state: AthleteWorkflo
 
 function ConversationTimeline({ timeline }: { timeline: NonNullable<AthleteWorkflowState["conversation"]["timeline"]> }) {
   return <div className={styles.timelineWrap} aria-label="Conversation timeline">
-    {timeline.messages.map((message) => <article className={styles.card} key={message.evidenceId}>
+    <div className={styles.subtle}>Evidence as of {timeline.evidenceAsOf} · {timeline.memberTimezone} · {timeline.messages.length} message{timeline.messages.length === 1 ? "" : "s"}</div>
+    {timeline.messages.map((message) => <article className={styles.card} data-context-anchor={timeline.anchorEvidenceId === message.evidenceId ? "true" : undefined} key={message.evidenceId}>
       <div className={styles.workoutTopline}><span className={styles.statusPill}>{message.senderRole === "member" ? "MEMBER" : "COACH"}</span><span className={styles.micro}>{message.temporal.precision === "exact-timestamp" ? message.temporal.effectiveAt : message.evidenceId}</span></div>
       <div className={styles.bodyCopy}>{message.text}</div>
-      {message.attachments.map((attachment) => <div className={styles.card} key={attachment.evidenceId}>
+      {message.attachments.map((attachment) => <div className={styles.card} data-context-anchor={timeline.anchorEvidenceId === attachment.evidenceId ? "true" : undefined} key={attachment.evidenceId}>
         {attachment.asset.status === "available" && attachment.asset.path
           ? <img src={attachment.asset.path} alt={attachment.caption} style={{ width: "100%", borderRadius: 12, display: "block" }} />
           : <div className={styles.capabilityNote}><strong>Synthetic image unavailable</strong><span>{attachment.caption}</span></div>}
         <div className={styles.micro}>SYNTHETIC ASSET · NOT ANALYZED · {attachment.caption}</div>
       </div>)}
-      <div className={styles.source}>REVISION · {timeline.contextRevisionId} · SOURCE · {message.evidenceId}</div>
+      <div className={styles.source}>REVISION · {timeline.contextRevisionId} · SOURCE · {message.evidenceId}{timeline.anchorEvidenceId === message.evidenceId ? " · SELECTED SUPPORTING EVIDENCE" : ""}</div>
     </article>)}
   </div>;
 }
@@ -1548,7 +1600,7 @@ function ScreenHeader({ title, kicker, onBack }: { title: string; kicker: string
   return <header className={styles.screenHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button><div><h1 className={styles.screenTitle}>{title}</h1><div className={styles.micro}>{kicker}</div></div></header>;
 }
 
-function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
+function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph}: {
   onBack: () => void;
   onOpenDecisionPath: (decisionId: DashboardDecisionId) => void;
   onOpenHistory: () => void;

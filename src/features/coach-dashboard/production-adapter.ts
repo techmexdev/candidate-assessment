@@ -529,6 +529,11 @@ function decodeAnswerPacket(value: unknown): CopilotAnswerPacket | null {
   const continuation = decodeContinuation(value.continuation);
   const briefFreshness = decodeBriefFreshness(value.briefFreshness);
   if (!evidence || !sections || !tasks || !citations || (value.chart !== null && !chart) || (value.churn !== null && !churn) || !continuation || briefFreshness === undefined) return null;
+  if (continuation.claims.memberId !== scope.memberId
+    || continuation.claims.contextRevisionId !== scope.contextRevisionId
+    || continuation.claims.answerId !== value.answerId
+    || continuation.claims.intentId !== value.intentId
+    || continuation.claims.selectedEvidenceIds.some((evidenceId) => !evidence.atoms.some((atom) => atom.evidenceId === evidenceId))) return null;
   return { ...scope, schemaVersion: value.schemaVersion, requestId: value.requestId, answerId: value.answerId, intentId: value.intentId, requestedFor: value.requestedFor, evidenceAsOf: value.evidenceAsOf, memberTimezone: value.memberTimezone, briefFreshness, evidence, sections, tasks, chart, citations, churn, continuation };
 }
 

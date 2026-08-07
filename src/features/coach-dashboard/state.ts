@@ -1,5 +1,5 @@
-import type { CopilotAnswerPacket, CopilotPin, CopilotQuestionInput, SignedCopilotContinuation } from "../../domain/contracts/copilot";
-import type { DashboardCopilotOutcome, DashboardDecisionId, DashboardInsightId } from "./dashboard-contract";
+import type { CopilotAnswerPacket, CopilotPin, CopilotQuestionInput, CopilotSupportingContextReference, SignedCopilotContinuation } from "../../domain/contracts/copilot";
+import type { DashboardConversationOutcome, DashboardCopilotOutcome, DashboardDecisionId, DashboardInsightId } from "./dashboard-contract";
 import type { DashboardRuntimeWorkoutProjection, DashboardWorkoutRuntimeUpdate } from "./runtime-adapter";
 import type { MemberConversationTimeline } from "../../application/use-cases/retrieve-member-conversation";
 import { createInitialSpeechCaptureState, type SpeechCaptureState } from "./speech-input";
@@ -15,7 +15,7 @@ export type AthleteRoute =
   | (AthleteRouteBase & { id: "workout-rationale"; itemId?: string })
   | (AthleteRouteBase & { id: "copilot" })
   | (AthleteRouteBase & { id: "voice" })
-  | (AthleteRouteBase & { id: "history" })
+  | (AthleteRouteBase & { id: "history"; supportingContext?: CopilotSupportingContextReference })
   | (AthleteRouteBase & { id: "profile" })
   | (AthleteRouteBase & { id: "insight"; detailId: string })
   | (AthleteRouteBase & { id: "decision-path"; decisionId: DashboardDecisionId })
@@ -70,7 +70,9 @@ export type DashboardCopilotState = {
 };
 
 export type DashboardConversationState = {
-  readonly status: "idle" | "loading" | "ready" | "error";
+  readonly status: "idle" | "loading" | "ready" | "empty" | "denied" | "unavailable" | "invalid" | "stale" | "cancelled";
+  readonly requestId: string | null;
+  readonly reference: CopilotSupportingContextReference | null;
   readonly timeline: MemberConversationTimeline | null;
   readonly message: string;
 };
@@ -145,8 +147,8 @@ export type DashboardAction =
       requestId: string;
       projection: DashboardRuntimeWorkoutProjection;
     }
-  | { type: "request-conversation"; memberId: string }
-  | { type: "complete-conversation"; memberId: string; status: "ready" | "error"; timeline?: MemberConversationTimeline; message: string }
+  | { type: "request-conversation"; memberId: string; requestId: string; reference?: CopilotSupportingContextReference }
+  | { type: "complete-conversation"; memberId: string; requestId: string; outcome: DashboardConversationOutcome }
   | { type: "toggle-pin"; insightId: InsightId };
 
 const generatedVersion: WorkoutVersion = {
@@ -181,7 +183,7 @@ function createAthleteWorkflowState(): AthleteWorkflowState {
     publicationEvents: [],
     runtimeGeneration: { status: "idle", requestId: null, runId: null, message: "" },
     runtimeWorkout: null,
-    conversation: { status: "idle", timeline: null, message: "" },
+    conversation: { status: "idle", requestId: null, reference: null, timeline: null, message: "" },
     copilot: { pending: null, lastRequest: null, outcome: null, answers: [], lastReadyAnswer: null, pins: [] },
     capture: createInitialSpeechCaptureState(),
   };
@@ -216,13 +218,23 @@ function cancelPending(workflow: AthleteWorkflowState, options: { preserveCaptur
   const capturePending = !options.preserveCapture && (workflow.capture.status !== "idle"
     || Boolean(workflow.capture.transcript)
     || Boolean(workflow.capture.interimTranscript));
-  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !capturePending) return workflow;
+  const conversationPending = workflow.conversation.status === "loading";
+  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !capturePending && !conversationPending) return workflow;
   return {
     ...workflow,
     pendingPrompt: null,
     pendingAdjustment: false,
     copilot: workflow.copilot.pending ? { ...workflow.copilot, pending: null } : workflow.copilot,
     capture: capturePending ? createInitialSpeechCaptureState() : workflow.capture,
+    ...(conversationPending ? {
+      conversation: {
+        status: "cancelled" as const,
+        requestId: null,
+        reference: null,
+        timeline: null,
+        message: "Conversation loading was cancelled.",
+      },
+    } : {}),
     ...(generationPending ? {
       runtimeGeneration: {
         ...workflow.runtimeGeneration,
@@ -627,21 +639,38 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
       if (action.memberId !== state.activeMemberId) return state;
       const updated = updateAthlete(state, action.memberId, (current) => ({
         ...current,
-        conversation: { ...current.conversation, status: "loading", message: "Loading revision-pinned conversation…" },
+        conversation: {
+          status: "loading",
+          requestId: action.requestId,
+          reference: action.reference ?? null,
+          timeline: null,
+          message: "Loading revision-pinned conversation…",
+        },
       }));
       return { ...updated, announcement: "Loading conversation history…" };
     }
     case "complete-conversation": {
       if (action.memberId !== state.activeMemberId) return state;
+      const current = state.athleteStates[action.memberId];
+      if (!current || current.conversation.requestId !== action.requestId || action.outcome.requestId !== action.requestId) return state;
+      const reference = current.conversation.reference;
+      if (action.outcome.status === "ready" && (action.outcome.timeline.memberId !== action.memberId
+        || (reference !== null && (action.outcome.timeline.contextRevisionId !== reference.contextRevisionId
+          || action.outcome.timeline.authority !== reference.authority
+          || action.outcome.timeline.anchorEvidenceId !== reference.anchor.evidenceId
+          || action.outcome.timeline.window.fromInclusive !== reference.window.fromInclusive
+          || action.outcome.timeline.window.toExclusive !== reference.window.toExclusive)))) return state;
       const updated = updateAthlete(state, action.memberId, (current) => ({
         ...current,
         conversation: {
-          status: action.status,
-          timeline: action.timeline ?? current.conversation.timeline,
-          message: action.message,
+          status: action.outcome.status,
+          requestId: action.requestId,
+          reference: current.conversation.reference,
+          timeline: action.outcome.status === "ready" ? action.outcome.timeline : null,
+          message: action.outcome.status === "ready" ? "Conversation history ready." : action.outcome.message,
         },
       }));
-      return { ...updated, announcement: action.message };
+      return { ...updated, announcement: action.outcome.status === "ready" ? "Conversation history ready." : action.outcome.message };
     }
     case "toggle-pin": {
       const workflow = selectActiveAthleteState(state);

@@ -223,7 +223,7 @@
 }
 
 .pillButton {
-  min-height: 38px;
+  min-height: 44px;
   padding-inline: 13px;
   font-size: 12px;
 }
@@ -1007,6 +1007,8 @@
 .dataLabel { color: var(--ax-ink-2); font: var(--ax-type-micro); letter-spacing: .08em; }
 .sources { display: flex; gap: 6px; flex-wrap: wrap; }
 .sourceChip { padding: 5px 9px; border: 1px solid var(--ax-line); color: var(--ax-ink-2); letter-spacing: 0; text-transform: none; }
+.sourceButton { min-height: 44px; padding: 5px 9px; display: inline-flex; align-items: center; border: 1px solid var(--ax-line-strong); border-radius: var(--ax-r-pill); color: var(--ax-ink); background: var(--ax-surface); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.sourceButton:hover { border-color: var(--ax-ink); }
 
 .deferredInput {
   min-height: 48px;
@@ -1141,6 +1143,28 @@
   border-radius: 16px;
   background: var(--ax-surface);
 }
+
+.composerInputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.composerInputRow .textarea { min-height: 84px; }
+
+.composerMicButton {
+  min-height: 44px;
+  align-self: end;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: 12px;
+  color: var(--ax-ink);
+  background: var(--ax-surface);
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.composerMicButton:disabled { cursor: default; opacity: .45; }
 
 .answerSection {
   display: grid;

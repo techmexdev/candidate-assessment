@@ -121,3 +121,28 @@ test("@a11y workout generation announces failure and returns focus for revision"
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
+
+test("@a11y labels the microphone, exposes disclosure status, and keeps typed recovery available", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+
+  const input = page.getByRole("textbox", { name: "Ask about Jordan Rivera" });
+  const microphone = page.getByRole("button", { name: "Start voice input" });
+  await expect(input).toBeVisible();
+  await expect(input).toBeEnabled();
+  await microphone.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Before voice input", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "The transcript stays editable" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allow microphone & start" })).toBeVisible();
+  await expect(input).toBeEnabled();
+  const microphoneSize = await microphone.evaluate((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+  expect(microphoneSize.width).toBeGreaterThanOrEqual(40);
+  expect(microphoneSize.height).toBeGreaterThanOrEqual(40);
+
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(input).toBeEnabled();
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});

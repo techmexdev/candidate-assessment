@@ -4,22 +4,13 @@ type FakeRecognitionResult = { isFinal: boolean; transcript: string; 0?: { trans
 
 async function installFakeSpeech(page: Page) {
   await page.addInitScript(() => {
-    let recognizer: {
-      onstart: (() => void) | null;
-      onresult: ((event: { results: FakeRecognitionResult[] }) => void) | null;
-      onerror: ((event: { error: string }) => void) | null;
-      onend: (() => void) | null;
-      start: () => void;
-      stop: () => void;
-      abort: () => void;
-    } | null = null;
-
     class FakeSpeechRecognition {
+      static current: FakeSpeechRecognition | null = null;
       onstart: (() => void) | null = null;
       onresult: ((event: { results: FakeRecognitionResult[] }) => void) | null = null;
       onerror: ((event: { error: string }) => void) | null = null;
       onend: (() => void) | null = null;
-      constructor() { recognizer = this; }
+      constructor() { FakeSpeechRecognition.current = this; }
       start() { this.onstart?.(); }
       stop() { this.onend?.(); }
       abort() {}
@@ -31,8 +22,8 @@ async function installFakeSpeech(page: Page) {
       __emitSpeechError: (error: string) => void;
     };
     target.SpeechRecognition = FakeSpeechRecognition;
-    target.__emitSpeech = (results) => recognizer?.onresult?.({ results: results.map((result) => ({ ...result, 0: { transcript: result.transcript } })) });
-    target.__emitSpeechError = (error) => recognizer?.onerror?.({ error });
+    target.__emitSpeech = (results) => FakeSpeechRecognition.current?.onresult?.({ results: results.map((result) => ({ ...result, 0: { transcript: result.transcript } })) });
+    target.__emitSpeechError = (error) => FakeSpeechRecognition.current?.onerror?.({ error });
   });
 }
 

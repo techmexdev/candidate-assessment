@@ -233,7 +233,7 @@ The graph schema, ontology/license boundary, safety semantics, confidence thresh
 | **Fail closed on incomplete applicability** | Missing injury status/laterality/recovery context is not evidence of safety. | Some requests require clarification or return no safe result; availability is sacrificed for safety. |
 | **Synthetic scope** | The assessment forbids real member data, and the clinical rules are not validated care guidance. | The system demonstrates architecture and controls, not clinical efficacy, production identity, or PHI compliance. |
 
-Known scope limits: local mock coach auth, one canonical seeded Member Context member, no managed production queue, no external vector index, no trained churn model, no image analysis, no voice transport, no delivery/publishing integration, and no provider-backed quality/latency baseline. These are explicit boundaries, not silent mocks.
+Known scope limits: local mock coach auth, one canonical seeded Member Context member, no managed production queue, no external vector index, no trained churn model, no image analysis, no server voice transport, no spoken answers, no delivery/publishing integration, and no provider-backed quality/latency baseline. Optional browser dictation is a client-side progressive enhancement only; it keeps an editable transcript in memory and falls back to typed input. These are explicit boundaries, not silent mocks.
 
 ## Production evaluation
 
@@ -275,7 +275,7 @@ pnpm dev
 
 Quality gates are available through `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm test:a11y`, `pnpm test:visual`, and `pnpm build`.
 
-Adjustment, substitution, provenance, conversation/media, and workout generation cross authenticated server routes and the pinned graph revisions. The demo worker processes queued runs automatically; provider mode remains an explicit opt-in. Voice, delivery, publishing, and member-messaging integration are outside the take-home.
+Adjustment, substitution, provenance, conversation/media, and workout generation cross authenticated server routes and the pinned graph revisions. The demo worker processes queued runs automatically; provider mode remains an explicit opt-in. Browser dictation may fill the Copilot composer after a processing disclosure and explicit coach action, but server voice transport, spoken answers, audio persistence, delivery, publishing, and member-messaging integration are outside the take-home.
 
 ## Member Context knowledge graph
 
@@ -295,6 +295,8 @@ The graph is a bounded retrieval substrate, not a completed Copilot or clinical 
 The connected Copilot is a read-only server capability over the canonical Member Context graph. The server derives the synthetic coach entitlement, opens one active or explicitly continued revision, and gives the runtime only the bounded typed read handle. The browser and model never receive Neo4j credentials, Cypher, traversal controls, authorization claims, or permission to choose a member or revision.
 
 The five quick prompts are deterministic and do not require a model: `Morning brief`, `Adherence`, `Sleep`, `What changed since last week?`, and `Churn risk`. Exact aliases resolve through the same versioned intent registry. Other bounded free text is sent to the configured model only for canonical intent classification; the provider may return stable intent IDs, but it cannot author facts, chart points, citations, risk levels, identity, or actions. Factual clauses, exact message quotations, charts, accessible chart summaries, citations, timestamps, and churn are rendered and validated deterministically from the pinned evidence.
+
+Copilot also supports optional browser-native dictation as an input convenience. The UI discloses that browser or recognition-provider processing may occur before the coach explicitly starts capture, keeps the transcript editable, and submits it through the same bounded text request as typed input. The app does not claim on-device processing, control provider retention, persist audio, create a separate voice transcript store, produce spoken answers, or add a server transcription route; unsupported, denied, or failed capture leaves typed input available.
 
 Start Neo4j, seed the synthetic Jordan revision, and run the app:
 
@@ -339,7 +341,7 @@ pnpm build
 
 The canonical grounding matrix runs all five quick prompts plus free text, follow-up, injection, sparse-history, and adversarial packet checks against real Neo4j without network model calls. It treats authorization, member/revision parity, evidence-kind compatibility, clause citations, chart equality, unsupported login/image claims, typed failures, and production isolation as release gates. Language quality and latency are reported signals only. If local Neo4j routing discovery is unavailable, the same focused test can use the direct endpoint with `NEO4J_URI=bolt://127.0.0.1:7687`.
 
-This exact-retrieval baseline is intentionally conservative: it is auditable and deterministic, but it supports a small intent vocabulary and does not provide semantic/vector search, persisted chat transcripts, image analysis, voice transport, member messaging, graph writes, clinical recommendations, or a trained churn model. Every record and example is synthetic take-home data; do not ingest real member data or PHI.
+This exact-retrieval baseline is intentionally conservative: it is auditable and deterministic, but it supports a small intent vocabulary and does not provide semantic/vector search, persisted chat transcripts, image analysis, server voice transport, spoken answers, audio persistence, member messaging, graph writes, clinical recommendations, or a trained churn model. Every record and example is synthetic take-home data; do not ingest real member data or PHI.
 
 ## Movement and Clinical knowledge graph
 

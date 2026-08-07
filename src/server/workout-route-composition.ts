@@ -23,6 +23,7 @@ import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
 import { MEMBER_CONTEXT_QUERY_MAXIMA } from "../graph/repositories/member-context";
 import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../graph/schema/movement-schema";
 import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-run";
+import type { CopilotContinuationClaims, CopilotSupportingContextReference, SignedCopilotContinuation } from "../domain/contracts/copilot";
 import { createProtectedWorkoutInputVault } from "./workout-protected-input";
 import { SYNTHETIC_MEMBER_ASSET_ALLOWLIST } from "./member-context-assets";
 import {
@@ -35,6 +36,7 @@ import {
   sealMockCoachSession,
   type MockCoachSessionClaims,
 } from "./auth/mock-coach-session";
+import { copilotContinuationSecret, createCopilotContinuationAuthority } from "./copilot/continuation-token";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -53,7 +55,12 @@ export type WorkoutRouteComposition = {
     readonly fromInclusive: string;
     readonly toExclusive: string;
     readonly cursor?: string;
+    readonly supportingContext?: CopilotSupportingContextReference;
+    readonly signal?: AbortSignal;
   }) => Promise<RetrieveMemberConversationResult>;
+  readonly verifyCopilotContinuation?: (
+    continuation: Readonly<SignedCopilotContinuation>,
+  ) => Promise<Readonly<CopilotContinuationClaims> | null>;
   readonly retrieve: ReturnType<typeof createRetrieveWorkoutRun>;
   readonly cancel: ReturnType<typeof createCancelWorkoutRun>;
   readonly replay: ReturnType<typeof createReplayWorkoutRunEvents>;
@@ -250,6 +257,10 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
     },
   });
   const now = () => new Date().toISOString();
+  const continuation = createCopilotContinuationAuthority({
+    secret: copilotContinuationSecret(environment, configuredEnvironment.COPILOT_CONTINUATION_SECRET),
+    now,
+  });
   const createId = (kind: string) => `${kind}:${randomUUID()}`;
   const modelConfigurationId = process.env.WORKOUT_MODEL_CONFIGURATION_ID?.trim() || "workout-composer:v1";
   const policyRevision = process.env.WORKOUT_POLICY_REVISION?.trim() || "workout-composition/v1";
@@ -372,6 +383,7 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
       retrieveMemberContext,
       assetAllowlist: SYNTHETIC_MEMBER_ASSET_ALLOWLIST,
     }),
+    verifyCopilotContinuation: continuation.verify,
     retrieve: createRetrieveWorkoutRun({ repository, authorization, verifyHistoricalTrace }),
     cancel: createCancelWorkoutRun({ repository, authorization, now }),
     replay: createReplayWorkoutRunEvents({ repository, authorization }),
@@ -414,6 +426,9 @@ export const configuredWorkoutRouteComposition: WorkoutRouteComposition = {
     } catch {
       return { status: "unavailable", message: "Member context is unavailable." };
     }
+  },
+  verifyCopilotContinuation: async (input) => {
+    try { return await composition().verifyCopilotContinuation?.(input) ?? null; } catch { return null; }
   },
   retrieve: async (input) => {
     try { return await composition().retrieve(input); } catch { return { status: "integrity-failure" }; }

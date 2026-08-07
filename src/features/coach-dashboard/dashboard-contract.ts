@@ -1,4 +1,10 @@
-import type { FullGraphDomain, FullGraphReadResult } from "../../domain/contracts/full-graph-view";
+import type {
+  FullGraphDomain,
+  FullGraphReadResult,
+} from "../../domain/contracts/full-graph-view";
+import type { CopilotSupportingContextReference } from "../../domain/contracts/copilot";
+import type { MemberContextTimeWindow } from "../../domain/contracts/member-context-queries";
+import type { MemberConversationTimeline } from "../../application/use-cases/retrieve-member-conversation";
 
 export type DashboardInsightId = "brief" | "adherence" | "sleep" | "change" | "churn";
 export type DashboardDecisionId = string;
@@ -89,12 +95,30 @@ export type DashboardCopilotCapability =
     };
 
 export type DashboardConversationClient = {
-  readonly load: (input: {
-    readonly memberId: string;
-    readonly contextRevisionId?: string;
-    readonly signal?: AbortSignal;
-  }) => Promise<import("../../application/use-cases/retrieve-member-conversation").MemberConversationTimeline>;
+  readonly load: (input: DashboardConversationRequest) => Promise<DashboardConversationOutcome>;
 };
+
+export type DashboardConversationRequest = {
+  readonly requestId: string;
+  readonly memberId: string;
+  readonly contextRevisionId?: string;
+  readonly window: MemberContextTimeWindow;
+  readonly supportingContext?: CopilotSupportingContextReference;
+  readonly signal?: AbortSignal;
+};
+
+export type DashboardConversationOutcome =
+  | {
+      readonly status: "ready";
+      readonly requestId: string;
+      readonly timeline: MemberConversationTimeline;
+      readonly nextCursor?: string;
+    }
+  | {
+      readonly status: "empty" | "denied" | "unavailable" | "invalid" | "stale" | "cancelled";
+      readonly requestId: string;
+      readonly message: string;
+    };
 
 export type DashboardFullGraphRequest = {
   readonly domain: FullGraphDomain;

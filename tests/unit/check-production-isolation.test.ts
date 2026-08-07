@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -35,11 +35,33 @@ async function check(directory: string) {
   }
 }
 
+async function sourceFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(target);
+    return entry.isFile() && /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/.test(entry.name) ? [target] : [];
+  }));
+  return nested.flat();
+}
+
 describe("production isolation check", () => {
   it("passes against the production repository", async () => {
     const result = await check(repositoryRoot);
 
     expect(result).toMatchObject({ code: 0 });
+  });
+
+  it("keeps browser speech and microphone APIs out of server, agent, and persistence modules", async () => {
+    const restrictedDirectories = ["src/app/api", "src/application", "src/agents", "src/server", "src/graph"];
+    const files = (await Promise.all(restrictedDirectories.map((directory) => sourceFiles(path.join(repositoryRoot, directory))))).flat();
+    const forbiddenBrowserTerms = /speech-input|SpeechRecognition|webkitSpeechRecognition|MediaRecorder|getUserMedia|AudioContext/;
+    const violations: string[] = [];
+    for (const file of files) {
+      const contents = await readFile(file, "utf8");
+      if (forbiddenBrowserTerms.test(contents)) violations.push(path.relative(repositoryRoot, file));
+    }
+    expect(violations).toEqual([]);
   });
 
   it("rejects prototype CSS imports", async () => {

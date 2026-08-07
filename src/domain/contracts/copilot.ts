@@ -5,6 +5,7 @@ import type {
   MemberContextAuthority,
   MemberContextRevisionScopedNode,
 } from "./member-context";
+import type { MemberContextTimeWindow } from "./member-context-queries";
 
 export const COPILOT_QUICK_PROMPT_IDS = [
   "morning-brief",
@@ -115,6 +116,21 @@ export type SignedCopilotContinuation = {
   readonly algorithm: "hmac-sha256";
   readonly claims: Readonly<CopilotContinuationClaims>;
   readonly signature: string;
+};
+
+export const COPILOT_SUPPORTING_CONTEXT_MAX_WINDOW_DAYS = 93;
+
+export type CopilotSupportingContextReference = CopilotScopeEnvelope & {
+  readonly schemaVersion: "copilot-supporting-context/v1";
+  readonly answerId: string;
+  readonly anchor: {
+    readonly kind: "conversation";
+    readonly evidenceId: string;
+  };
+  readonly evidenceAsOf: string;
+  readonly memberTimezone: string;
+  readonly window: MemberContextTimeWindow;
+  readonly continuation: SignedCopilotContinuation;
 };
 
 export type CopilotAnswerClause = {
@@ -325,6 +341,33 @@ export function createSignedCopilotContinuation(input: {
     claims: input.claims,
     signature: input.signature,
   }) as SignedCopilotContinuation;
+}
+
+export function createCopilotSupportingContextReference(
+  input: CopilotSupportingContextReference,
+): CopilotSupportingContextReference {
+  requireNonEmpty(input.answerId, "Supporting context answer ID");
+  requireNonEmpty(input.anchor.evidenceId, "Supporting context evidence ID");
+  if (input.anchor.kind !== "conversation") throw new Error("Supporting context anchor is not supported.");
+  if (input.memberId !== input.continuation.claims.memberId
+    || input.contextRevisionId !== input.continuation.claims.contextRevisionId
+    || input.continuation.claims.answerId !== input.answerId
+    || !input.continuation.claims.selectedEvidenceIds.includes(input.anchor.evidenceId)) {
+    throw new Error("Supporting context must use the signed answer scope.");
+  }
+  if (!Number.isFinite(Date.parse(input.evidenceAsOf))) throw new Error("Supporting context evidence-as-of is invalid.");
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: input.memberTimezone }).format();
+  } catch {
+    throw new Error("Supporting context timezone is invalid.");
+  }
+  const from = Date.parse(input.window.fromInclusive);
+  const to = Date.parse(input.window.toExclusive);
+  const maximumWindowMs = COPILOT_SUPPORTING_CONTEXT_MAX_WINDOW_DAYS * 24 * 60 * 60 * 1_000;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to || to - from > maximumWindowMs) {
+    throw new Error("Supporting context window is outside the supported bound.");
+  }
+  return immutableClone(input) as CopilotSupportingContextReference;
 }
 
 export function createCopilotAnswerPacket(input: CopilotAnswerPacket): CopilotAnswerPacket {

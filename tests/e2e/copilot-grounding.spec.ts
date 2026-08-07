@@ -31,12 +31,16 @@ async function rejectInvalidContinuation(route: Route, body: RequestBody): Promi
   return true;
 }
 
-async function answer(body: RequestBody, answerId: string, revision = REVISION_ONE, options: { allZeroChart?: boolean } = {}) {
+async function answer(body: RequestBody, answerId: string, revision = REVISION_ONE, options: { allZeroChart?: boolean; includeConversation?: boolean } = {}) {
   const evidenceId = `evidence:${answerId}`;
   const intentId = body.input.kind === "quick-prompt" ? body.input.promptId : "adherence";
   const scope = { memberId: body.memberId, contextRevisionId: revision, authority: "canonical" as const };
   const temporal = { precision: "date" as const, effectiveOn: "2026-06-04" };
   const source = { locator: "/synthetic/evidence", artifactDigest: `sha256:${"a".repeat(64)}` };
+  const conversationEvidence = options.includeConversation ? [
+    { ...scope, atomKind: "fact" as const, evidenceId: `${evidenceId}:message`, evidenceKind: "message" as const, source, classification: "source-statement" as const, temporal, unit: null, value: "Still no barbell at home btw — only DBs and a kettlebell." },
+    { ...scope, atomKind: "media-metadata" as const, evidenceId: `${evidenceId}:media`, evidenceKind: "media-attachment" as const, source, classification: "source-statement" as const, temporal, unit: null, mediaType: "image/jpeg", caption: "Home setup photo (synthetic placeholder)", assetStatus: "metadata-only" as const, analysisStatus: "not-analyzed" as const },
+  ] : [];
   const taskEvidence = intentId === "morning-brief" ? [
     { ...scope, atomKind: "fact" as const, evidenceId: `${evidenceId}:celebrate`, evidenceKind: "coach-task" as const, source, classification: "observation" as const, temporal, unit: null, value: "Celebrate the completed training streak." },
     { ...scope, atomKind: "fact" as const, evidenceId: `${evidenceId}:risk`, evidenceKind: "coach-task" as const, source, classification: "observation" as const, temporal, unit: null, value: "Review the missed session risk." },
@@ -48,7 +52,7 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
     contextRevisionId: revision,
     answerId,
     intentId,
-    selectedEvidenceIds: [evidenceId],
+    selectedEvidenceIds: [evidenceId, ...conversationEvidence.map((atom) => atom.evidenceId)],
     issuedAt: "2026-08-07T10:00:00.000Z",
     expiresAt: "2026-08-07T10:15:00.000Z",
   });
@@ -66,7 +70,7 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
       evidenceAsOf: "2026-06-04T23:59:59.999-05:00",
       memberTimezone: "America/Chicago",
       briefFreshness: intentId === "morning-brief" ? { status: "latest-recorded", generatedFor: "2026-06-04" } : null,
-      evidence: { ...scope, atoms: [{ ...scope, atomKind: "fact", evidenceId, evidenceKind: "observation", source, classification: "observation", temporal, unit: "percent", value: 50 }, ...taskEvidence] },
+      evidence: { ...scope, atoms: [{ ...scope, atomKind: "fact", evidenceId, evidenceKind: "observation", source, classification: "observation", temporal, unit: "percent", value: 50 }, ...taskEvidence, ...conversationEvidence] },
       sections: [
         { sectionId: "answer", clauses: [{ clauseId: `clause:${answerId}`, text: `${intentId} grounded answer ${answerId}.`, evidenceIds: [evidenceId] }] },
         { sectionId: "next-action", clauses: [{ clauseId: `action:${answerId}`, text: "Review the supported evidence with the member.", evidenceIds: [evidenceId] }] },
@@ -93,6 +97,7 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
       } : null,
       citations: [
         { ...scope, citationId: `citation:${answerId}`, evidenceId, label: "Synthetic source", source, classification: "observation", temporal, unit: "percent" },
+        ...conversationEvidence.map((atom) => ({ ...scope, citationId: `citation:${atom.evidenceId}`, evidenceId: atom.evidenceId, label: atom.evidenceKind === "message" ? "Member check-in" : "Home setup photo", source, classification: "source-statement" as const, temporal, unit: null })),
         ...taskEvidence.map((task) => ({ ...scope, citationId: `citation:${task.evidenceId}`, evidenceId: task.evidenceId, label: "Synthetic coach task", source, classification: "observation" as const, temporal, unit: null })),
       ],
       churn: intentId === "morning-brief" || intentId === "churn-risk" ? {
@@ -124,7 +129,9 @@ async function installReadyRoute(page: Page, seen: RequestBody[]) {
     const body = route.request().postDataJSON() as RequestBody;
     seen.push(body);
     if (await rejectInvalidContinuation(route, body)) return;
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(await answer(body, `answer:${seen.length}`)) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(await answer(body, `answer:${seen.length}`, REVISION_ONE, {
+      includeConversation: body.input.kind === "quick-prompt" && body.input.promptId === "morning-brief",
+    })) });
   });
 }
 
@@ -193,6 +200,88 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   const chart = page.getByRole("img", { name: "Jun 4: 50 percent." }).first();
   await expect(chart).toBeVisible();
   await expect(chart.locator("xpath=..")).toContainText("Jun 4: 50 percent.");
+});
+
+test("a cited conversation anchor opens revision-pinned secondary context and returns to Copilot", async ({ page }) => {
+  const seen: RequestBody[] = [];
+  const conversationUrls: string[] = [];
+  await installReadyRoute(page, seen);
+  await page.route("**/api/member-context/conversation*", async (route: Route) => {
+    const url = new URL(route.request().url());
+    conversationUrls.push(url.toString());
+    const anchorEvidenceId = url.searchParams.get("anchorEvidenceId");
+    const mediaEvidenceId = anchorEvidenceId?.replace(/:message$/, ":media");
+    expect(anchorEvidenceId).toBe("evidence:answer:1:message");
+    expect(url.searchParams.get("contextRevisionId")).toBe(REVISION_ONE);
+    expect(url.searchParams.get("answerId")).toBe("answer:1");
+    expect(url.searchParams.get("evidenceAsOf")).toBe("2026-06-04T23:59:59.999-05:00");
+    expect(url.searchParams.get("memberTimezone")).toBe("America/Chicago");
+    expect(JSON.parse(url.searchParams.get("continuation") ?? "null")).toMatchObject({ claims: { answerId: "answer:1", selectedEvidenceIds: expect.arrayContaining([anchorEvidenceId]) } });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "ready",
+        timeline: {
+          memberId: "mbr_01HX9JORDAN",
+          contextRevisionId: REVISION_ONE,
+          authority: "canonical",
+          conversationEvidenceId: "conversation:answer:1",
+          anchorEvidenceId,
+          evidenceAsOf: url.searchParams.get("evidenceAsOf"),
+          memberTimezone: url.searchParams.get("memberTimezone"),
+          window: {
+            fromInclusive: url.searchParams.get("from"),
+            toExclusive: url.searchParams.get("to"),
+          },
+          messages: [{
+            evidenceId: anchorEvidenceId,
+            semanticId: "message:home-setup",
+            assertionId: "assertion:message:home-setup",
+            kind: "message",
+            source: { locator: "/synthetic/member-context", artifactDigest: `sha256:${"b".repeat(64)}` },
+            classification: "source-statement",
+            temporal: { precision: "date", effectiveOn: "2026-05-22" },
+            senderRole: "member",
+            text: "Still no barbell at home btw — only DBs and a kettlebell.",
+            attachmentEvidenceIds: mediaEvidenceId ? [mediaEvidenceId] : [],
+            attachments: mediaEvidenceId ? [{
+              evidenceId: mediaEvidenceId,
+              semanticId: "media:home-setup",
+              assertionId: "assertion:media:home-setup",
+              kind: "media-attachment",
+              source: { locator: "/synthetic/member-context", artifactDigest: `sha256:${"b".repeat(64)}` },
+              classification: "source-statement",
+              temporal: { precision: "date", effectiveOn: "2026-05-22" },
+              mediaType: "image/jpeg",
+              caption: "Home setup photo (synthetic placeholder)",
+              sourceOrder: 0,
+              assetStatus: "metadata-only",
+              analysisStatus: "not-analyzed",
+              asset: { status: "available", path: "/synthetic/jordan-home-equipment.svg" },
+            }] : [],
+          }],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+  const citation = page.getByRole("button", { name: /Member check-in.*Inspect context/ });
+  await expect(citation).toBeVisible();
+  await citation.click();
+
+  await expect(page.getByTestId("supporting-context-summary")).toContainText("REVISION-PINNED");
+  await expect(page.getByText("Still no barbell at home btw — only DBs and a kettlebell.")).toBeVisible();
+  await expect(page.getByText(/SYNTHETIC ASSET · NOT ANALYZED/)).toBeVisible();
+  await expect(page.locator('[data-context-anchor="true"]')).toHaveCount(1);
+  expect(conversationUrls).toHaveLength(1);
+  expect(seen).toHaveLength(1);
+
+  await page.getByRole("button", { name: "Go back" }).click();
+  await expect(page.getByRole("button", { name: /Member check-in.*Inspect context/ })).toBeVisible();
 });
 
 test("all-zero chart packets render every bar at zero height", async ({ page }) => {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createCopilotSupportingContextReference,
+  createSignedCopilotContinuation,
+} from "../../src/domain/contracts/copilot";
+import type { MemberConversationTimeline } from "../../src/application/use-cases/retrieve-member-conversation";
+import {
   createInitialDashboardState,
   dashboardReducer,
   selectActiveAthleteState,
@@ -24,6 +29,44 @@ const completeAdjustment = (state: DashboardState) => dashboardReducer(
   dashboardReducer(state, { type: "request-adjustment" }),
   { type: "complete-adjustment", actor: "Coach Sam", memberId: state.activeMemberId },
 );
+
+const supportingReference = () => createCopilotSupportingContextReference({
+  schemaVersion: "copilot-supporting-context/v1",
+  memberId: "mbr_jordan",
+  contextRevisionId: "revision-1",
+  authority: "canonical",
+  answerId: "answer:context",
+  anchor: { kind: "conversation", evidenceId: "message:anchor" },
+  evidenceAsOf: "2026-06-04T23:59:59.999-05:00",
+  memberTimezone: "America/Chicago",
+  window: { fromInclusive: "2026-05-01T00:00:00.000Z", toExclusive: "2026-07-01T00:00:00.000Z" },
+  continuation: createSignedCopilotContinuation({
+    claims: {
+      schemaVersion: "copilot-continuation-claims/v1",
+      coachId: "coach:casey",
+      memberId: "mbr_jordan",
+      contextRevisionId: "revision-1",
+      answerId: "answer:context",
+      intentId: "churn-risk",
+      selectedEvidenceIds: ["message:anchor"],
+      issuedAt: "2026-08-07T10:00:00.000Z",
+      expiresAt: "2026-08-07T10:15:00.000Z",
+    },
+    signature: "test-signature",
+  }),
+});
+
+const conversationTimeline = (reference = supportingReference()): MemberConversationTimeline => ({
+  memberId: reference.memberId,
+  contextRevisionId: reference.contextRevisionId,
+  authority: reference.authority,
+  conversationEvidenceId: "conversation:1",
+  anchorEvidenceId: reference.anchor.evidenceId,
+  evidenceAsOf: reference.evidenceAsOf,
+  memberTimezone: reference.memberTimezone,
+  window: reference.window,
+  messages: [],
+});
 
 describe("coach dashboard state", () => {
   it("keeps runtime generation isolated to the active athlete and ignores stale member completion", () => {
@@ -234,6 +277,64 @@ describe("coach dashboard state", () => {
 
     expect(athlete(brief).pendingPrompt).toBeNull();
     expect(stale).toBe(brief);
+  });
+
+  it("keeps supporting context member and request scoped across Back and late completions", () => {
+    const reference = supportingReference();
+    const history = dashboardReducer(jordanState(), {
+      type: "push-route",
+      route: { id: "history", focusKey: "supporting-context-message:anchor", supportingContext: reference },
+    });
+    const pending = dashboardReducer(history, {
+      type: "request-conversation",
+      memberId: "mbr_jordan",
+      requestId: "conversation:old",
+      reference,
+    });
+    const newer = dashboardReducer(pending, {
+      type: "request-conversation",
+      memberId: "mbr_jordan",
+      requestId: "conversation:new",
+      reference,
+    });
+    const late = dashboardReducer(newer, {
+      type: "complete-conversation",
+      memberId: "mbr_jordan",
+      requestId: "conversation:old",
+      outcome: { status: "ready", requestId: "conversation:old", timeline: conversationTimeline(reference) },
+    });
+
+    expect(late).toBe(newer);
+    expect(athlete(late).conversation).toMatchObject({ status: "loading", requestId: "conversation:new", reference });
+
+    const avery = dashboardReducer(newer, { type: "select-athlete", memberId: "mbr_avery" });
+    const foreignLate = dashboardReducer(avery, {
+      type: "complete-conversation",
+      memberId: "mbr_jordan",
+      requestId: "conversation:new",
+      outcome: { status: "ready", requestId: "conversation:new", timeline: conversationTimeline(reference) },
+    });
+    expect(foreignLate).toBe(avery);
+  });
+
+  it("rejects a ready timeline that changes the cited anchor or bounded window", () => {
+    const reference = supportingReference();
+    const pending = dashboardReducer(
+      dashboardReducer(jordanState(), { type: "push-route", route: { id: "history", focusKey: "supporting-context", supportingContext: reference } }),
+      { type: "request-conversation", memberId: "mbr_jordan", requestId: "conversation:1", reference },
+    );
+    const mismatched = dashboardReducer(pending, {
+      type: "complete-conversation",
+      memberId: "mbr_jordan",
+      requestId: "conversation:1",
+      outcome: {
+        status: "ready",
+        requestId: "conversation:1",
+        timeline: { ...conversationTimeline(reference), anchorEvidenceId: "message:other" },
+      },
+    });
+
+    expect(mismatched).toBe(pending);
   });
 
   it("keeps speech capture member-scoped and clears it when leaving the route", () => {

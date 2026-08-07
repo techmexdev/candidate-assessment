@@ -37,3 +37,29 @@ test("remains usable without horizontal page overflow at 320px", async ({ page }
   await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
   await expect(page.getByRole("button", { name: /Talk through today/ })).toBeVisible();
 });
+
+test("keeps the Copilot workbench, typed fallback, and disclosure usable at supported widths", async ({ page }) => {
+  for (const viewport of [
+    { width: 320, height: 760 },
+    { width: 430, height: 932 },
+    { width: 1440, height: 960 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+    await page.getByRole("button", { name: /Copilot context/ }).click();
+
+    await expect(page.getByRole("region", { name: "Copilot" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "What changed since last week?", exact: true })).toBeVisible();
+    const input = page.getByRole("textbox", { name: "Ask about Jordan Rivera" });
+    await expect(input).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start voice input" })).toBeVisible();
+    const sizes = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
+    expect(sizes.content).toBeLessThanOrEqual(sizes.viewport);
+
+    await page.getByRole("button", { name: "Start voice input" }).click();
+    await expect(page.getByText("Before voice input", { exact: true })).toBeVisible();
+    await expect(input).toBeEnabled();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  }
+});
