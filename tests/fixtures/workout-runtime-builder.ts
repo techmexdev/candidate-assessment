@@ -5,6 +5,7 @@ import type {
   WorkoutCompositionValidationInput,
 } from "../../src/domain/policies/workout-composition";
 import type { WorkoutDecision } from "../../src/domain/contracts/workout-provenance";
+import type { WorkoutComposerProposal } from "../../src/application/ports/workout-composer";
 
 export const TEST_MOVEMENT_REVISION = "movement-revision:workout-test";
 export const TEST_MEMBER_REVISION = "member-revision:workout-test";
@@ -75,7 +76,7 @@ export function compositionCandidate(
   };
 }
 
-export function proposalForMinutes(minutes: 30 | 45 | 60): WorkoutCompositionProposal {
+export function proposalForMinutes(minutes: 30 | 45 | 60): WorkoutComposerProposal {
   const seconds = minutes * 60;
   const warmup = Math.round(seconds * 0.2);
   const cooldown = Math.round(seconds * 0.15);
@@ -85,6 +86,7 @@ export function proposalForMinutes(minutes: 30 | 45 | 60): WorkoutCompositionPro
     dose: { kind: "timed" as const, sets: 1, workSecondsPerSet: workSeconds },
     restSeconds: 0,
     rationale,
+    citationIds: [`evidence:${exerciseConceptId}`],
   });
   return {
     schemaVersion: "workout-proposal/v1",
