@@ -7,8 +7,13 @@ import type {
   MemberContextQueryResult,
   MemberContextReadHandle,
   MemberContextReadOpenResult,
-  MemberContextReadProvider,
 } from "../../domain/contracts/member-context-queries";
+import {
+  FullGraphProjectionError,
+  projectMemberContextGraphSnapshot,
+  type FullGraphReadResult,
+  type MemberContextFullReadProvider,
+} from "../../domain/contracts/full-graph-view";
 import type {
   MemberContextGraphNode,
   MemberContextGraphRelationship,
@@ -95,7 +100,7 @@ type OpenedRevision =
       readonly snapshot: MemberContextGraphSnapshot;
     };
 
-class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
+class Neo4jMemberContextReadProvider implements MemberContextFullReadProvider {
   private readonly cursorSecret = randomBytes(32);
 
   constructor(private readonly client: Neo4jClient) {}
@@ -123,6 +128,64 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", message: genericMessage };
     return this.openClaimsRevision(claims, contextRevisionId, true);
+  }
+
+  async readFullActive(scope: AuthorizedMemberContextScope): Promise<FullGraphReadResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", domain: "member-context", message: genericMessage };
+    try {
+      const contextRevisionId = await this.client.executeRead(async (transaction) => {
+        const result = await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, { memberId: claims.memberId });
+        return text(result.records[0]?.get("activeRevisionId"));
+      });
+      return contextRevisionId
+        ? this.readFullRevision(scope, contextRevisionId)
+        : { status: "empty", domain: "member-context", message: genericMessage };
+    } catch {
+      return { status: "unavailable", domain: "member-context", message: genericMessage };
+    }
+  }
+
+  async readFullRevision(
+    scope: AuthorizedMemberContextScope,
+    contextRevisionId: string,
+  ): Promise<FullGraphReadResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", domain: "member-context", message: genericMessage };
+    try {
+      const opened = await this.client.executeRead<OpenedRevision>(async (transaction) => {
+        const activeRevisionId = text((await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, {
+          memberId: claims.memberId,
+        })).records[0]?.get("activeRevisionId")) ?? null;
+        const sealResult = await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
+          memberId: claims.memberId,
+          contextRevisionId,
+        });
+        const seal = sealMetadata(sealResult.records[0]);
+        if (!seal) return { activeRevisionId };
+        const snapshot = await readCanonicalMemberContextSnapshot(transaction, claims.memberId, contextRevisionId);
+        return snapshot ? { activeRevisionId, seal, snapshot } : { activeRevisionId };
+      });
+      if (!("snapshot" in opened)) {
+        return {
+          status: "stale",
+          domain: "member-context",
+          requestedRevisionId: contextRevisionId,
+          activeRevisionId: opened.activeRevisionId,
+        };
+      }
+      if (opened.snapshot.memberId !== claims.memberId
+        || opened.snapshot.nodes.length !== opened.seal.nodeCount
+        || opened.snapshot.relationships.length !== opened.seal.relationshipCount
+        || canonicalMemberContextDigest(opened.snapshot) !== opened.seal.canonicalDigest
+        || !validateMemberContextGraph(opened.snapshot).valid) {
+        return { status: "unavailable", domain: "member-context", message: genericMessage };
+      }
+      return { status: "ready", data: projectMemberContextGraphSnapshot(opened.snapshot, "canonical") };
+    } catch (error) {
+      const message = error instanceof FullGraphProjectionError ? "Member context failed integrity validation." : genericMessage;
+      return { status: "invalid", domain: "member-context", message };
+    }
   }
 
   private async openClaimsRevision(
@@ -235,6 +298,6 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
   }
 }
 
-export function createNeo4jMemberContextReadProvider(client: Neo4jClient): MemberContextReadProvider {
+export function createNeo4jMemberContextReadProvider(client: Neo4jClient): MemberContextFullReadProvider {
   return new Neo4jMemberContextReadProvider(client);
 }

@@ -22,7 +22,6 @@ import type {
   MemberContextQueryResult,
   MemberContextReadHandle,
   MemberContextReadOpenResult,
-  MemberContextReadProvider,
   MemberContextTimeWindow,
   MemberEvidenceProjection,
   MemberProfileEvidenceProjection,
@@ -42,6 +41,12 @@ import type {
   WorkoutPreferenceConstraintProjection,
   WorkoutSessionEvidenceProjection,
 } from "../../domain/contracts/member-context-queries";
+import {
+  FullGraphProjectionError,
+  projectMemberContextGraphSnapshot,
+  type FullGraphReadResult,
+  type MemberContextFullReadProvider,
+} from "../../domain/contracts/full-graph-view";
 import { deriveEvidenceAsOf } from "../../domain/policies/copilot-projections";
 import {
   MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS,
@@ -49,6 +54,7 @@ import {
   type MemberContextGraphSnapshot,
   type MemberContextRevisionScopedNode,
 } from "../../domain/contracts/member-context";
+import { MEMBER_CONTEXT_NEO4J_LIMITS } from "../neo4j/member-context-schema";
 import type { InMemoryMemberContextPublisher } from "../publication/in-memory-member-context-publisher";
 
 export const MEMBER_CONTEXT_QUERY_DEFAULTS = Object.freeze({ limit: 25, timeoutMs: 1_000 });
@@ -263,7 +269,7 @@ function isEvidenceId(value: unknown): value is string {
   return typeof value === "string" && /^assertion:[a-f0-9]{16}$/.test(value);
 }
 
-export class InMemoryMemberContextReadProvider implements MemberContextReadProvider {
+export class InMemoryMemberContextReadProvider implements MemberContextFullReadProvider {
   private available = true;
   private readonly authority: MemberContextAuthority;
   private readonly cursorSecret = randomBytes(32);
@@ -299,6 +305,55 @@ export class InMemoryMemberContextReadProvider implements MemberContextReadProvi
     return this.openClaimsRevision(claims, contextRevisionId, {
       activeRevisionId: this.publisher.getActiveRevisionId(claims.memberId),
     });
+  }
+
+  async readFullActive(scope: AuthorizedMemberContextScope): Promise<FullGraphReadResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", domain: "member-context", message: "Member context is unavailable." };
+    if (!this.available) return { status: "unavailable", domain: "member-context", message: "Member context is unavailable." };
+    const revisionId = this.publisher.getActiveRevisionId(claims.memberId);
+    if (!revisionId) return { status: "empty", domain: "member-context", message: "Member context is unavailable." };
+    return this.readFullClaimsRevision(claims, revisionId);
+  }
+
+  async readFullRevision(
+    scope: AuthorizedMemberContextScope,
+    contextRevisionId: string,
+  ): Promise<FullGraphReadResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", domain: "member-context", message: "Member context is unavailable." };
+    if (!this.available) return { status: "unavailable", domain: "member-context", message: "Member context is unavailable." };
+    return this.readFullClaimsRevision(claims, contextRevisionId, true);
+  }
+
+  private async readFullClaimsRevision(
+    claims: Readonly<{ coachId: string; memberId: string }>,
+    contextRevisionId: string,
+    explicitRevision = false,
+  ): Promise<FullGraphReadResult> {
+    const activeRevisionId = this.publisher.getActiveRevisionId(claims.memberId);
+    const inspection = await this.publisher.inspect(claims.memberId, contextRevisionId);
+    if (inspection.status !== "ok" || !["active", "sealed"].includes(inspection.data.state)) {
+      return explicitRevision
+        ? { status: "stale", domain: "member-context", requestedRevisionId: contextRevisionId, activeRevisionId }
+        : { status: "empty", domain: "member-context", message: "Member context is unavailable." };
+    }
+    const snapshot = this.publisher.getRevision(claims.memberId, contextRevisionId);
+    if (!snapshot || snapshot.memberId !== claims.memberId) {
+      return explicitRevision
+        ? { status: "stale", domain: "member-context", requestedRevisionId: contextRevisionId, activeRevisionId }
+        : { status: "empty", domain: "member-context", message: "Member context is unavailable." };
+    }
+    if (snapshot.nodes.length > MEMBER_CONTEXT_NEO4J_LIMITS.maxNodesPerRevision
+      || snapshot.relationships.length > MEMBER_CONTEXT_NEO4J_LIMITS.maxRelationshipsPerRevision) {
+      return { status: "invalid", domain: "member-context", message: "Member context exceeds bounded limits." };
+    }
+    try {
+      return { status: "ready", data: projectMemberContextGraphSnapshot(snapshot, this.authority) };
+    } catch (error) {
+      const message = error instanceof FullGraphProjectionError ? "Member context failed integrity validation." : "Member context projection failed.";
+      return { status: "invalid", domain: "member-context", message };
+    }
   }
 
   private async openClaimsRevision(

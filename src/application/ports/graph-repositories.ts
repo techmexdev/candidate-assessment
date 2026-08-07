@@ -1,5 +1,9 @@
 import type { MemberContextReadProvider } from "../../domain/contracts/member-context-queries";
 import type { MovementGraphReadProvider } from "../../domain/contracts/movement-clinical-queries";
+import type {
+  MemberContextFullReadProvider,
+  MovementGraphFullReadProvider,
+} from "../../domain/contracts/full-graph-view";
 
 export type MemberContextAccessClaims = {
   readonly coachId: string;
@@ -34,6 +38,12 @@ export function sameMemberContextClaims(
 export type GraphRepositories = {
   movement: MovementGraphReadProvider;
   memberContext: MemberContextReadProvider;
+};
+
+/** Server-only complete graph dependencies. The base graph port stays focused-query-only. */
+export type FullGraphRepositories = {
+  movement: MovementGraphFullReadProvider;
+  memberContext: MemberContextFullReadProvider;
 };
 
 /** Server composition dependencies for the member-context read boundary. */

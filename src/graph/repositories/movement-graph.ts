@@ -14,11 +14,16 @@ import type {
   GraphQueryResult,
   MovementGraphReadHandle,
   MovementGraphReadOpenResult,
-  MovementGraphReadProvider,
   ResolveConceptCandidatesQuery,
   SubstitutionCandidateFact,
   SubstitutionCandidatesQuery,
 } from "../../domain/contracts/movement-clinical-queries";
+import {
+  FullGraphProjectionError,
+  projectMovementGraphSnapshot,
+  type FullGraphReadResult,
+  type MovementGraphFullReadProvider,
+} from "../../domain/contracts/full-graph-view";
 import {
   CATALOG_SAFETY_MAX_EXERCISES,
   CATALOG_SAFETY_MAX_FAMILY_DEPTH,
@@ -39,6 +44,7 @@ import {
 } from "../../domain/policies/text-normalization";
 import {
   CLINICAL_RULE_TARGET_EDGE_KINDS,
+  MOVEMENT_GRAPH_LIMITS,
   MOVEMENT_GRAPH_QUERY_LIMITS,
 } from "../schema/movement-schema";
 
@@ -55,7 +61,7 @@ const bestAliasScore = (aliases: readonly AliasProfile[], score: (profile: Conce
 
 type ProviderOptions = { readonly authority?: GraphAuthority; readonly activeRevisionId?: string };
 
-export class InMemoryMovementGraphReadProvider implements MovementGraphReadProvider {
+export class InMemoryMovementGraphReadProvider implements MovementGraphFullReadProvider {
   private readonly snapshots = new Map<string, MovementGraphSnapshot>();
   private activeRevisionId?: string;
   private readonly authority: GraphAuthority;
@@ -79,6 +85,26 @@ export class InMemoryMovementGraphReadProvider implements MovementGraphReadProvi
     return snapshot
       ? { status: "ready", handle: new InMemoryMovementGraphReadHandle(snapshot, this.authority) }
       : { status: "unavailable", failure: { code: "revision_not_found", revisionId } };
+  }
+
+  async readFullActive(): Promise<FullGraphReadResult> {
+    return this.activeRevisionId
+      ? this.readFullRevision(this.activeRevisionId)
+      : { status: "unavailable", domain: "movement-clinical", message: "No active movement graph revision." };
+  }
+
+  async readFullRevision(revisionId: string): Promise<FullGraphReadResult> {
+    const snapshot = this.snapshots.get(revisionId);
+    if (!snapshot) return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision is unavailable." };
+    if (snapshot.nodes.length > MOVEMENT_GRAPH_LIMITS.maxNodes || snapshot.edges.length > MOVEMENT_GRAPH_LIMITS.maxEdges) {
+      return { status: "invalid", domain: "movement-clinical", message: "Movement graph revision exceeds bounded limits." };
+    }
+    try {
+      return { status: "ready", data: projectMovementGraphSnapshot(snapshot, this.authority) };
+    } catch (error) {
+      const message = error instanceof FullGraphProjectionError ? "Movement graph revision failed integrity validation." : "Movement graph projection failed.";
+      return { status: "invalid", domain: "movement-clinical", message };
+    }
   }
 }
 

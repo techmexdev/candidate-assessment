@@ -8,10 +8,15 @@ import type {
   GraphQueryResult,
   MovementGraphReadHandle,
   MovementGraphReadOpenResult,
-  MovementGraphReadProvider,
   ResolveConceptCandidatesQuery,
   SubstitutionCandidatesQuery,
 } from "../../domain/contracts/movement-clinical-queries";
+import {
+  FullGraphProjectionError,
+  projectMovementGraphSnapshot,
+  type FullGraphReadResult,
+  type MovementGraphFullReadProvider,
+} from "../../domain/contracts/full-graph-view";
 import type { MovementGraphAssertion, MovementGraphSnapshot } from "../../domain/contracts/movement-graph";
 import neo4j from "neo4j-driver";
 import { MOVEMENT_CYPHER } from "../cypher/movement";
@@ -97,7 +102,7 @@ class Neo4jMovementGraphReadHandle implements MovementGraphReadHandle {
   getAssertions(query: AssertionLookupQuery) { return this.withPinnedSeal((handle) => handle.getAssertions(query)); }
 }
 
-class Neo4jMovementGraphReadProvider implements MovementGraphReadProvider {
+class Neo4jMovementGraphReadProvider implements MovementGraphFullReadProvider {
   constructor(private readonly client: Neo4jClient) {}
 
   async openActive(): Promise<MovementGraphReadOpenResult> {
@@ -146,8 +151,53 @@ class Neo4jMovementGraphReadProvider implements MovementGraphReadProvider {
       return { status: "unavailable", failure: { code: "graph_unavailable", message: "Movement graph revision read failed" } };
     }
   }
+
+  async readFullActive(): Promise<FullGraphReadResult> {
+    try {
+      const revisionId = await this.client.executeRead(async (transaction) => {
+        const result = await transaction.run(MOVEMENT_CYPHER.readActiveRevision);
+        return textValue(result.records[0]?.get("activeRevisionId"));
+      });
+      return revisionId
+        ? this.readFullRevision(revisionId)
+        : { status: "unavailable", domain: "movement-clinical", message: "No active movement graph revision." };
+    } catch {
+      return { status: "unavailable", domain: "movement-clinical", message: "Movement graph catalog is unavailable." };
+    }
+  }
+
+  async readFullRevision(revisionId: string): Promise<FullGraphReadResult> {
+    try {
+      const canonicalRevision = await this.client.executeRead(async (transaction): Promise<{
+        readonly seal: SealMetadata;
+        readonly snapshot: MovementGraphSnapshot | undefined;
+      } | undefined> => {
+        const result = await transaction.run(MOVEMENT_CYPHER.readSealedRevision, { revisionId });
+        const record = result.records[0];
+        const canonicalDigest = textValue(record?.get("canonicalDigest"));
+        if (!record || !canonicalDigest) return undefined;
+        const seal = {
+          canonicalDigest,
+          nodeCount: Number(record.get("nodeCount")),
+          edgeCount: Number(record.get("edgeCount")),
+        };
+        return { seal, snapshot: await readCanonicalMovementSnapshot(transaction, revisionId) };
+      });
+      if (!canonicalRevision?.snapshot) return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision is unavailable." };
+      const { seal, snapshot } = canonicalRevision;
+      const digest = `sha256:${sha256(canonicalJson(snapshot))}`;
+      if (snapshot.nodes.length !== seal.nodeCount || snapshot.edges.length !== seal.edgeCount
+        || digest !== seal.canonicalDigest || validateMovementGraph(snapshot).status !== "valid") {
+        return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision failed canonical integrity validation." };
+      }
+      return { status: "ready", data: projectMovementGraphSnapshot(snapshot, "canonical") };
+    } catch (error) {
+      const message = error instanceof FullGraphProjectionError ? "Movement graph revision failed integrity validation." : "Movement graph revision is unavailable.";
+      return { status: "invalid", domain: "movement-clinical", message };
+    }
+  }
 }
 
-export function createNeo4jMovementGraphReadProvider(client: Neo4jClient): MovementGraphReadProvider {
+export function createNeo4jMovementGraphReadProvider(client: Neo4jClient): MovementGraphFullReadProvider {
   return new Neo4jMovementGraphReadProvider(client);
 }
