@@ -17,6 +17,7 @@
     "test:workout-runtime:security": "vitest run tests/unit/workout-agent-policy.test.ts tests/unit/workout-runtime.test.ts tests/unit/workout-run-repository-contract.test.ts && vitest run --config vitest.integration.config.mts tests/integration/workout-run-stream.test.ts",
     "test:workout-runtime:integrity": "vitest run tests/unit/workout-composition.test.ts tests/unit/workout-provenance.test.ts tests/unit/workout-runtime.test.ts tests/unit/workout-run-repository-contract.test.ts tests/unit/workout-run-worker.test.ts && vitest run --config vitest.integration.config.mts tests/integration/workout-run-stream.test.ts",
     "eval:workout-runtime": "tsx tests/fixtures/workout-generation-scenarios.ts",
+    "worker:workout-run": "tsx scripts/run-workout-worker.ts",
     "graph:seed": "tsx scripts/seed-movement-graph.ts seed",
     "graph:inspect": "tsx scripts/seed-movement-graph.ts inspect",
     "test:e2e": "playwright test",

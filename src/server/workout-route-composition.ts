@@ -10,6 +10,10 @@ import { createNeo4jClient } from "../graph/neo4j/client";
 import { createNeo4jMemberContextReadProvider } from "../graph/repositories/neo4j-member-context";
 import { createNeo4jMovementGraphReadProvider } from "../graph/repositories/neo4j-movement-graph";
 import { createNeo4jWorkoutRunRepository } from "../graph/repositories/neo4j-workout-runs";
+import type { Neo4jClient } from "../graph/neo4j/client";
+import type { MemberContextReadProvider } from "../domain/contracts/member-context-queries";
+import type { MovementGraphReadProvider } from "../domain/contracts/movement-clinical-queries";
+import type { WorkoutRunRepository } from "../application/ports/workout-run-repository";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -99,9 +103,9 @@ function openSessionAuthorization(secret: string, authorizationId: string): Sess
   return validSessionPayload(payload) ? payload : undefined;
 }
 
-function routeSecret(environment: string): string {
-  const configured = process.env.WORKOUT_ROUTE_SECRET;
-  if (configured && Buffer.byteLength(configured) >= 32) return configured;
+export function workoutRouteSecret(environment: string, configured?: string): string {
+  const value = arguments.length > 1 ? configured : process.env.WORKOUT_ROUTE_SECRET;
+  if (value && Buffer.byteLength(value) >= 32) return value;
   if (environment === "development" || environment === "test" || environment === "local") return LOCAL_SECRET;
   throw new Error("WORKOUT_ROUTE_SECRET must contain at least 32 bytes");
 }
@@ -138,7 +142,7 @@ function createSessionResolver(secret: string, environment: string): WorkoutRout
   };
 }
 
-function createGrantAuthorization(secret: string): WorkerAuthorizationPort {
+export function createWorkoutGrantAuthorization(secret: string): WorkerAuthorizationPort {
   const lifetimeMs = 24 * 60 * 60 * 1_000;
   return {
     async createReference(input) {
@@ -171,20 +175,42 @@ function createGrantAuthorization(secret: string): WorkerAuthorizationPort {
   };
 }
 
-export function createConfiguredWorkoutRouteComposition(): WorkoutRouteComposition {
-  const environment = process.env.NODE_ENV ?? "production";
-  const secret = routeSecret(environment);
+export type WorkoutServerInfrastructure = {
+  readonly environment: string;
+  readonly secret: string;
+  readonly client: Neo4jClient;
+  readonly repository: WorkoutRunRepository;
+  readonly authorization: WorkerAuthorizationPort;
+  readonly movement: MovementGraphReadProvider;
+  readonly memberContext: MemberContextReadProvider;
+};
+
+/** Shared server-only infrastructure used by both HTTP routes and the detached worker. */
+export function createConfiguredWorkoutServerInfrastructure(
+  configuredEnvironment: Readonly<Record<string, string | undefined>> = process.env,
+): WorkoutServerInfrastructure {
+  const environment = configuredEnvironment.NODE_ENV ?? "production";
+  const secret = workoutRouteSecret(environment, configuredEnvironment.WORKOUT_ROUTE_SECRET);
   const client = createNeo4jClient({
     environment,
-    ...(process.env.NEO4J_URI ? { uri: process.env.NEO4J_URI } : {}),
-    ...(process.env.NEO4J_USERNAME ? { username: process.env.NEO4J_USERNAME } : {}),
-    ...(process.env.NEO4J_PASSWORD ? { password: process.env.NEO4J_PASSWORD } : {}),
-    ...(process.env.NEO4J_DATABASE ? { database: process.env.NEO4J_DATABASE } : {}),
+    ...(configuredEnvironment.NEO4J_URI ? { uri: configuredEnvironment.NEO4J_URI } : {}),
+    ...(configuredEnvironment.NEO4J_USERNAME ? { username: configuredEnvironment.NEO4J_USERNAME } : {}),
+    ...(configuredEnvironment.NEO4J_PASSWORD ? { password: configuredEnvironment.NEO4J_PASSWORD } : {}),
+    ...(configuredEnvironment.NEO4J_DATABASE ? { database: configuredEnvironment.NEO4J_DATABASE } : {}),
   });
-  const repository = createNeo4jWorkoutRunRepository(client, { cursorSecret: secret });
-  const authorization = createGrantAuthorization(secret);
-  const movement = createNeo4jMovementGraphReadProvider(client);
-  const memberContext = createNeo4jMemberContextReadProvider(client);
+  return Object.freeze({
+    environment,
+    secret,
+    client,
+    repository: createNeo4jWorkoutRunRepository(client, { cursorSecret: secret }),
+    authorization: createWorkoutGrantAuthorization(secret),
+    movement: createNeo4jMovementGraphReadProvider(client),
+    memberContext: createNeo4jMemberContextReadProvider(client),
+  });
+}
+
+export function createConfiguredWorkoutRouteComposition(): WorkoutRouteComposition {
+  const { environment, secret, repository, authorization, movement, memberContext } = createConfiguredWorkoutServerInfrastructure(process.env);
   const retrieveMemberContext = createRetrieveMemberContext({
     memberContext,
     authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
