@@ -73,12 +73,14 @@ describe("workout run route adapters", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(JSON.stringify(await response.json())).not.toMatch(/authorization|grant|prompt|cookie/i);
+    expect(retrieve).toHaveBeenCalledWith(expect.objectContaining({ sessionAuthorizationId: "session:opaque" }));
 
     retrieve.mockResolvedValueOnce({ status: "not-found" });
     expect((await handlers.GET(request("/api/workout-runs/workout-run:foreign?memberId=member%3Aone"), context)).status).toBe(404);
 
     const canceled = await handlers.DELETE(request("/api/workout-runs/workout-run:one?memberId=member%3Aone", { method: "DELETE" }), context);
     expect(canceled.status).toBe(202);
+    expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ sessionAuthorizationId: "session:opaque" }));
     cancel.mockResolvedValueOnce({ status: "already_completed" });
     expect((await handlers.DELETE(request("/api/workout-runs/workout-run:one?memberId=member%3Aone", { method: "DELETE" }), context)).status).toBe(409);
 
@@ -110,7 +112,7 @@ describe("workout run route adapters", () => {
     expect(body).toContain("id: opaque.cursor");
     expect(body).toContain("event: stage");
     expect(body).not.toMatch(/prompt|evidence|authorization|grant/i);
-    expect(replay).toHaveBeenCalledWith(expect.objectContaining({ cursor: "prior.cursor", coachId: "coach:server" }));
+    expect(replay).toHaveBeenCalledWith(expect.objectContaining({ cursor: "prior.cursor", coachId: "coach:server", sessionAuthorizationId: "session:opaque" }));
   });
 
   it("returns directly followable member-scoped resource and resync links", async () => {

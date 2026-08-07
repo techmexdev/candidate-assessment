@@ -11,8 +11,8 @@ import {
 
 export function createWorkoutRunResourceHandlers(dependencies: {
   readonly resolveSession: ResolveWorkoutRouteSession;
-  readonly retrieve: (input: { readonly runId: ReturnType<typeof asWorkoutRunId>; readonly coachId: string; readonly memberId: string }) => Promise<RetrieveWorkoutRunResult>;
-  readonly cancel: (input: { readonly runId: ReturnType<typeof asWorkoutRunId>; readonly coachId: string; readonly memberId: string }) => Promise<CancelWorkoutRunResult>;
+  readonly retrieve: (input: { readonly runId: ReturnType<typeof asWorkoutRunId>; readonly coachId: string; readonly memberId: string; readonly sessionAuthorizationId: string }) => Promise<RetrieveWorkoutRunResult>;
+  readonly cancel: (input: { readonly runId: ReturnType<typeof asWorkoutRunId>; readonly coachId: string; readonly memberId: string; readonly sessionAuthorizationId: string }) => Promise<CancelWorkoutRunResult>;
 }) {
   const authorizeRequest = async (request: Request, context: WorkoutRouteContext) => {
     const session = await dependencies.resolveSession(request);
@@ -27,7 +27,12 @@ export function createWorkoutRunResourceHandlers(dependencies: {
     async GET(request: Request, context: WorkoutRouteContext): Promise<Response> {
       const access = await authorizeRequest(request, context);
       if ("response" in access && access.response) return access.response;
-      const result = await dependencies.retrieve({ runId: access.runId, coachId: access.session.coachId, memberId: access.memberId });
+      const result = await dependencies.retrieve({
+        runId: access.runId,
+        coachId: access.session.coachId,
+        memberId: access.memberId,
+        sessionAuthorizationId: access.session.authorizationId,
+      });
       if (result.status === "ready") return jsonResponse(result.resource, 200);
       return jsonResponse({ status: result.status === "integrity-failure" ? "unavailable" : "not-found" }, result.status === "integrity-failure" ? 409 : 404);
     },
@@ -35,7 +40,12 @@ export function createWorkoutRunResourceHandlers(dependencies: {
       if (!isSameOriginMutation(request)) return jsonResponse({ status: "forbidden" }, 403);
       const access = await authorizeRequest(request, context);
       if ("response" in access && access.response) return access.response;
-      const result = await dependencies.cancel({ runId: access.runId, coachId: access.session.coachId, memberId: access.memberId });
+      const result = await dependencies.cancel({
+        runId: access.runId,
+        coachId: access.session.coachId,
+        memberId: access.memberId,
+        sessionAuthorizationId: access.session.authorizationId,
+      });
       if (result.status === "canceled") return jsonResponse(result, 202);
       if (result.status === "already_completed") return jsonResponse(result, 409);
       if (result.status === "already-terminal") return jsonResponse(result, 200);

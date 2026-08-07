@@ -17,6 +17,7 @@ const NOW = "2026-08-07T10:00:00.000Z";
 
 function authorization(): WorkerAuthorizationPort {
   return {
+    authorizeSession: async () => ({ status: "authorized", authorizationId: "session:worker-test" }),
     createReference: async ({ runId }) => ({ status: "authorized", authorizationReferenceId: `grant:${runId}` }),
     authorize: async () => ({ status: "authorized", authorizationId: "scope:worker-test" }),
   };

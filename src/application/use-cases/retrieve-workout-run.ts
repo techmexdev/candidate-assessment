@@ -4,6 +4,7 @@ import type { WorkoutRunEvent, WorkoutRunRepository } from "../ports/workout-run
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 import { validateWorkoutProvenance } from "../../domain/contracts/workout-provenance";
 import { canonicalWorkoutProvenanceDigest, WORKOUT_RUN_LIMITS } from "../../graph/schema/workout-run-schema";
+import { authorizeWorkoutRunAccess, type WorkoutRunAccessInput } from "./authorize-workout-run-access";
 
 export type WorkoutRunResource = {
   readonly runId: WorkoutRunId;
@@ -22,26 +23,6 @@ export type RetrieveWorkoutRunResult =
   | { readonly status: "ready"; readonly resource: WorkoutRunResource }
   | { readonly status: "not-found" | "integrity-failure" };
 
-type AccessInput = { readonly runId: WorkoutRunId; readonly coachId: string; readonly memberId: string };
-
-async function authorizeRun(
-  repository: WorkoutRunRepository,
-  authorization: WorkerAuthorizationPort,
-  input: AccessInput,
-  stage: "read" | "replay",
-) {
-  const run = await repository.getRun(input.runId, input.coachId, input.memberId);
-  if (!run) return undefined;
-  const access = await authorization.authorize({
-    authorizationReferenceId: run.authorizationReferenceId,
-    runId: run.runId,
-    coachId: run.coachId,
-    memberId: run.memberId,
-    stage,
-  });
-  return access.status === "authorized" ? run : undefined;
-}
-
 export function createRetrieveWorkoutRun(dependencies: {
   readonly repository: WorkoutRunRepository;
   readonly authorization: WorkerAuthorizationPort;
@@ -50,8 +31,8 @@ export function createRetrieveWorkoutRun(dependencies: {
     readonly provenance: WorkoutProvenanceBundle;
   }) => boolean | Promise<boolean>;
 }) {
-  return async (input: AccessInput): Promise<RetrieveWorkoutRunResult> => {
-    const run = await authorizeRun(dependencies.repository, dependencies.authorization, input, "read");
+  return async (input: WorkoutRunAccessInput): Promise<RetrieveWorkoutRunResult> => {
+    const run = await authorizeWorkoutRunAccess(dependencies, input, "read");
     if (!run) return { status: "not-found" };
     const [workout, provenance] = run.state === "completed"
       ? await Promise.all([
@@ -128,8 +109,8 @@ export function createReplayWorkoutRunEvents(dependencies: {
   readonly repository: WorkoutRunRepository;
   readonly authorization: WorkerAuthorizationPort;
 }) {
-  return async (input: AccessInput & { readonly cursor?: string; readonly limit?: number }): Promise<ReplayWorkoutRunEventsResult> => {
-    const run = await authorizeRun(dependencies.repository, dependencies.authorization, input, "replay");
+  return async (input: WorkoutRunAccessInput & { readonly cursor?: string; readonly limit?: number }): Promise<ReplayWorkoutRunEventsResult> => {
+    const run = await authorizeWorkoutRunAccess(dependencies, input, "replay");
     if (!run) return { status: "not-found" };
     const limit = input.limit ?? WORKOUT_RUN_LIMITS.maximumEventPageSize;
     if (!Number.isInteger(limit) || limit < 1 || limit > WORKOUT_RUN_LIMITS.maximumEventPageSize) return { status: "not-found" };

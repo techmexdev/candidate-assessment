@@ -2,6 +2,7 @@ import { asWorkoutInputRevisionId, type WorkoutRunId } from "../../domain/contra
 import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
+import { authorizeWorkoutRunAccess } from "./authorize-workout-run-access";
 
 export type AnswerWorkoutClarificationResult =
   | { readonly status: "requeued"; readonly revision: number }
@@ -28,17 +29,9 @@ export function createAnswerWorkoutClarification(dependencies: {
   }): Promise<AnswerWorkoutClarificationResult> => {
     const answer = input.answer.trim();
     if (!answer || answer.length > 1_000 || !input.sessionAuthorizationId.trim()) return { status: "invalid-request" };
-    const run = await dependencies.repository.getRun(input.runId, input.coachId, input.memberId);
+    const run = await authorizeWorkoutRunAccess(dependencies, input, "clarification");
     if (!run) return { status: "not-found" };
     if (run.state !== "awaiting-clarification") return { status: "invalid-state" };
-    const authorization = await dependencies.authorization.authorize({
-      authorizationReferenceId: run.authorizationReferenceId,
-      runId: run.runId,
-      coachId: run.coachId,
-      memberId: run.memberId,
-      stage: "clarification",
-    });
-    if (authorization.status !== "authorized") return { status: "not-found" };
     const protectedInput = await dependencies.protectPrompt({
       coachId: run.coachId,
       memberId: run.memberId,

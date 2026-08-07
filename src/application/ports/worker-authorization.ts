@@ -26,6 +26,17 @@ export type WorkerGrantReferenceResult =
  * reference to a grant, never a browser credential or process-local scope.
  */
 export interface WorkerAuthorizationPort {
+  /**
+   * Revalidates the current interactive session for the requested member.
+   * Keeping this check behind the port lets stateful adapters honor scope
+   * changes or revocation even when an older durable run grant remains valid.
+   */
+  authorizeSession(input: {
+    readonly sessionAuthorizationId: string;
+    readonly coachId: string;
+    readonly memberId: string;
+    readonly stage: Extract<WorkoutAuthorizationStage, "read" | "replay" | "clarification" | "retry" | "cancel">;
+  }): Promise<WorkerGrantAuthorization>;
   createReference(input: {
     readonly coachId: string;
     readonly memberId: string;

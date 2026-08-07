@@ -4,6 +4,7 @@ import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 import { reserveWorkoutRunCreation } from "./reserve-workout-run-creation";
+import { authorizeWorkoutRunAccess } from "./authorize-workout-run-access";
 
 export type RetryWorkoutRunResult =
   | { readonly status: "created" | "replayed"; readonly runId: WorkoutRunId }
@@ -26,17 +27,9 @@ export function createRetryWorkoutRun(dependencies: {
     readonly idempotencyKey: string;
   }): Promise<RetryWorkoutRunResult> => {
     if (!input.idempotencyKey.trim() || input.idempotencyKey.length > 200 || !input.sessionAuthorizationId.trim()) return { status: "invalid-request" };
-    const source = await dependencies.repository.getRun(input.runId, input.coachId, input.memberId);
+    const source = await authorizeWorkoutRunAccess(dependencies, input, "retry");
     if (!source) return { status: "not-found" };
     if (source.state !== "failed") return { status: "not-retryable" };
-    const access = await dependencies.authorization.authorize({
-      authorizationReferenceId: source.authorizationReferenceId,
-      runId: source.runId,
-      coachId: source.coachId,
-      memberId: source.memberId,
-      stage: "retry",
-    });
-    if (access.status !== "authorized") return { status: "not-found" };
 
     const sourceInput = source.inputRevisions.find((revision) => revision.inputRevisionId === source.activeInputRevisionId);
     if (!sourceInput) return { status: "not-retryable" };

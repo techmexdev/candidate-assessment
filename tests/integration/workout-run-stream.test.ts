@@ -4,7 +4,8 @@ import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/worko
 import type { WorkerAuthorizationPort } from "../../src/application/ports/worker-authorization";
 import { createSubmitWorkoutRun } from "../../src/application/use-cases/submit-workout-run";
 import { createClaimWorkoutRun } from "../../src/application/use-cases/claim-workout-run";
-import { createReplayWorkoutRunEvents } from "../../src/application/use-cases/retrieve-workout-run";
+import { createReplayWorkoutRunEvents, createRetrieveWorkoutRun } from "../../src/application/use-cases/retrieve-workout-run";
+import { createCancelWorkoutRun } from "../../src/application/use-cases/cancel-workout-run";
 import { createAnswerWorkoutClarification } from "../../src/application/use-cases/answer-workout-clarification";
 import { createRetryWorkoutRun } from "../../src/application/use-cases/retry-workout-run";
 import { createWorkoutRunWorker } from "../../src/workers/workout-run-worker";
@@ -16,6 +17,11 @@ function createHarness(maxEventsPerRun = 100) {
   let id = 0;
   const authorization: WorkerAuthorizationPort = {
     createReference: vi.fn(async ({ runId }) => ({ status: "authorized" as const, authorizationReferenceId: `grant-ref:${runId}` })),
+    authorizeSession: vi.fn(async ({ sessionAuthorizationId, coachId, memberId }) => coachId === "coach:one"
+      && ((sessionAuthorizationId === "session:one" && memberId === "member:one")
+        || (sessionAuthorizationId === "session:both" && (memberId === "member:one" || memberId === "member:wrong")))
+      ? { status: "authorized" as const, authorizationId: "scope:current-session" }
+      : { status: "denied" as const }),
     authorize: vi.fn(async () => ({ status: "authorized" as const, authorizationId: "scope:process-local" })),
   };
   const pinRevisions = vi.fn(async () => ({ status: "ready" as const, movementGraphRevisionId: "movement:sealed", memberContextRevisionId: "member:sealed" }));
@@ -44,6 +50,68 @@ async function submitOne(testHarness: ReturnType<typeof createHarness>, override
 }
 
 describe("workout run submission, worker, and replay integration", () => {
+  it("requires current member scope as well as the durable run grant for every interactive operation", async () => {
+    const dependencies = createHarness();
+    const first = await submitOne(dependencies);
+    const second = await submitOne(dependencies, { idempotencyKey: "submit:two" });
+    const third = await submitOne(dependencies, { idempotencyKey: "submit:three" });
+    if (!("runId" in first) || !("runId" in second) || !("runId" in third)) throw new Error("runs missing");
+
+    const retrieve = createRetrieveWorkoutRun({ repository: dependencies.repository, authorization: dependencies.authorization });
+    const replay = createReplayWorkoutRunEvents({ repository: dependencies.repository, authorization: dependencies.authorization });
+    const cancel = createCancelWorkoutRun({ repository: dependencies.repository, authorization: dependencies.authorization, now: () => NOW });
+    const answer = createAnswerWorkoutClarification({
+      repository: dependencies.repository,
+      authorization: dependencies.authorization,
+      protectPrompt: async () => ({ status: "stored" as const, protectedPromptSnapshotId: "prompt:clarification" }),
+      createId: () => "input:clarification-current-scope",
+      now: () => NOW,
+    });
+    const retry = createRetryWorkoutRun({
+      repository: dependencies.repository,
+      authorization: dependencies.authorization,
+      createId: (kind) => `${kind}:current-scope-retry`,
+      now: () => NOW,
+      modelConfigurationId: "model:test",
+      policyRevision: "policy:v1",
+    });
+
+    const clarificationClaim = await dependencies.repository.claim(second.runId, "worker:clarification", NOW, "2026-08-07T10:01:00.000Z");
+    if (clarificationClaim.status !== "claimed") throw new Error("clarification claim missing");
+    await dependencies.repository.awaitClarification(clarificationClaim.fence, NOW, ["joint:knee"]);
+    const retryClaim = await dependencies.repository.claim(third.runId, "worker:retry", NOW, "2026-08-07T10:01:00.000Z");
+    if (retryClaim.status !== "claimed") throw new Error("retry claim missing");
+    await dependencies.repository.fail(retryClaim.fence, {
+      kind: "provider-failure", stage: "composition", safeMessage: "Workout generation could not be completed.", occurredAt: NOW,
+    });
+
+    const revoked = { coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:revoked" } as const;
+    const wrongMember = { coachId: "coach:one", memberId: "member:wrong", sessionAuthorizationId: "session:both" } as const;
+    const current = { coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one" } as const;
+
+    for (const access of [revoked, wrongMember]) {
+      await expect(retrieve({ runId: first.runId, ...access })).resolves.toEqual({ status: "not-found" });
+      await expect(replay({ runId: first.runId, ...access })).resolves.toEqual({ status: "not-found" });
+      await expect(cancel({ runId: first.runId, ...access })).resolves.toEqual({ status: "not-found" });
+      await expect(answer({ runId: second.runId, ...access, answer: "Use the patellofemoral restriction" })).resolves.toEqual({ status: "not-found" });
+      await expect(retry({ runId: third.runId, ...access, idempotencyKey: `retry:${access.memberId}` })).resolves.toEqual({ status: "not-found" });
+    }
+
+    await expect(retrieve({ runId: first.runId, ...current })).resolves.toMatchObject({ status: "ready" });
+    await expect(replay({ runId: first.runId, ...current })).resolves.toMatchObject({ status: "ready" });
+    await expect(answer({ runId: second.runId, ...current, answer: "Use the patellofemoral restriction" }))
+      .resolves.toEqual({ status: "requeued", revision: 2 });
+    await expect(retry({ runId: third.runId, ...current, idempotencyKey: "retry:current" }))
+      .resolves.toMatchObject({ status: "created" });
+    await expect(cancel({ runId: first.runId, ...current })).resolves.toEqual({ status: "canceled" });
+
+    expect(dependencies.authorization.authorizeSession).toHaveBeenCalledWith(expect.objectContaining({ stage: "read", sessionAuthorizationId: "session:one" }));
+    expect(dependencies.authorization.authorizeSession).toHaveBeenCalledWith(expect.objectContaining({ stage: "replay", sessionAuthorizationId: "session:one" }));
+    expect(dependencies.authorization.authorizeSession).toHaveBeenCalledWith(expect.objectContaining({ stage: "cancel", sessionAuthorizationId: "session:one" }));
+    expect(dependencies.authorization.authorizeSession).toHaveBeenCalledWith(expect.objectContaining({ stage: "clarification", sessionAuthorizationId: "session:one" }));
+    expect(dependencies.authorization.authorizeSession).toHaveBeenCalledWith(expect.objectContaining({ stage: "retry", sessionAuthorizationId: "session:one" }));
+  });
+
   it("pins revisions, stores only protected input references, and enforces scoped idempotency", async () => {
     const dependencies = createHarness();
     const created = await submitOne(dependencies);
@@ -139,22 +207,22 @@ describe("workout run submission, worker, and replay integration", () => {
     const claim = await dependencies.repository.claim(created.runId, "worker:one", NOW, "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim missing");
     const replay = createReplayWorkoutRunEvents({ repository: dependencies.repository, authorization: dependencies.authorization });
-    const first = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", limit: 1 });
+    const first = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", limit: 1 });
     if (first.status !== "ready") throw new Error("initial replay missing");
 
     await dependencies.repository.appendEvent(claim.fence, { kind: "stage", occurredAt: NOW, safeData: { stage: "constraints" } });
     await dependencies.repository.appendEvent(claim.fence, { kind: "stage", occurredAt: NOW, safeData: { stage: "catalog" } });
-    const pruned = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", cursor: first.nextCursor, limit: 10 });
+    const pruned = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", cursor: first.nextCursor, limit: 10 });
     expect(pruned).toEqual({ status: "resync_required", snapshotUrl: `/api/workout-runs/${created.runId}` });
 
-    const current = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", limit: 10 });
+    const current = await replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", limit: 10 });
     expect(current.status === "ready" ? current.events.map(({ event }) => event.kind) : []).toEqual(["stage", "stage"]);
     expect(JSON.stringify(current)).not.toMatch(/prompt|grant-ref|scope:process/i);
-    await expect(replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", cursor: "forged.cursor", limit: 10 }))
+    await expect(replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", cursor: "forged.cursor", limit: 10 }))
       .resolves.toEqual({ status: "not-found" });
 
     vi.mocked(dependencies.authorization.authorize).mockResolvedValueOnce({ status: "denied" });
-    await expect(replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", cursor: "still.forged", limit: 10 }))
+    await expect(replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", cursor: "still.forged", limit: 10 }))
       .resolves.toEqual({ status: "not-found" });
   });
 
@@ -178,6 +246,7 @@ describe("workout run submission, worker, and replay integration", () => {
       runId: created.runId,
       coachId: "coach:one",
       memberId: "member:one",
+      sessionAuthorizationId: "session:one",
       limit: 100,
     });
 
@@ -197,6 +266,7 @@ describe("workout run submission, worker, and replay integration", () => {
       runId: created.runId,
       coachId: "coach:one",
       memberId: "member:one",
+      sessionAuthorizationId: "session:one",
       cursor: resumeCursor,
       limit: 100,
     });

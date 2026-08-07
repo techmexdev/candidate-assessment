@@ -145,6 +145,12 @@ function createSessionResolver(secret: string, environment: string): WorkoutRout
 export function createWorkoutGrantAuthorization(secret: string): WorkerAuthorizationPort {
   const lifetimeMs = 24 * 60 * 60 * 1_000;
   return {
+    async authorizeSession(input) {
+      const session = openSessionAuthorization(secret, input.sessionAuthorizationId);
+      return session && session.coachId === input.coachId && session.memberIds.includes(input.memberId)
+        ? { status: "authorized", authorizationId: `session:${createHmac("sha256", secret).update(input.sessionAuthorizationId).digest("base64url")}` }
+        : { status: "denied" };
+    },
     async createReference(input) {
       const session = openSessionAuthorization(secret, input.sessionAuthorizationId);
       const provisionedAt = Date.parse(input.provisionedAt);

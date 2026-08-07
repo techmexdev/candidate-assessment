@@ -9,6 +9,7 @@ export function createWorkoutRunEventsHandler(dependencies: {
     readonly runId: ReturnType<typeof asWorkoutRunId>;
     readonly coachId: string;
     readonly memberId: string;
+    readonly sessionAuthorizationId: string;
     readonly cursor?: string;
     readonly limit?: number;
   }) => Promise<ReplayWorkoutRunEventsResult>;
@@ -23,7 +24,13 @@ export function createWorkoutRunEventsHandler(dependencies: {
     const { runId } = await context.params;
     if (!memberId || !runId || memberId.length > 200 || runId.length > 300) return jsonResponse({ status: "not-found" }, 404);
     const cursor = request.headers.get("last-event-id") ?? url.searchParams.get("cursor") ?? undefined;
-    const result = await dependencies.replay({ runId: asWorkoutRunId(runId), coachId: session.coachId, memberId, ...(cursor ? { cursor } : {}) });
+    const result = await dependencies.replay({
+      runId: asWorkoutRunId(runId),
+      coachId: session.coachId,
+      memberId,
+      sessionAuthorizationId: session.authorizationId,
+      ...(cursor ? { cursor } : {}),
+    });
     if (result.status === "resync_required") {
       return jsonResponse({ status: result.status, snapshotUrl: workoutRunResourceUrl(runId, memberId) }, 409);
     }
