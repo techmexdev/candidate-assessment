@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createWorkoutProvenanceBundle } from "../../src/domain/contracts/workout-provenance";
 import { asWorkoutInputRevisionId, asWorkoutRunId, asWorkoutVersionId } from "../../src/domain/contracts/workout";
-import type { WorkoutRun } from "../../src/domain/contracts/workout-run";
+import type { WorkoutClarificationDescriptor, WorkoutRun } from "../../src/domain/contracts/workout-run";
 import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
 import { WORKOUT_RUN_CYPHER } from "../../src/graph/cypher/workout-runs";
 import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
@@ -122,6 +122,17 @@ const constraintSnapshot = {
   digest: "sha256:constraints",
 };
 
+const clarificationDescriptor: WorkoutClarificationDescriptor = {
+  schemaVersion: "workout-clarification/v1",
+  fields: [{
+    id: "injury-1-recovery-stage",
+    key: "recoveryStage",
+    label: "Recovery stage",
+    allowedValues: [{ value: "return-to-training", label: "Return to training" }],
+    evidenceReference: "clarification-ref:opaque-knee",
+  }],
+};
+
 describe("in-memory workout run repository contract", () => {
   it("atomically reserves creation identity and recovers an abandoned owner without changing run identity", async () => {
     const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
@@ -213,6 +224,29 @@ describe("in-memory workout run repository contract", () => {
       .resolves.toEqual({ status: "stale-fence" });
     await expect(repository.getRun(RUN_ID, "coach:one", "member:one"))
       .resolves.toMatchObject({ state: "running", claim: { generation: 1 } });
+  });
+
+  it("persists and hydrates a safe typed clarification descriptor, then clears it on requeue", async () => {
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
+    await repository.createOrFind(run());
+    const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
+    if (claim.status !== "claimed") throw new Error("claim failed");
+
+    await expect(repository.awaitClarification(claim.fence, "2026-08-07T10:00:02.000Z", clarificationDescriptor))
+      .resolves.toMatchObject({ status: "updated", run: { state: "awaiting-clarification", clarification: clarificationDescriptor } });
+    const awaiting = await repository.getRun(RUN_ID, "coach:one", "member:one");
+    expect(awaiting?.clarification).toEqual(clarificationDescriptor);
+    expect(JSON.stringify(awaiting)).not.toContain("evidence:knee");
+
+    await expect(repository.answerClarification(RUN_ID, "coach:one", "member:one", {
+      inputRevisionId: asWorkoutInputRevisionId("input:2"),
+      revision: 2,
+      protectedPromptSnapshotId: "prompt:2",
+      promptDigest: "sha256:prompt:2",
+      effectiveInputDigest: "sha256:effective:2",
+      createdAt: "2026-08-07T10:00:03.000Z",
+    })).resolves.toMatchObject({ status: "updated", run: { state: "queued" } });
+    await expect(repository.getRun(RUN_ID, "coach:one", "member:one")).resolves.toMatchObject({ clarification: undefined });
   });
 
   it.each(["heartbeat", "saveConstraintSnapshot", "allocateEvent", "awaitClarification", "fail", "complete"] as const)(

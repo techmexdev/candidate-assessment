@@ -22,6 +22,7 @@ import type {
 import type {
   CompletedWorkoutRun,
   ResolvedConstraintSnapshot,
+  WorkoutClarificationDescriptor,
   WorkoutRevisionSealArtifact,
   WorkoutRun,
   WorkoutRunFailure,
@@ -40,7 +41,7 @@ import {
   WORKOUT_RUN_LIMITS,
   WORKOUT_RUN_TERMINAL_STATES,
 } from "../schema/workout-run-schema";
-import { validateCompletionBindings, type CompletionArtifactStore } from "./workout-runs";
+import { validateCompletionBindings, validClarificationDescriptor, type CompletionArtifactStore } from "./workout-runs";
 
 type Neo4jNode = { readonly properties: Readonly<Record<string, unknown>> };
 type CursorPayload = {
@@ -92,6 +93,7 @@ async function hydrateRun(transaction: Neo4jTransaction, value: Neo4jNode): Prom
     expiresAt: String(value.properties.claimExpiresAt),
   } : undefined;
   const constraintSnapshot = parse<ResolvedConstraintSnapshot>(value.properties.constraintSnapshot);
+  const clarification = parse<WorkoutClarificationDescriptor>(value.properties.clarificationDescriptor);
   const failure = parse<WorkoutRunFailure>(value.properties.failure);
   return frozen({
     ...base,
@@ -100,6 +102,7 @@ async function hydrateRun(transaction: Neo4jTransaction, value: Neo4jNode): Prom
     activeInputRevisionId: (value.properties.activeInputRevisionId as WorkoutRun["activeInputRevisionId"] | undefined) ?? base.activeInputRevisionId,
     ...(claim ? { claim } : { claim: undefined }),
     ...(constraintSnapshot ? { constraintSnapshot } : {}),
+    ...(clarification ? { clarification } : { clarification: undefined }),
     ...(failure ? { failure } : { failure: undefined }),
     ...(typeof value.properties.startedAt === "string" ? { startedAt: value.properties.startedAt } : {}),
     ...(typeof value.properties.endedAt === "string" ? { endedAt: value.properties.endedAt } : {}),
@@ -320,13 +323,23 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
     });
   }
 
-  async awaitClarification(fence: WorkoutRunFence, at: string, candidateConceptIds: readonly string[]): Promise<ClarificationMutationResult> {
-    if (candidateConceptIds.length === 0 || candidateConceptIds.length > WORKOUT_RUN_LIMITS.maximumClarificationCandidates) return { status: "invalid-state" };
+  async awaitClarification(fence: WorkoutRunFence, at: string, clarification: WorkoutClarificationDescriptor | readonly string[]): Promise<ClarificationMutationResult> {
+    const descriptor = Array.isArray(clarification) ? undefined : clarification as WorkoutClarificationDescriptor;
+    const candidateConceptIds = descriptor ? [] : clarification as readonly string[];
+    const candidateCount = descriptor ? descriptor.fields.length : candidateConceptIds.length;
+    if (candidateCount === 0 || candidateCount > WORKOUT_RUN_LIMITS.maximumClarificationCandidates
+      || (descriptor && !validClarificationDescriptor(descriptor))) return { status: "invalid-state" };
     return this.client.executeWrite(async (transaction) => {
-      const result = await transaction.run(WORKOUT_RUN_CYPHER.awaitClarification, { runId: fence.runId, generation: fence.generation, workerId: fence.workerId, candidateConceptIds });
+      const result = await transaction.run(WORKOUT_RUN_CYPHER.awaitClarification, {
+        runId: fence.runId,
+        generation: fence.generation,
+        workerId: fence.workerId,
+        candidateConceptIds,
+        clarificationDescriptor: descriptor ? json(descriptor) : null,
+      });
       const updatedNode = node(result.records[0]);
       if (!updatedNode) return (await this.readStore(transaction, fence.runId)) ? { status: "stale-fence" } : { status: "missing" };
-      await this.systemEvent(transaction, fence.runId, { kind: "awaiting-clarification", occurredAt: at, safeData: { candidateCount: candidateConceptIds.length } });
+      await this.systemEvent(transaction, fence.runId, { kind: "awaiting-clarification", occurredAt: at, safeData: { candidateCount } });
       const run = await hydrateRun(transaction, updatedNode);
       return run ? { status: "updated", run } : { status: "missing" };
     });

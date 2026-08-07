@@ -1,5 +1,5 @@
 import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
-import type { CompletedWorkoutRun, ResolvedConstraintSnapshot, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure, WorkoutValidationReceipt } from "../../domain/contracts/workout-run";
+import type { CompletedWorkoutRun, ResolvedConstraintSnapshot, WorkoutClarificationDescriptor, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure, WorkoutValidationReceipt } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion, WorkoutInputRevisionId, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
 import type { WorkoutCompositionProposal } from "../../domain/policies/workout-composition";
@@ -129,7 +129,11 @@ export interface WorkoutRunRepository {
   saveConstraintSnapshot(fence: WorkoutRunFence, snapshot: ResolvedConstraintSnapshot): Promise<FencedMutationResult>;
   saveCompletionArtifact(fence: WorkoutRunFence, artifact: WorkoutCompletionArtifact): Promise<FencedMutationResult>;
   appendEvent(fence: WorkoutRunFence, event: AppendWorkoutRunEvent): Promise<FencedMutationResult>;
-  awaitClarification(fence: WorkoutRunFence, at: string, candidateConceptIds: readonly string[]): Promise<ClarificationMutationResult>;
+  awaitClarification(
+    fence: WorkoutRunFence,
+    at: string,
+    clarification: WorkoutClarificationDescriptor | readonly string[],
+  ): Promise<ClarificationMutationResult>;
   answerClarification(runId: WorkoutRunId, coachId: string, memberId: string, revision: WorkoutRunInputRevision): Promise<ClarificationMutationResult>;
   createRetry(failedRunId: WorkoutRunId, coachId: string, memberId: string, retry: WorkoutRun): Promise<RetryWorkoutRunResult>;
   fail(fence: WorkoutRunFence, failure: WorkoutRunFailure): Promise<FencedMutationResult>;

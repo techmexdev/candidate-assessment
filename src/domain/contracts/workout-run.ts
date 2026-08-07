@@ -21,6 +21,32 @@ export type WorkoutInputRevision = {
   readonly createdAt: string;
 };
 
+export type WorkoutClarificationFieldKey =
+  | "conditionStatus"
+  | "recoveryStage"
+  | "severityBand"
+  | "affectedLaterality";
+
+export type WorkoutClarificationAllowedValue = {
+  readonly value: string;
+  readonly label: string;
+};
+
+/** Safe, browser-visible clarification metadata. Evidence identity is represented only by an opaque reference. */
+export type WorkoutClarificationField = {
+  readonly id: string;
+  /** Server-owned semantic key used to serialize the answer; it is not an evidence identifier. */
+  readonly key: WorkoutClarificationFieldKey;
+  readonly label: string;
+  readonly allowedValues: readonly WorkoutClarificationAllowedValue[];
+  readonly evidenceReference: string;
+};
+
+export type WorkoutClarificationDescriptor = {
+  readonly schemaVersion: "workout-clarification/v1";
+  readonly fields: readonly WorkoutClarificationField[];
+};
+
 export type WorkoutRunClaim = {
   readonly generation: number;
   readonly workerId: string;
@@ -107,6 +133,8 @@ export type WorkoutRun = {
   readonly state: WorkoutRunState;
   readonly inputRevisions: readonly WorkoutInputRevision[];
   readonly activeInputRevisionId: WorkoutInputRevisionId;
+  /** Present only while the run awaits a typed, server-owned safety answer. */
+  readonly clarification?: Readonly<WorkoutClarificationDescriptor>;
   readonly claim?: Readonly<WorkoutRunClaim>;
   readonly constraintSnapshot?: Readonly<ResolvedConstraintSnapshot>;
   readonly failure?: Readonly<WorkoutRunFailure>;

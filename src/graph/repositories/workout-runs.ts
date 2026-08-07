@@ -20,6 +20,7 @@ import type {
 } from "../../application/ports/workout-run-repository";
 import type {
   CompletedWorkoutRun,
+  WorkoutClarificationDescriptor,
   ResolvedConstraintSnapshot,
   WorkoutRun,
   WorkoutRunFailure,
@@ -89,6 +90,26 @@ function sameFence(run: WorkoutRun, fence: WorkoutRunFence): boolean {
 
 function selectedExerciseIds(workout: ImmutableWorkoutVersion): readonly string[] {
   return workout.workout.sections.flatMap((section) => section.items.map((item) => item.exerciseConceptId));
+}
+
+export function validClarificationDescriptor(value: WorkoutClarificationDescriptor): boolean {
+  if (value.schemaVersion !== "workout-clarification/v1"
+    || value.fields.length < 1
+    || value.fields.length > WORKOUT_RUN_LIMITS.maximumClarificationCandidates) return false;
+  const ids = new Set<string>();
+  return value.fields.every((field) => {
+    if (!field.id.trim() || ids.has(field.id) || field.id.length > 120
+      || !field.label.trim() || field.label.length > 200
+      || !field.evidenceReference.trim() || field.evidenceReference.length > 200
+      || field.allowedValues.length < 1 || field.allowedValues.length > 32) return false;
+    ids.add(field.id);
+    const values = new Set<string>();
+    return field.allowedValues.every((option) => {
+      if (!option.value.trim() || option.value.length > 100 || !option.label.trim() || option.label.length > 200 || values.has(option.value)) return false;
+      values.add(option.value);
+      return true;
+    });
+  });
 }
 
 export function validateCompletionBindings(run: WorkoutRun, input: CompleteWorkoutRunInput, artifacts: Readonly<CompletionArtifactStore>): boolean {
@@ -356,13 +377,21 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     return { status: "updated", run: this.publicRun(store) };
   }
 
-  async awaitClarification(fence: WorkoutRunFence, at: string, candidateConceptIds: readonly string[]): Promise<ClarificationMutationResult> {
+  async awaitClarification(fence: WorkoutRunFence, at: string, clarification: WorkoutClarificationDescriptor | readonly string[]): Promise<ClarificationMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
     if (!this.hasActiveFence(store.run, fence)) return { status: "stale-fence" };
-    if (candidateConceptIds.length === 0 || candidateConceptIds.length > WORKOUT_RUN_LIMITS.maximumClarificationCandidates) return { status: "invalid-state" };
-    store.run = frozenClone({ ...store.run, state: "awaiting-clarification", claim: undefined }) as WorkoutRun;
-    this.event(store, { kind: "awaiting-clarification", occurredAt: at, safeData: { candidateCount: candidateConceptIds.length } });
+    const descriptor = Array.isArray(clarification) ? undefined : clarification as WorkoutClarificationDescriptor;
+    const candidateCount = descriptor ? descriptor.fields.length : (clarification as readonly string[]).length;
+    if (candidateCount === 0 || candidateCount > WORKOUT_RUN_LIMITS.maximumClarificationCandidates
+      || (descriptor && !validClarificationDescriptor(descriptor))) return { status: "invalid-state" };
+    store.run = frozenClone({
+      ...store.run,
+      state: "awaiting-clarification",
+      claim: undefined,
+      ...(descriptor ? { clarification: descriptor } : { clarification: undefined }),
+    }) as WorkoutRun;
+    this.event(store, { kind: "awaiting-clarification", occurredAt: at, safeData: { candidateCount } });
     return { status: "updated", run: this.publicRun(store) };
   }
 
@@ -378,6 +407,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       state: "queued",
       inputRevisions: [...store.run.inputRevisions, revision],
       activeInputRevisionId: revision.inputRevisionId,
+      clarification: undefined,
       constraintSnapshot: undefined,
       claim: undefined,
       failure: undefined,

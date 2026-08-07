@@ -16,7 +16,8 @@ export function createWorkoutClarificationHandler(dependencies: {
     readonly coachId: string;
     readonly memberId: string;
     readonly sessionAuthorizationId: string;
-    readonly answer: string;
+    readonly answers?: Readonly<Record<string, unknown>>;
+    readonly answer?: string;
   }) => Promise<AnswerWorkoutClarificationResult>;
 }) {
   return async (request: Request, context: WorkoutRouteContext): Promise<Response> => {
@@ -27,13 +28,21 @@ export function createWorkoutClarificationHandler(dependencies: {
       : jsonResponse({ status: "not-found" }, 404);
     const body = await readJsonObject(request);
     const { runId } = await context.params;
-    if (!body || typeof body.memberId !== "string" || typeof body.answer !== "string" || !runId) return jsonResponse({ status: "invalid-request" }, 400);
+    const typedAnswers = body && typeof body.answers === "object" && body.answers !== null && !Array.isArray(body.answers)
+      ? body.answers as Record<string, unknown>
+      : undefined;
+    const hasValidTypedAnswers = typedAnswers !== undefined
+      && Object.keys(typedAnswers).length > 0
+      && Object.keys(typedAnswers).length <= 16
+      && Object.values(typedAnswers).every((value) => typeof value === "string" && value.trim().length > 0 && value.length <= 100);
+    const hasLegacyAnswer = typeof body?.answer === "string" && body.answer.trim().length > 0 && body.answer.length <= 1_000;
+    if (!body || typeof body.memberId !== "string" || (!hasValidTypedAnswers && !hasLegacyAnswer) || !runId) return jsonResponse({ status: "invalid-request" }, 400);
     const result = await dependencies.answer({
       runId: asWorkoutRunId(runId),
       coachId: session.coachId,
       memberId: body.memberId,
       sessionAuthorizationId: session.authorizationId,
-      answer: body.answer,
+      ...(hasValidTypedAnswers ? { answers: typedAnswers } : { answer: body.answer as string }),
     });
     if (result.status === "requeued") return jsonResponse(result, 202);
     if (result.status === "invalid-request") return jsonResponse(result, 400);

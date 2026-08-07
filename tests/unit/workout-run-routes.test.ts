@@ -153,7 +153,7 @@ describe("workout run route adapters", () => {
     const retryHandler = createWorkoutRetryHandler({ resolveSession: async () => session, retry });
 
     const clarification = await clarificationHandler(request("/api/workout-runs/workout-run:one/clarification", {
-      method: "POST", body: JSON.stringify({ memberId: "member:one", answer: "Use the patellofemoral restriction" }),
+      method: "POST", body: JSON.stringify({ memberId: "member:one", answers: { "injury-1-recovery-stage": "return-to-training" } }),
     }), context);
     const retried = await retryHandler(request("/api/workout-runs/workout-run:one/retry", {
       method: "POST", body: JSON.stringify({ memberId: "member:one", idempotencyKey: "retry-1" }),
@@ -164,5 +164,11 @@ describe("workout run route adapters", () => {
     expect(await retried.json()).toMatchObject({ resourceUrl: "/api/workout-runs/workout-run%3Aretry?memberId=member%3Aone" });
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ coachId: "coach:server", sessionAuthorizationId: "session:opaque" }));
     expect(retry).toHaveBeenCalledWith(expect.objectContaining({ coachId: "coach:server", sessionAuthorizationId: "session:opaque" }));
+
+    const invalid = await clarificationHandler(request("/api/workout-runs/workout-run:one/clarification", {
+      method: "POST", body: JSON.stringify({ memberId: "member:one", answers: { "injury-1-recovery-stage": 42 } }),
+    }), context);
+    expect(invalid.status).toBe(400);
+    expect(answer).toHaveBeenCalledTimes(1);
   });
 });

@@ -233,7 +233,8 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       AND datetime(run.claimExpiresAt) > datetime()
     SET run.state = 'awaiting-clarification', run.claimWorkerId = null,
       run.claimedAt = null, run.heartbeatAt = null, run.claimExpiresAt = null,
-      run.clarificationCandidateIds = $candidateConceptIds
+      run.clarificationCandidateIds = $candidateConceptIds,
+      run.clarificationDescriptor = $clarificationDescriptor
     RETURN run
   `,
   answerClarification: `
@@ -252,6 +253,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     CREATE (run)-[:HAS_INPUT_REVISION]->(input)
     SET run.state = 'queued', run.activeInputRevisionId = $inputRevisionId,
       run.clarificationCandidateIds = null, run.failure = null,
+      run.clarificationDescriptor = null,
       run.constraintSnapshot = null, run.revisionSeals = null,
       run.safetyEnvelope = null, run.modelProposal = null,
       run.validationReceipt = null

@@ -1,4 +1,5 @@
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
+import type { WorkoutClarificationDescriptor } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutRunEvent, WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
@@ -13,6 +14,7 @@ export type WorkoutRunResource = {
   readonly requestedDurationMinutes: number;
   readonly movementGraphRevisionId: string;
   readonly memberContextRevisionId: string;
+  readonly clarification?: WorkoutClarificationDescriptor;
   readonly startedAt?: string;
   readonly endedAt?: string;
   readonly failure?: { readonly kind: string; readonly stage: string };
@@ -65,6 +67,7 @@ export function createRetrieveWorkoutRun(dependencies: {
         requestedDurationMinutes: run.requestedDurationMinutes,
         movementGraphRevisionId: run.movementGraphRevisionId,
         memberContextRevisionId: run.memberContextRevisionId,
+        ...(run.clarification ? { clarification: run.clarification } : {}),
         ...(run.startedAt ? { startedAt: run.startedAt } : {}),
         ...(run.endedAt ? { endedAt: run.endedAt } : {}),
         ...(run.failure ? { failure: { kind: run.failure.kind, stage: run.failure.stage } } : {}),
