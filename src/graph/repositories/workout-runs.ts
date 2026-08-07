@@ -10,6 +10,7 @@ import type {
   ReserveWorkoutRunCreationResult,
   RetryWorkoutRunResult,
   WorkoutCompletionArtifact,
+  WorkoutCompletionProjection,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
@@ -453,6 +454,14 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async getProvenance(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutProvenanceBundle | undefined> {
     const store = this.find(runId);
     return store && sameAuthorization(store.run, coachId, memberId) && store.provenance ? frozenClone(store.provenance) as WorkoutProvenanceBundle : undefined;
+  }
+  async getCompletionProjection(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutCompletionProjection | undefined> {
+    const store = this.find(runId);
+    const { revisionSeals, safetyEnvelope, modelProposal } = store?.completionArtifacts ?? {};
+    return store && sameAuthorization(store.run, coachId, memberId) && store.run.state === "completed"
+      && revisionSeals && safetyEnvelope && modelProposal && store.validationReceipt
+      ? frozenClone({ revisionSeals, safetyEnvelope, modelProposal, validationReceipt: store.validationReceipt }) as WorkoutCompletionProjection
+      : undefined;
   }
 
   private cursor(payload: CursorPayload): string {

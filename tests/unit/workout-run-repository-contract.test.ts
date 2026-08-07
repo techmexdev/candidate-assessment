@@ -259,8 +259,14 @@ describe("in-memory workout run repository contract", () => {
     await repository.saveConstraintSnapshot(claim.fence, constraintSnapshot);
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toEqual({ status: "invalid-receipt" });
     await saveCompletionArtifacts(repository, claim.fence);
+    const completed = completion(claim.fence.generation);
+    await expect(repository.complete(completed)).resolves.toMatchObject({ status: "completed" });
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
-    await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
+    await expect(repository.getCompletionProjection(RUN_ID, "coach:one", "member:one")).resolves.toEqual({
+      ...completionArtifacts,
+      validationReceipt: completed.validationReceipt,
+    });
+    await expect(repository.getCompletionProjection(RUN_ID, "coach:one", "member:foreign")).resolves.toBeUndefined();
     const events = await repository.readEvents(RUN_ID, "coach:one", "member:one", { limit: 20 });
     expect(events.status === "ready" ? events.events.filter(({ event }) => event.kind === "completed") : []).toHaveLength(1);
   });

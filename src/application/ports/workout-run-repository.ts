@@ -57,6 +57,14 @@ export type WorkoutCompletionArtifact =
   | { readonly kind: "safety-envelope"; readonly payload: Readonly<CatalogSafetyReadyResult> }
   | { readonly kind: "model-proposal"; readonly payload: Readonly<WorkoutCompositionProposal> };
 
+/** Authorized, immutable material needed to re-verify a completed run on read. */
+export type WorkoutCompletionProjection = {
+  readonly revisionSeals: Readonly<WorkoutRevisionSealArtifact>;
+  readonly safetyEnvelope: Readonly<CatalogSafetyReadyResult>;
+  readonly modelProposal: Readonly<WorkoutCompositionProposal>;
+  readonly validationReceipt: Readonly<WorkoutValidationReceipt>;
+};
+
 export type WorkoutRunEventKind =
   | "queued"
   | "claimed"
@@ -130,5 +138,6 @@ export interface WorkoutRunRepository {
   getRun(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutRun | undefined>;
   getWorkout(runId: WorkoutRunId, coachId: string, memberId: string): Promise<ImmutableWorkoutVersion | undefined>;
   getProvenance(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutProvenanceBundle | undefined>;
+  getCompletionProjection(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutCompletionProjection | undefined>;
   readEvents(runId: WorkoutRunId, coachId: string, memberId: string, options: { readonly cursor?: string; readonly limit: number }): Promise<WorkoutRunEventReadResult>;
 }

@@ -5,6 +5,7 @@ import { createRetrieveMemberContext } from "../application/use-cases/retrieve-m
 import { createReplayWorkoutRunEvents, createRetrieveWorkoutRun } from "../application/use-cases/retrieve-workout-run";
 import { createRetryWorkoutRun } from "../application/use-cases/retry-workout-run";
 import { createSubmitWorkoutRun } from "../application/use-cases/submit-workout-run";
+import { createVerifyHistoricalWorkoutTrace } from "../application/use-cases/verify-historical-workout-trace";
 import type { WorkerAuthorizationPort } from "../application/ports/worker-authorization";
 import { createNeo4jClient } from "../graph/neo4j/client";
 import { createNeo4jMemberContextReadProvider } from "../graph/repositories/neo4j-member-context";
@@ -14,6 +15,11 @@ import type { Neo4jClient } from "../graph/neo4j/client";
 import type { MemberContextReadProvider } from "../domain/contracts/member-context-queries";
 import type { MovementGraphReadProvider } from "../domain/contracts/movement-clinical-queries";
 import type { WorkoutRunRepository } from "../application/ports/workout-run-repository";
+import { MEMBER_CONTEXT_CYPHER } from "../graph/cypher/member-context";
+import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
+import { MEMBER_CONTEXT_QUERY_MAXIMA } from "../graph/repositories/member-context";
+import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../graph/schema/movement-schema";
+import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-run";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -216,7 +222,7 @@ export function createConfiguredWorkoutServerInfrastructure(
 }
 
 export function createConfiguredWorkoutRouteComposition(): WorkoutRouteComposition {
-  const { environment, secret, repository, authorization, movement, memberContext } = createConfiguredWorkoutServerInfrastructure(process.env);
+  const { environment, secret, client, repository, authorization, movement, memberContext } = createConfiguredWorkoutServerInfrastructure(process.env);
   const retrieveMemberContext = createRetrieveMemberContext({
     memberContext,
     authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
@@ -233,6 +239,76 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
     protectedPromptSnapshotId: `protected-prompt:${createHmac("sha256", secret)
       .update(JSON.stringify([input.coachId, input.memberId, input.runId, input.provisioningKey ?? "clarification", input.prompt]))
       .digest("base64url")}`,
+  });
+  const verifyHistoricalTrace = createVerifyHistoricalWorkoutTrace({
+    async readCanonicalTraceEvidence(input) {
+      const uniqueAssertions = [...new Set(input.assertionIds)].sort();
+      const uniqueEvidence = [...new Set(input.evidenceIds)].sort();
+      const chunks = <Value>(values: readonly Value[], size: number): readonly (readonly Value[])[] => {
+        const pages: Value[][] = [];
+        for (let index = 0; index < values.length; index += size) pages.push(values.slice(index, index + size));
+        return pages;
+      };
+      try {
+        const [movementRevision, memberRevision, revisionSeals] = await Promise.all([
+          movement.openRevision(input.movementGraphRevisionId),
+          retrieveMemberContext({
+            coachId: input.coachId,
+            memberId: input.memberId,
+            authorizationId: input.sessionAuthorizationId,
+            contextRevisionId: input.memberContextRevisionId,
+          }),
+          client.executeRead(async (transaction): Promise<WorkoutRevisionSealArtifact | undefined> => {
+            const movementSeal = (await transaction.run(MOVEMENT_CYPHER.readSealedRevision, {
+              revisionId: input.movementGraphRevisionId,
+            })).records[0];
+            const memberSeal = (await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
+              memberId: input.memberId,
+              contextRevisionId: input.memberContextRevisionId,
+            })).records[0];
+            const movementGraphSealId = movementSeal?.get("sealId");
+            const movementGraphSealDigest = movementSeal?.get("canonicalDigest");
+            const memberContextSealId = memberSeal?.get("sealId");
+            const memberContextSealDigest = memberSeal?.get("canonicalDigest");
+            if (![movementGraphSealId, movementGraphSealDigest, memberContextSealId, memberContextSealDigest]
+              .every((value) => typeof value === "string" && value.length > 0)) return undefined;
+            return {
+              schemaVersion: "workout-revision-seals/v1",
+              movementGraphRevisionId: input.movementGraphRevisionId,
+              movementGraphSealId: movementGraphSealId as string,
+              movementGraphSealDigest: movementGraphSealDigest as string,
+              memberContextRevisionId: input.memberContextRevisionId,
+              memberContextSealId: memberContextSealId as string,
+              memberContextSealDigest: memberContextSealDigest as string,
+            };
+          }),
+        ]);
+        if (movementRevision.status !== "ready" || memberRevision.status !== "ready" || !revisionSeals) return { status: "unavailable" };
+
+        const memberCitations: { evidenceId: string; assertionId: string }[] = [];
+        for (const page of chunks(uniqueEvidence, MEMBER_CONTEXT_QUERY_MAXIMA.evidenceIds)) {
+          const citations = await memberRevision.handle.getCitations({
+            evidenceIds: page,
+            limit: page.length,
+            timeoutMs: MEMBER_CONTEXT_QUERY_MAXIMA.timeoutMs,
+          });
+          if (citations.status !== "ready" || citations.data.length !== page.length) return { status: "unavailable" };
+          memberCitations.push(...citations.data.map(({ evidenceId, assertionId }) => ({ evidenceId, assertionId })));
+        }
+
+        const memberAssertionIds = new Set(memberCitations.map((citation) => citation.assertionId));
+        const requestedMovementAssertions = uniqueAssertions.filter((assertionId) => !memberAssertionIds.has(assertionId));
+        const movementAssertionIds: string[] = [];
+        for (const page of chunks(requestedMovementAssertions, MOVEMENT_GRAPH_QUERY_LIMITS.maxResults)) {
+          const assertions = await movementRevision.handle.getAssertions({ assertionIds: page, maxResults: page.length });
+          if (assertions.status !== "ok" || assertions.data.length !== page.length) return { status: "unavailable" };
+          movementAssertionIds.push(...assertions.data.map((assertion) => assertion.assertionId));
+        }
+        return { status: "ready", revisionSeals, movementAssertionIds, memberCitations };
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
   });
 
   return Object.freeze({
@@ -263,7 +339,7 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
       modelConfigurationId,
       policyRevision,
     }),
-    retrieve: createRetrieveWorkoutRun({ repository, authorization }),
+    retrieve: createRetrieveWorkoutRun({ repository, authorization, verifyHistoricalTrace }),
     cancel: createCancelWorkoutRun({ repository, authorization, now }),
     replay: createReplayWorkoutRunEvents({ repository, authorization }),
     answer: createAnswerWorkoutClarification({ repository, authorization, protectPrompt, createId, now }),

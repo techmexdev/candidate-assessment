@@ -11,6 +11,7 @@ import type {
   ReserveWorkoutRunCreationResult,
   RetryWorkoutRunResult,
   WorkoutCompletionArtifact,
+  WorkoutCompletionProjection,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
@@ -458,6 +459,20 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
       const result = await transaction.run(WORKOUT_RUN_CYPHER.readProvenance, { runId, coachId, memberId });
       const provenance = parse<WorkoutProvenanceBundle>(result.records[0]?.get("payload"));
       return provenance && validateWorkoutProvenance(provenance).status === "valid" ? frozen(provenance) as WorkoutProvenanceBundle : undefined;
+    });
+  }
+
+  async getCompletionProjection(runId: WorkoutRunId, coachId: string, memberId: string): Promise<WorkoutCompletionProjection | undefined> {
+    return this.client.executeRead(async (transaction) => {
+      const result = await transaction.run(WORKOUT_RUN_CYPHER.readAuthorizedCompletionProjection, { runId, coachId, memberId });
+      const record = result.records[0];
+      const revisionSeals = parse<WorkoutCompletionProjection["revisionSeals"]>(record?.get("revisionSeals"));
+      const safetyEnvelope = parse<WorkoutCompletionProjection["safetyEnvelope"]>(record?.get("safetyEnvelope"));
+      const modelProposal = parse<WorkoutCompletionProjection["modelProposal"]>(record?.get("modelProposal"));
+      const validationReceipt = parse<WorkoutCompletionProjection["validationReceipt"]>(record?.get("validationReceipt"));
+      return revisionSeals && safetyEnvelope && modelProposal && validationReceipt
+        ? frozen({ revisionSeals, safetyEnvelope, modelProposal, validationReceipt }) as WorkoutCompletionProjection
+        : undefined;
     });
   }
 

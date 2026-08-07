@@ -152,6 +152,13 @@ describe("Neo4j workout run repository", () => {
     const restarted = new Neo4jWorkoutRunRepository(client, { cursorSecret: "integration-cursor-secret" });
     await expect(restarted.getWorkout(RUN_ID, "coach:neo4j", "member:neo4j")).resolves.toMatchObject({ workoutVersionId: "workout-version:neo4j" });
     await expect(restarted.getProvenance(RUN_ID, "coach:neo4j", "member:neo4j")).resolves.toEqual(provenance);
+    await expect(restarted.getCompletionProjection(RUN_ID, "coach:neo4j", "member:neo4j")).resolves.toEqual({
+      revisionSeals,
+      safetyEnvelope: source.catalogSafety,
+      modelProposal: source.proposal,
+      validationReceipt: completion.validationReceipt,
+    });
+    await expect(restarted.getCompletionProjection(RUN_ID, "coach:neo4j", "member:foreign")).resolves.toBeUndefined();
     const events = await restarted.readEvents(RUN_ID, "coach:neo4j", "member:neo4j", { limit: 20 });
     expect(events.status === "ready" ? events.events.filter(({ event }) => event.kind === "completed") : []).toHaveLength(1);
   });

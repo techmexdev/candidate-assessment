@@ -189,6 +189,14 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       run.modelProposal AS modelProposal
     LIMIT 1
   `,
+  readAuthorizedCompletionProjection: `
+    MATCH (run:WorkoutRun {runId: $runId, coachId: $coachId, memberId: $memberId, state: 'completed'})
+    RETURN run.revisionSeals AS revisionSeals,
+      run.safetyEnvelope AS safetyEnvelope,
+      run.modelProposal AS modelProposal,
+      run.validationReceipt AS validationReceipt
+    LIMIT 1
+  `,
   allocateEvent: `
     MATCH (run:WorkoutRun {runId: $runId})
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1

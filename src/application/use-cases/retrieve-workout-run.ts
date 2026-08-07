@@ -5,6 +5,7 @@ import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 import { validateWorkoutProvenance } from "../../domain/contracts/workout-provenance";
 import { canonicalWorkoutProvenanceDigest, WORKOUT_RUN_LIMITS } from "../../graph/schema/workout-run-schema";
 import { authorizeWorkoutRunAccess, type WorkoutRunAccessInput } from "./authorize-workout-run-access";
+import type { HistoricalWorkoutTraceInput } from "./verify-historical-workout-trace";
 
 export type WorkoutRunResource = {
   readonly runId: WorkoutRunId;
@@ -26,22 +27,20 @@ export type RetrieveWorkoutRunResult =
 export function createRetrieveWorkoutRun(dependencies: {
   readonly repository: WorkoutRunRepository;
   readonly authorization: WorkerAuthorizationPort;
-  readonly verifyHistoricalTrace?: (input: {
-    readonly workout: ImmutableWorkoutVersion;
-    readonly provenance: WorkoutProvenanceBundle;
-  }) => boolean | Promise<boolean>;
+  readonly verifyHistoricalTrace?: (input: HistoricalWorkoutTraceInput) => boolean | Promise<boolean>;
 }) {
   return async (input: WorkoutRunAccessInput): Promise<RetrieveWorkoutRunResult> => {
     const run = await authorizeWorkoutRunAccess(dependencies, input, "read");
     if (!run) return { status: "not-found" };
-    const [workout, provenance] = run.state === "completed"
+    const [workout, provenance, completion] = run.state === "completed"
       ? await Promise.all([
         dependencies.repository.getWorkout(run.runId, run.coachId, run.memberId),
         dependencies.repository.getProvenance(run.runId, run.coachId, run.memberId),
+        dependencies.repository.getCompletionProjection(run.runId, run.coachId, run.memberId),
       ])
-      : [undefined, undefined];
+      : [undefined, undefined, undefined];
     if (run.state === "completed") {
-      const valid = workout && provenance
+      const valid = workout && provenance && completion && dependencies.verifyHistoricalTrace
         && workout.workout.runId === run.runId
         && workout.workout.movementGraphRevisionId === run.movementGraphRevisionId
         && workout.workout.memberContextRevisionId === run.memberContextRevisionId
@@ -49,7 +48,13 @@ export function createRetrieveWorkoutRun(dependencies: {
         && provenance.memberContextRevisionId === run.memberContextRevisionId
         && validateWorkoutProvenance(provenance).status === "valid"
         && canonicalWorkoutProvenanceDigest(provenance) === provenance.digest
-        && (dependencies.verifyHistoricalTrace ? await dependencies.verifyHistoricalTrace({ workout, provenance }) : true);
+        && await dependencies.verifyHistoricalTrace({
+          run,
+          workout,
+          provenance,
+          completion,
+          sessionAuthorizationId: input.sessionAuthorizationId,
+        });
       if (!valid) return { status: "integrity-failure" };
     }
     return {
