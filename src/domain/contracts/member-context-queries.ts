@@ -2,6 +2,7 @@ import type {
   AssertionClassification,
   AssertionSource,
   AssertionTemporal,
+  DomainConceptReference,
   MemberContextAuthority,
   MemberContextRevisionScopedNode,
 } from "./member-context";
@@ -61,6 +62,8 @@ export type ConversationQuery = BoundedMemberContextQuery & {
 export type CoachBriefQuery = BoundedMemberContextQuery & {
   readonly generatedFor?: string;
 };
+
+export type WorkoutConstraintsQuery = BoundedMemberContextQuery;
 
 export type RelatedEvidenceQuery = BoundedMemberContextQuery & {
   readonly evidenceId: string;
@@ -167,6 +170,47 @@ export type CoachBriefProjection = {
   readonly assessmentEvidenceId: string | null;
 };
 
+type WorkoutConstraintProjectionBase<K extends "equipment-availability" | "injury-episode" | "preference"> = {
+  readonly evidenceId: string;
+  readonly semanticId: string;
+  readonly assertionId: string;
+  readonly kind: K;
+  readonly source: AssertionSource;
+  readonly classification: AssertionClassification;
+  readonly temporal: AssertionTemporal;
+};
+
+export type WorkoutEquipmentConstraintProjection = WorkoutConstraintProjectionBase<"equipment-availability"> & {
+  readonly originalLabel: string;
+  readonly available: boolean;
+  readonly domainReference: DomainConceptReference;
+};
+
+export type WorkoutInjuryConstraintProjection = WorkoutConstraintProjectionBase<"injury-episode"> & {
+  readonly region: string;
+  readonly joint: string;
+  readonly status: string;
+  readonly severity: string;
+  readonly since: string;
+  readonly notes: string;
+  readonly domainReferences: readonly DomainConceptReference[];
+};
+
+export type WorkoutPreferenceConstraintProjection = WorkoutConstraintProjectionBase<"preference"> & {
+  readonly preferredSessionMinutes: number;
+  readonly trainingDaysPerWeek: number;
+  readonly preferredDays: readonly string[];
+  readonly dislikes: readonly string[];
+  readonly notes: string;
+  readonly domainReferences: readonly DomainConceptReference[];
+};
+
+export type WorkoutConstraintsProjection = {
+  readonly equipment: readonly WorkoutEquipmentConstraintProjection[];
+  readonly injuries: readonly WorkoutInjuryConstraintProjection[];
+  readonly preferences: readonly WorkoutPreferenceConstraintProjection[];
+};
+
 export type CitationProjection = {
   readonly evidenceId: string;
   readonly semanticId: string;
@@ -192,6 +236,9 @@ export type MemberContextReadHandle = {
     query: ConversationQuery,
   ) => Promise<MemberContextQueryResult<ConversationProjection>>;
   readonly getCoachBrief: (query: CoachBriefQuery) => Promise<MemberContextQueryResult<CoachBriefProjection>>;
+  readonly getWorkoutConstraints: (
+    query: WorkoutConstraintsQuery,
+  ) => Promise<MemberContextQueryResult<WorkoutConstraintsProjection>>;
   readonly getRelatedEvidence: (
     query: RelatedEvidenceQuery,
   ) => Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>>;

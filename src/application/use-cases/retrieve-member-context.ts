@@ -40,6 +40,17 @@ function deniedQueryResult<T>(handle: MemberContextReadHandle): MemberContextQue
   };
 }
 
+function unavailableQueryResult<T>(handle: MemberContextReadHandle): MemberContextQueryResult<T> {
+  return {
+    status: "unavailable",
+    memberId: handle.memberId,
+    contextRevisionId: handle.contextRevisionId,
+    authority: handle.authority,
+    evidenceIds: [],
+    message: genericUnavailableMessage,
+  };
+}
+
 function wrapWithFreshAuthorization(
   handle: MemberContextReadHandle,
   dependencies: RetrieveMemberContextDependencies,
@@ -47,9 +58,14 @@ function wrapWithFreshAuthorization(
 ): MemberContextReadHandle {
   const invoke = async <T>(
     operation: () => Promise<MemberContextQueryResult<T>>,
-  ): Promise<MemberContextQueryResult<T>> => (
-    await isAuthorized(dependencies, claims) ? operation() : deniedQueryResult(handle)
-  );
+  ): Promise<MemberContextQueryResult<T>> => {
+    if (!await isAuthorized(dependencies, claims)) return deniedQueryResult(handle);
+    try {
+      return await operation();
+    } catch {
+      return unavailableQueryResult(handle);
+    }
+  };
 
   return Object.freeze({
     memberId: handle.memberId,
@@ -61,6 +77,7 @@ function wrapWithFreshAuthorization(
     getLongitudinalSeries: (query) => invoke(() => handle.getLongitudinalSeries(query)),
     getConversation: (query) => invoke(() => handle.getConversation(query)),
     getCoachBrief: (query) => invoke(() => handle.getCoachBrief(query)),
+    getWorkoutConstraints: (query) => invoke(() => handle.getWorkoutConstraints(query)),
     getRelatedEvidence: (query) => invoke(() => handle.getRelatedEvidence(query)),
     getCitations: (query) => invoke(() => handle.getCitations(query)),
   });

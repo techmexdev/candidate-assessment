@@ -22,6 +22,7 @@ describe("member context authorization lifetime", () => {
       getLongitudinalSeries: vi.fn(async () => emptyResult()),
       getConversation: vi.fn(async () => emptyResult()),
       getCoachBrief: vi.fn(async () => emptyResult()),
+      getWorkoutConstraints: vi.fn(async () => emptyResult()),
       getRelatedEvidence: vi.fn(async () => emptyResult()),
       getCitations: vi.fn(async () => emptyResult()),
     };
@@ -51,6 +52,21 @@ describe("member context authorization lifetime", () => {
       .resolves.toMatchObject({ status: "empty", contextRevisionId: "revision-1" });
     expect(operations.getSummary).toHaveBeenCalledOnce();
 
+    const sensitiveBackendValue = "recovering left knee; dislikes burpees";
+    operations.getWorkoutConstraints.mockRejectedValueOnce(new Error(sensitiveBackendValue));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(opened.handle.getWorkoutConstraints({ limit: 10, timeoutMs: 100 })).resolves.toEqual({
+      status: "unavailable",
+      memberId: "member-1",
+      contextRevisionId: "revision-1",
+      authority: "canonical",
+      evidenceIds: [],
+      message: "Member context is unavailable.",
+    });
+    expect(errorLog).not.toHaveBeenCalled();
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(sensitiveBackendValue);
+    errorLog.mockRestore();
+
     grantActive = false;
     const window = { fromInclusive: "2026-01-01", toExclusive: "2026-02-01" };
     const deniedOperations = [
@@ -59,6 +75,7 @@ describe("member context authorization lifetime", () => {
       opened.handle.getLongitudinalSeries({ metric: "hrv", window, minimumPoints: 1, limit: 1, timeoutMs: 100 }),
       opened.handle.getConversation({ window, limit: 1, timeoutMs: 100 }),
       opened.handle.getCoachBrief({ limit: 1, timeoutMs: 100 }),
+      opened.handle.getWorkoutConstraints({ limit: 10, timeoutMs: 100 }),
       opened.handle.getRelatedEvidence({ evidenceId: "assertion:0000000000000000", maxDepth: 1, limit: 1, timeoutMs: 100 }),
       opened.handle.getCitations({ evidenceIds: ["assertion:0000000000000000"], limit: 1, timeoutMs: 100 }),
     ];
@@ -73,12 +90,13 @@ describe("member context authorization lifetime", () => {
         message: "Member context is unavailable.",
       });
     }
-    expect(authorizeMemberContext).toHaveBeenCalledTimes(9);
+    expect(authorizeMemberContext).toHaveBeenCalledTimes(11);
     expect(operations.getSummary).toHaveBeenCalledOnce();
     expect(operations.getEvidence).not.toHaveBeenCalled();
     expect(operations.getLongitudinalSeries).not.toHaveBeenCalled();
     expect(operations.getConversation).not.toHaveBeenCalled();
     expect(operations.getCoachBrief).not.toHaveBeenCalled();
+    expect(operations.getWorkoutConstraints).toHaveBeenCalledOnce();
     expect(operations.getRelatedEvidence).not.toHaveBeenCalled();
     expect(operations.getCitations).not.toHaveBeenCalled();
   });

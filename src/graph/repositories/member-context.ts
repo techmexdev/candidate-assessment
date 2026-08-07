@@ -26,6 +26,11 @@ import type {
   ObservationEvidenceProjection,
   RelatedEvidenceQuery,
   SummaryQuery,
+  WorkoutConstraintsProjection,
+  WorkoutConstraintsQuery,
+  WorkoutEquipmentConstraintProjection,
+  WorkoutInjuryConstraintProjection,
+  WorkoutPreferenceConstraintProjection,
 } from "../../domain/contracts/member-context-queries";
 import type {
   MemberContextAuthority,
@@ -513,6 +518,70 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
       taskEvidenceIds: tasks.map((node) => node.assertionId),
       assessmentEvidenceId: includedAssessment?.assertionId ?? null,
     }, evidenceIds);
+  }
+
+  async getWorkoutConstraints(
+    query: WorkoutConstraintsQuery,
+  ): Promise<MemberContextQueryResult<WorkoutConstraintsProjection>> {
+    const bounds = this.validateBounds<WorkoutConstraintsProjection>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (query.cursor !== undefined) {
+      return this.invalid("invalid-cursor", "Workout constraint queries do not use cursors.");
+    }
+
+    const equipment = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "equipment-availability" }> => (
+        node.kind === "equipment-availability"
+      ))
+      .sort((left, right) => compareCodePoints(left.originalLabel, right.originalLabel)
+        || compareCodePoints(left.assertionId, right.assertionId))
+      .map((node): WorkoutEquipmentConstraintProjection => ({
+        ...evidenceProjectionBase(node),
+        kind: node.kind,
+        originalLabel: node.originalLabel,
+        available: node.available,
+        domainReference: node.domainReference,
+      }));
+    const injuries = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "injury-episode" }> => (
+        node.kind === "injury-episode"
+      ))
+      .sort(compareEvidence)
+      .map((node): WorkoutInjuryConstraintProjection => ({
+        ...evidenceProjectionBase(node),
+        kind: node.kind,
+        region: node.region,
+        joint: node.joint,
+        status: node.status,
+        severity: node.severity,
+        since: node.since,
+        notes: node.notes,
+        domainReferences: node.domainReferences,
+      }));
+    const preferences = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "preference" }> => (
+        node.kind === "preference"
+      ))
+      .sort(compareEvidence)
+      .map((node): WorkoutPreferenceConstraintProjection => ({
+        ...evidenceProjectionBase(node),
+        kind: node.kind,
+        preferredSessionMinutes: node.preferredSessionMinutes,
+        trainingDaysPerWeek: node.trainingDaysPerWeek,
+        preferredDays: node.preferredDays,
+        dislikes: node.dislikes,
+        notes: node.notes,
+        domainReferences: node.domainReferences,
+      }));
+    const evidenceIds = [
+      ...equipment.map((fact) => fact.assertionId),
+      ...injuries.map((fact) => fact.assertionId),
+      ...preferences.map((fact) => fact.assertionId),
+    ];
+    if (evidenceIds.length > bounds.limit) {
+      return this.invalid("invalid-bound", "Workout constraints exceed the requested complete-result bound.");
+    }
+    return this.ready({ equipment, injuries, preferences }, evidenceIds);
   }
 
   async getRelatedEvidence(query: RelatedEvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {

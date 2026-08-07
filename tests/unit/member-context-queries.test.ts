@@ -35,9 +35,9 @@ async function publish(
   return snapshot;
 }
 
-async function setup() {
+async function setup(snapshot = compileMemberContextGraph(jordan)) {
   const publisher = new InMemoryMemberContextPublisher();
-  const snapshot = await publish(publisher);
+  await publish(publisher, snapshot);
   const provider = new InMemoryMemberContextReadProvider(publisher, { authority: "canonical" });
   const retrieve = createRetrieveMemberContext({
     memberContext: provider,
@@ -56,6 +56,82 @@ async function setup() {
 }
 
 describe("member context bounded query provider", () => {
+  it("returns complete workout constraint source truth at one pinned revision", async () => {
+    const { handle, snapshot } = await setup();
+    const result = await handle.getWorkoutConstraints({ limit: 10, timeoutMs: 100 });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      memberId: jordan.profile.id,
+      contextRevisionId: snapshot.contextRevisionId,
+      authority: "canonical",
+      data: {
+        equipment: [
+          { originalLabel: "Dumbbell", available: true, domainReference: { state: "reviewed", stableConceptId: "equipment:dumbbell" } },
+          { originalLabel: "Flat Bench", available: true, domainReference: { state: "reviewed", stableConceptId: "equipment:flat-bench" } },
+          { originalLabel: "Kettlebell", available: true, domainReference: { state: "reviewed", stableConceptId: "equipment:kettlebell" } },
+          { originalLabel: "Resistance Band - Loop", available: true, domainReference: { state: "reviewed", stableConceptId: "equipment:resistance-band-loop" } },
+          { originalLabel: "Yoga Mat", available: true, domainReference: { state: "reviewed", stableConceptId: "equipment:yoga-mat" } },
+        ],
+        injuries: [expect.objectContaining({
+          region: "left knee",
+          joint: "knee",
+          status: "recovering",
+          severity: "mild",
+          domainReferences: expect.arrayContaining([
+            expect.objectContaining({ state: "reviewed", stableConceptId: "joint:knee" }),
+            expect.objectContaining({ state: "reviewed", stableConceptId: "condition:patellofemoral-pain-syndrome" }),
+          ]),
+        })],
+        preferences: [expect.objectContaining({
+          dislikes: ["Deadlift", "Burpees"],
+          domainReferences: [
+            { state: "unresolved", originalText: "Deadlift", reason: "not-reviewed" },
+            { state: "unresolved", originalText: "Burpees", reason: "not-reviewed" },
+          ],
+        })],
+      },
+    });
+    if (result.status !== "ready") throw new Error(result.status);
+    expect(result.evidenceIds).toEqual([
+      ...result.data.equipment.map((fact) => fact.assertionId),
+      ...result.data.injuries.map((fact) => fact.assertionId),
+      ...result.data.preferences.map((fact) => fact.assertionId),
+    ]);
+    expect(result.data.equipment.every((fact) => fact.source.artifactDigest === snapshot.sourceArtifactDigest)).toBe(true);
+  });
+
+  it("fails closed on incomplete bounds without returning raw workout constraint values", async () => {
+    const { handle } = await setup();
+    const result = await handle.getWorkoutConstraints({ limit: 1, timeoutMs: 100 });
+
+    expect(result).toMatchObject({ status: "invalid", code: "invalid-bound", evidenceIds: [] });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(jordan.injuries[0]!.notes);
+    expect(serialized).not.toContain(jordan.preferences.notes);
+    expect(serialized).not.toContain(jordan.preferences.dislikes[0]!);
+  });
+
+  it("preserves unresolved equipment and raw injury applicability without manufacturing authority", async () => {
+    const snapshot = compileMemberContextGraph(buildMemberContextFixture((document) => {
+      document.equipment_available.push("Mystery Rig");
+    }));
+    const { handle } = await setup(snapshot);
+    const result = await handle.getWorkoutConstraints({ limit: 20, timeoutMs: 100 });
+
+    if (result.status !== "ready") throw new Error(result.status);
+    expect(result.data.equipment).toContainEqual(expect.objectContaining({
+      originalLabel: "Mystery Rig",
+      available: true,
+      domainReference: { state: "unresolved", originalText: "Mystery Rig", reason: "not-reviewed" },
+    }));
+    const unresolved = result.data.equipment.find((fact) => fact.originalLabel === "Mystery Rig")?.domainReference;
+    expect(unresolved).not.toHaveProperty("stableConceptId");
+    expect(result.data.injuries[0]).toMatchObject({ status: "recovering", severity: "mild" });
+    expect(result.data.injuries[0]).not.toHaveProperty("clinicalEffect");
+    expect(result.data.injuries[0]).not.toHaveProperty("applicableRuleId");
+  });
+
   it("retrieves summary and domain evidence at one pinned revision", async () => {
     const { handle, snapshot } = await setup();
     const summary = await handle.getSummary({ limit: 10, timeoutMs: 100 });

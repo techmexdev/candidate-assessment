@@ -221,6 +221,7 @@ describe.sequential("Neo4j member context persistence", () => {
       (handle: typeof neoOpened.handle) => handle.getLongitudinalSeries({ metric: "weekly-workout-completion", window: { fromInclusive: "2026-05-01", toExclusive: "2026-07-01" }, minimumPoints: 4, limit: 10, timeoutMs: 1_000 }),
       (handle: typeof neoOpened.handle) => handle.getConversation({ window: { fromInclusive: "2026-05-01", toExclusive: "2026-07-01" }, limit: 10, timeoutMs: 1_000 }),
       (handle: typeof neoOpened.handle) => handle.getCoachBrief({ generatedFor: "2026-06-04", limit: 10, timeoutMs: 1_000 }),
+      (handle: typeof neoOpened.handle) => handle.getWorkoutConstraints({ limit: 10, timeoutMs: 1_000 }),
       (handle: typeof neoOpened.handle) => handle.getRelatedEvidence({ evidenceId: assessment.assertionId, maxDepth: 2, limit: 10, timeoutMs: 1_000 }),
       (handle: typeof neoOpened.handle) => handle.getCitations({ evidenceIds: [observation.assertionId], limit: 10, timeoutMs: 1_000 }),
     ];

@@ -209,6 +209,14 @@ describe("Member Context graph contract", () => {
         evidenceIds: [],
         message: "No brief for the requested date",
       }),
+      getWorkoutConstraints: async () => ({
+        status: "ready",
+        memberId: "member:jordan",
+        contextRevisionId: "member-context:sha256:abc",
+        authority: "canonical",
+        evidenceIds: [],
+        data: { equipment: [], injuries: [], preferences: [] },
+      }),
       getRelatedEvidence: async () => ({
         status: "empty",
         memberId: "member:jordan",
@@ -238,6 +246,9 @@ describe("Member Context graph contract", () => {
     expectTypeOf<Parameters<MemberContextReadHandle["getEvidence"]>[0]>().not.toHaveProperty("relationshipType");
     expectTypeOf<Parameters<MemberContextReadHandle["getEvidence"]>[0]>().not.toHaveProperty("coachId");
     expectTypeOf<Parameters<MemberContextReadHandle["getEvidence"]>[0]>().not.toHaveProperty("memberId");
+    expectTypeOf<Parameters<MemberContextReadHandle["getWorkoutConstraints"]>[0]>().not.toHaveProperty("coachId");
+    expectTypeOf<Parameters<MemberContextReadHandle["getWorkoutConstraints"]>[0]>().not.toHaveProperty("memberId");
+    expectTypeOf<Parameters<MemberContextReadHandle["getWorkoutConstraints"]>[0]>().not.toHaveProperty("cypher");
   });
 
   it("keeps all read result states distinct", () => {
