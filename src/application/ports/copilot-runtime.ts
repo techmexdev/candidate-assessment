@@ -9,7 +9,8 @@ import type { MemberContextReadHandle } from "../../domain/contracts/member-cont
 export type CopilotRuntimeRequest = {
   readonly requestId: string;
   readonly requestedFor: string;
-  readonly evidenceAsOf: string;
+  /** Optional trusted anchor; ordinary requests derive it from authoritative retrieved evidence. */
+  readonly evidenceAsOf?: string;
   readonly input: CopilotQuestionInput;
   readonly memberContext: MemberContextReadHandle;
   readonly continuation?: Readonly<CopilotContinuationClaims>;
