@@ -3,6 +3,9 @@ import neo4j from "neo4j-driver";
 import { inspectAuthorizedMemberContextScope } from "../../application/use-cases/retrieve-member-context";
 import type {
   AuthorizedMemberContextScope,
+  BoundedMemberContextQuery,
+  MemberContextQueryResult,
+  MemberContextReadHandle,
   MemberContextReadOpenResult,
   MemberContextReadProvider,
 } from "../../domain/contracts/member-context-queries";
@@ -142,16 +145,74 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
       }
       return {
         status: "ready",
-        handle: createMemberContextReadHandle(
-          opened.snapshot,
-          claims.coachId,
-          "canonical",
-          this.cursorSecret,
-        ),
+        handle: this.createTimedReadHandle(opened.snapshot, opened.seal, claims.coachId),
       };
     } catch {
       return { status: "unavailable", message: genericMessage };
     }
+  }
+
+  private createTimedReadHandle(
+    openedSnapshot: MemberContextGraphSnapshot,
+    seal: SealMetadata,
+    coachId: string,
+  ): MemberContextReadHandle {
+    const base = {
+      memberId: openedSnapshot.memberId,
+      coachId,
+      contextRevisionId: openedSnapshot.contextRevisionId,
+      authority: "canonical" as const,
+    };
+    const unavailable = <T>(): MemberContextQueryResult<T> => ({
+      status: "unavailable",
+      ...base,
+      evidenceIds: [],
+      message: genericMessage,
+    });
+    const invoke = async <T>(
+      query: BoundedMemberContextQuery,
+      operation: (handle: MemberContextReadHandle) => Promise<MemberContextQueryResult<T>>,
+    ): Promise<MemberContextQueryResult<T>> => {
+      try {
+        const preflight = await operation(createMemberContextReadHandle(
+          openedSnapshot,
+          coachId,
+          "canonical",
+          this.cursorSecret,
+        ));
+        if (preflight.status === "invalid") return preflight;
+        const snapshot = await this.client.executeRead(
+          (transaction) => readCanonicalMemberContextSnapshot(
+            transaction,
+            openedSnapshot.memberId,
+            openedSnapshot.contextRevisionId,
+          ),
+          { timeoutMs: query.timeoutMs },
+        );
+        if (!snapshot
+          || snapshot.nodes.length !== seal.nodeCount
+          || snapshot.relationships.length !== seal.relationshipCount
+          || canonicalMemberContextDigest(snapshot) !== seal.canonicalDigest
+          || !validateMemberContextGraph(snapshot).valid) {
+          return unavailable();
+        }
+        return operation(createMemberContextReadHandle(snapshot, coachId, "canonical", this.cursorSecret));
+      } catch {
+        return unavailable();
+      }
+    };
+    return Object.freeze({
+      ...base,
+      getSummary: (query) => invoke(query, (handle) => handle.getSummary(query)),
+      getEvidence: (query) => invoke(query, (handle) => handle.getEvidence(query)),
+      getLongitudinalSeries: (query) => invoke(query, (handle) => handle.getLongitudinalSeries(query)),
+      getRelativeOrderSequence: (query) => invoke(query, (handle) => handle.getRelativeOrderSequence!(query)),
+      getConversation: (query) => invoke(query, (handle) => handle.getConversation(query)),
+      getCoachBrief: (query) => invoke(query, (handle) => handle.getCoachBrief(query)),
+      getWorkoutConstraints: (query) => invoke(query, (handle) => handle.getWorkoutConstraints(query)),
+      getRelatedEvidence: (query) => invoke(query, (handle) => handle.getRelatedEvidence(query)),
+      getCitations: (query) => invoke(query, (handle) => handle.getCitations(query)),
+    });
   }
 }
 

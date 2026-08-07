@@ -3,6 +3,7 @@ import type {
   MemberContextQueryResult,
   MemberContextReadHandle,
   MemberContextReadOpenResult,
+  RelativeOrderSequenceQuery,
 } from "../../domain/contracts/member-context-queries";
 import type {
   MemberContextAccessClaims,
@@ -65,6 +66,9 @@ function wrapWithFreshAuthorization(
     getSummary: (query) => invoke(() => handle.getSummary(query)),
     getEvidence: (query) => invoke(() => handle.getEvidence(query)),
     getLongitudinalSeries: (query) => invoke(() => handle.getLongitudinalSeries(query)),
+    ...(handle.getRelativeOrderSequence
+      ? { getRelativeOrderSequence: (query: RelativeOrderSequenceQuery) => invoke(() => handle.getRelativeOrderSequence!(query)) }
+      : {}),
     getConversation: (query) => invoke(() => handle.getConversation(query)),
     getCoachBrief: (query) => invoke(() => handle.getCoachBrief(query)),
     getWorkoutConstraints: (query) => invoke(() => handle.getWorkoutConstraints(query)),

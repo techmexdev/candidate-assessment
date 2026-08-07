@@ -31,8 +31,10 @@ const requestFor = (snapshot: MemberContextGraphSnapshot) => ({
 
 function countReadTransactions(delegate: Neo4jClient) {
   let reads = 0;
+  const timeoutOptions: (number | undefined)[] = [];
   const executeRead: Neo4jClient["executeRead"] = async (work, options) => {
     reads += 1;
+    timeoutOptions.push(options?.timeoutMs);
     return delegate.executeRead(work, options);
   };
   return {
@@ -43,6 +45,7 @@ function countReadTransactions(delegate: Neo4jClient) {
       close: delegate.close,
     } satisfies Neo4jClient,
     reads: () => reads,
+    timeoutOptions: () => [...timeoutOptions],
   };
 }
 
@@ -243,7 +246,7 @@ describe.sequential("Neo4j member context persistence", () => {
       .not.toEqual(firstPage.data.map((fact) => fact.evidenceId));
   });
 
-  it("validates query bounds and serves the pinned snapshot without another database read", async () => {
+  it("validates bounds before access and passes the query deadline into each pinned canonical read", async () => {
     const snapshot = compileMemberContextGraph(jordan);
     const publisher = await seal(client, snapshot);
     await publisher.activate({
@@ -261,7 +264,8 @@ describe.sequential("Neo4j member context persistence", () => {
       .resolves.toMatchObject({ status: "invalid", code: "invalid-bound" });
     await expect(opened.handle.getSummary({ limit: 10, timeoutMs: 1_000 }))
       .resolves.toMatchObject({ status: "ready" });
-    expect(counted.reads()).toBe(readsAfterOpen);
+    expect(counted.reads()).toBe(readsAfterOpen + 1);
+    expect(counted.timeoutOptions().at(-1)).toBe(1_000);
   });
 
   it("anchors every open to opaque trusted scope and never falls back to fixture data", async () => {

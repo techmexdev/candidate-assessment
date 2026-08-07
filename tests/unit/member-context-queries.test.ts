@@ -280,6 +280,34 @@ describe("member context bounded query provider", () => {
     expect(weight.evidenceIds).toHaveLength(3);
   });
 
+  it("retrieves relative-order sleep as an explicit bounded sequence without invented dates", async () => {
+    const { handle } = await setup();
+    if (!handle.getRelativeOrderSequence) throw new Error("relative sequence operation is unavailable");
+    const sleep = await handle.getRelativeOrderSequence({
+      metric: "sleep-hours",
+      minimumPoints: 7,
+      limit: 7,
+      timeoutMs: 100,
+    });
+    expect(sleep).toMatchObject({ status: "ready", data: [
+      { value: 6.1, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 0 } },
+      { value: 5.4, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 1 } },
+      { value: 7.2, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 2 } },
+      { value: 6.0, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 3 } },
+      { value: 5.1, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 4 } },
+      { value: 7.8, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 5 } },
+      { value: 6.3, unit: "hour", temporal: { precision: "relative-order", sourceOrder: 6 } },
+    ] });
+    if (sleep.status !== "ready") throw new Error(sleep.status);
+    expect(sleep.data.every((point) => point.temporal.precision === "relative-order")).toBe(true);
+    await expect(handle.getRelativeOrderSequence({
+      metric: "sleep-hours",
+      minimumPoints: 8,
+      limit: 7,
+      timeoutMs: 100,
+    })).resolves.toMatchObject({ status: "invalid", code: "invalid-bound" });
+  });
+
   it("keeps undated and relative observations explicit and exposes atomic lab citations", async () => {
     const { handle } = await setup();
     const biomarkers = await handle.getEvidence({ domains: ["biomarkers"], limit: 20, timeoutMs: 100 });

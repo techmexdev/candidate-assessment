@@ -32,6 +32,7 @@ import type {
   GoalEvidenceProjection,
   PreferenceEvidenceProjection,
   RelatedEvidenceQuery,
+  RelativeOrderSequenceQuery,
   SummaryQuery,
   WorkoutConstraintsProjection,
   WorkoutConstraintsQuery,
@@ -551,6 +552,37 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
     if (page.status !== "ready") return page;
     const data = page.data.map((node): LongitudinalPointProjection => projectEvidence(node));
     return this.ready(data, data.map((fact) => fact.evidenceId), page.nextCursor);
+  }
+
+  async getRelativeOrderSequence(query: RelativeOrderSequenceQuery): Promise<MemberContextQueryResult<readonly LongitudinalPointProjection[]>> {
+    const bounds = this.validateBounds<readonly LongitudinalPointProjection[]>(query);
+    if (!("limit" in bounds)) return bounds;
+    if (query.cursor !== undefined) return this.invalid("invalid-cursor", "Relative-order sequences do not use cursors.");
+    if (typeof query.metric !== "string" || !query.metric.trim()
+      || !Number.isInteger(query.minimumPoints) || query.minimumPoints < 1 || query.minimumPoints > bounds.limit) {
+      return this.invalid("invalid-bound", "Metric and minimum point bounds are invalid.");
+    }
+    const nodes = this.revisionNodes
+      .filter((node): node is Extract<MemberContextRevisionScopedNode, { kind: "observation" }> => (
+        node.kind === "observation"
+        && node.metric === query.metric
+        && node.temporal.precision === "relative-order"
+      ))
+      .sort((left, right) => left.temporal.precision === "relative-order"
+        && right.temporal.precision === "relative-order"
+        ? left.temporal.sourceOrder - right.temporal.sourceOrder || compareEvidence(left, right)
+        : compareEvidence(left, right))
+      .slice(0, bounds.limit);
+    if (nodes.length < query.minimumPoints) {
+      return {
+        status: "insufficient-history",
+        ...this.base(nodes.map((node) => node.assertionId)),
+        requiredPoints: query.minimumPoints,
+        availablePoints: nodes.length,
+      };
+    }
+    const data = nodes.map((node): LongitudinalPointProjection => projectEvidence(node));
+    return this.ready(data, data.map((point) => point.evidenceId));
   }
 
   async getConversation(query: ConversationQuery): Promise<MemberContextQueryResult<ConversationProjection>> {

@@ -54,6 +54,11 @@ export type LongitudinalSeriesQuery = BoundedMemberContextQuery & {
   readonly minimumPoints: number;
 };
 
+export type RelativeOrderSequenceQuery = BoundedMemberContextQuery & {
+  readonly metric: string;
+  readonly minimumPoints: number;
+};
+
 export type ConversationQuery = BoundedMemberContextQuery & {
   readonly conversationId?: string;
   readonly window: MemberContextTimeWindow;
@@ -302,6 +307,9 @@ export type MemberContextReadHandle = {
   ) => Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>>;
   readonly getLongitudinalSeries: (
     query: LongitudinalSeriesQuery,
+  ) => Promise<MemberContextQueryResult<readonly LongitudinalPointProjection[]>>;
+  readonly getRelativeOrderSequence?: (
+    query: RelativeOrderSequenceQuery,
   ) => Promise<MemberContextQueryResult<readonly LongitudinalPointProjection[]>>;
   readonly getConversation: (
     query: ConversationQuery,
