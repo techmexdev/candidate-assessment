@@ -1,5 +1,6 @@
 import { asWorkoutRunId } from "../../../../../domain/contracts/workout";
 import type { RetryWorkoutRunResult } from "../../../../../application/use-cases/retry-workout-run";
+import { configuredWorkoutRouteComposition } from "../../../../../server/workout-route-composition";
 import {
   isSameOriginMutation,
   jsonResponse,
@@ -44,6 +45,6 @@ export function createWorkoutRetryHandler(dependencies: {
 }
 
 export const POST = createWorkoutRetryHandler({
-  resolveSession: async () => ({ status: "unavailable" }),
-  retry: async () => ({ status: "not-found" }),
+  resolveSession: configuredWorkoutRouteComposition.resolveSession,
+  retry: configuredWorkoutRouteComposition.retry,
 });

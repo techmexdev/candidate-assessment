@@ -1,5 +1,6 @@
 import { asWorkoutRunId } from "../../../../../domain/contracts/workout";
 import type { AnswerWorkoutClarificationResult } from "../../../../../application/use-cases/answer-workout-clarification";
+import { configuredWorkoutRouteComposition } from "../../../../../server/workout-route-composition";
 import {
   isSameOriginMutation,
   jsonResponse,
@@ -43,6 +44,6 @@ export function createWorkoutClarificationHandler(dependencies: {
 }
 
 export const POST = createWorkoutClarificationHandler({
-  resolveSession: async () => ({ status: "unavailable" }),
-  answer: async () => ({ status: "not-found" }),
+  resolveSession: configuredWorkoutRouteComposition.resolveSession,
+  answer: configuredWorkoutRouteComposition.answer,
 });

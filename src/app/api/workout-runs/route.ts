@@ -1,4 +1,5 @@
 import type { SubmitWorkoutRunInput, SubmitWorkoutRunResult } from "../../../application/use-cases/submit-workout-run";
+import { configuredWorkoutRouteComposition } from "../../../server/workout-route-composition";
 
 export type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -70,6 +71,6 @@ export function createWorkoutRunPostHandler(dependencies: {
 }
 
 export const POST = createWorkoutRunPostHandler({
-  resolveSession: async () => ({ status: "unavailable" }),
-  submit: async () => ({ status: "canonical-state-unavailable" }),
+  resolveSession: configuredWorkoutRouteComposition.resolveSession,
+  submit: configuredWorkoutRouteComposition.submit,
 });

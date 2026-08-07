@@ -1,6 +1,7 @@
 import { asWorkoutRunId } from "../../../../domain/contracts/workout";
 import type { CancelWorkoutRunResult } from "../../../../application/use-cases/cancel-workout-run";
 import type { RetrieveWorkoutRunResult } from "../../../../application/use-cases/retrieve-workout-run";
+import { configuredWorkoutRouteComposition } from "../../../../server/workout-route-composition";
 import {
   isSameOriginMutation,
   jsonResponse,
@@ -43,10 +44,10 @@ export function createWorkoutRunResourceHandlers(dependencies: {
   };
 }
 
-const unavailable = createWorkoutRunResourceHandlers({
-  resolveSession: async () => ({ status: "unavailable" }),
-  retrieve: async () => ({ status: "not-found" }),
-  cancel: async () => ({ status: "not-found" }),
+const configured = createWorkoutRunResourceHandlers({
+  resolveSession: configuredWorkoutRouteComposition.resolveSession,
+  retrieve: configuredWorkoutRouteComposition.retrieve,
+  cancel: configuredWorkoutRouteComposition.cancel,
 });
-export const GET = unavailable.GET;
-export const DELETE = unavailable.DELETE;
+export const GET = configured.GET;
+export const DELETE = configured.DELETE;

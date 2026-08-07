@@ -1,5 +1,6 @@
 import { asWorkoutRunId } from "../../../../../domain/contracts/workout";
 import type { ReplayWorkoutRunEventsResult } from "../../../../../application/use-cases/retrieve-workout-run";
+import { configuredWorkoutRouteComposition } from "../../../../../server/workout-route-composition";
 import { jsonResponse, noStoreHeaders, type ResolveWorkoutRouteSession, type WorkoutRouteContext } from "../../route";
 
 export function createWorkoutRunEventsHandler(dependencies: {
@@ -50,6 +51,6 @@ export function createWorkoutRunEventsHandler(dependencies: {
 }
 
 export const GET = createWorkoutRunEventsHandler({
-  resolveSession: async () => ({ status: "unavailable" }),
-  replay: async () => ({ status: "not-found" }),
+  resolveSession: configuredWorkoutRouteComposition.resolveSession,
+  replay: configuredWorkoutRouteComposition.replay,
 });
