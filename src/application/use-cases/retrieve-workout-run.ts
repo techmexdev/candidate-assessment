@@ -133,18 +133,16 @@ export function createReplayWorkoutRunEvents(dependencies: {
     if (!run) return { status: "not-found" };
     const limit = input.limit ?? WORKOUT_RUN_LIMITS.maximumEventPageSize;
     if (!Number.isInteger(limit) || limit < 1 || limit > WORKOUT_RUN_LIMITS.maximumEventPageSize) return { status: "not-found" };
-    const events: { event: WorkoutRunEvent; cursor: string }[] = [];
-    let cursor = input.cursor;
-    let highWaterSequence = 0;
-    for (let index = 0; index < limit; index += 1) {
-      const page = await dependencies.repository.readEvents(run.runId, run.coachId, run.memberId, { ...(cursor ? { cursor } : {}), limit: 1 });
-      if (page.status !== "ready") return page;
-      highWaterSequence = page.highWaterSequence;
-      cursor = page.nextCursor;
-      const event = page.events[0];
-      if (!event) break;
-      events.push({ event: projectEvent(event), cursor });
-    }
-    return { status: "ready", events, nextCursor: cursor ?? "", highWaterSequence };
+    const page = await dependencies.repository.readEvents(run.runId, run.coachId, run.memberId, {
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+      limit,
+    });
+    if (page.status !== "ready") return page;
+    return {
+      status: "ready",
+      events: page.events.map(({ event, cursor }) => ({ event: projectEvent(event), cursor })),
+      nextCursor: page.nextCursor,
+      highWaterSequence: page.highWaterSequence,
+    };
   };
 }

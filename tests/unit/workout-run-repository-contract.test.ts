@@ -262,7 +262,7 @@ describe("in-memory workout run repository contract", () => {
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
     const events = await repository.readEvents(RUN_ID, "coach:one", "member:one", { limit: 20 });
-    expect(events.status === "ready" ? events.events.filter((event) => event.kind === "completed") : []).toHaveLength(1);
+    expect(events.status === "ready" ? events.events.filter(({ event }) => event.kind === "completed") : []).toHaveLength(1);
   });
 
   it("rejects invalid provenance atomically and supports clarification plus linked retry", async () => {

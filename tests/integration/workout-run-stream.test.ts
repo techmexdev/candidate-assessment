@@ -129,7 +129,7 @@ describe("workout run submission, worker, and replay integration", () => {
     expect(dependencies.authorization.authorize).toHaveBeenCalledWith(expect.objectContaining({ stage: "claim", authorizationReferenceId: `grant-ref:${created.runId}` }));
     expect(executeClaimed).toHaveBeenCalledWith(expect.objectContaining({ claimed: expect.objectContaining({ fence: expect.objectContaining({ generation: 1 }) }) }));
     const events = await dependencies.repository.readEvents(created.runId, "coach:one", "member:one", { limit: 100 });
-    expect(events.status === "ready" ? events.events.map((event) => event.kind) : []).toContain("heartbeat");
+    expect(events.status === "ready" ? events.events.map(({ event }) => event.kind) : []).toContain("heartbeat");
   });
 
   it("replays only missing events and returns resync_required for a pruned cursor", async () => {
@@ -156,6 +156,53 @@ describe("workout run submission, worker, and replay integration", () => {
     vi.mocked(dependencies.authorization.authorize).mockResolvedValueOnce({ status: "denied" });
     await expect(replay({ runId: created.runId, coachId: "coach:one", memberId: "member:one", cursor: "still.forged", limit: 10 }))
       .resolves.toEqual({ status: "not-found" });
+  });
+
+  it("reads a maximum-size replay page with one repository call", async () => {
+    const dependencies = createHarness(200);
+    const created = await submitOne(dependencies);
+    if (!("runId" in created)) throw new Error("run missing");
+    const claim = await dependencies.repository.claim(created.runId, "worker:one", NOW, "2026-08-07T10:01:00.000Z");
+    if (claim.status !== "claimed") throw new Error("claim missing");
+    for (let index = 0; index < 98; index += 1) {
+      await dependencies.repository.appendEvent(claim.fence, {
+        kind: "stage",
+        occurredAt: NOW,
+        safeData: { stage: `stage-${index}` },
+      });
+    }
+    const readEvents = vi.spyOn(dependencies.repository, "readEvents");
+    const replay = createReplayWorkoutRunEvents({ repository: dependencies.repository, authorization: dependencies.authorization });
+
+    const result = await replay({
+      runId: created.runId,
+      coachId: "coach:one",
+      memberId: "member:one",
+      limit: 100,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("replay page missing");
+    expect(result.events).toHaveLength(100);
+    expect(result.events.map(({ event }) => event.sequence)).toEqual(Array.from({ length: 100 }, (_, index) => index + 1));
+    expect(new Set(result.events.map(({ cursor }) => cursor)).size).toBe(100);
+    expect(result.nextCursor).toBe(result.events[99]?.cursor);
+    expect(result.highWaterSequence).toBe(100);
+    expect(readEvents).toHaveBeenCalledTimes(1);
+    expect(readEvents).toHaveBeenCalledWith(created.runId, "coach:one", "member:one", { limit: 100 });
+
+    const resumeCursor = result.events[49]?.cursor;
+    if (!resumeCursor) throw new Error("mid-page cursor missing");
+    const resumed = await replay({
+      runId: created.runId,
+      coachId: "coach:one",
+      memberId: "member:one",
+      cursor: resumeCursor,
+      limit: 100,
+    });
+    expect(resumed.status === "ready" ? resumed.events.map(({ event }) => event.sequence) : []).toEqual(
+      Array.from({ length: 50 }, (_, index) => index + 51),
+    );
   });
 
   it("appends clarification immutably and creates a distinct linked retry", async () => {

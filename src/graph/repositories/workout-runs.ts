@@ -489,8 +489,14 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       const minimum = store.events[0]?.sequence ?? store.nextEventSequence;
       if (nextSequence < minimum) return { status: "resync_required", snapshotUrl: `/api/workout-runs/${runId}` };
     }
-    const events = store.events.filter((event) => event.sequence >= nextSequence).slice(0, options.limit).map((event) => frozenClone(event) as WorkoutRunEvent);
-    const after = events.at(-1)?.sequence !== undefined ? events.at(-1)!.sequence + 1 : nextSequence;
+    const events = store.events
+      .filter((event) => event.sequence >= nextSequence)
+      .slice(0, options.limit)
+      .map((event) => ({
+        event: frozenClone(event) as WorkoutRunEvent,
+        cursor: this.cursor({ schemaVersion: WORKOUT_RUN_CURSOR_SCHEMA_VERSION, runId, nextSequence: event.sequence + 1 }),
+      }));
+    const after = events.at(-1)?.event.sequence !== undefined ? events.at(-1)!.event.sequence + 1 : nextSequence;
     return { status: "ready", events, nextCursor: this.cursor({ schemaVersion: WORKOUT_RUN_CURSOR_SCHEMA_VERSION, runId, nextSequence: after }), highWaterSequence };
   }
 }

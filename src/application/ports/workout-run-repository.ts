@@ -80,10 +80,16 @@ export type WorkoutRunEvent = {
 
 export type AppendWorkoutRunEvent = Pick<WorkoutRunEvent, "kind" | "occurredAt" | "safeData">;
 
+export type WorkoutRunEventPageEntry = {
+  readonly event: WorkoutRunEvent;
+  /** Cursor that resumes immediately after this event. */
+  readonly cursor: string;
+};
+
 export type WorkoutRunEventReadResult =
   | {
       readonly status: "ready";
-      readonly events: readonly WorkoutRunEvent[];
+      readonly events: readonly WorkoutRunEventPageEntry[];
       readonly nextCursor: string;
       readonly highWaterSequence: number;
     }

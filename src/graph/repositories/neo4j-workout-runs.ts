@@ -494,7 +494,7 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
         if (minimumSequence && nextSequence < minimumSequence) return { status: "resync_required", snapshotUrl: `/api/workout-runs/${runId}` };
       }
       const result = await transaction.run(WORKOUT_RUN_CYPHER.readEvents, { runId, coachId, memberId, nextSequence, limit: neo4j.int(options.limit) });
-      const events = result.records.flatMap((record): WorkoutRunEvent[] => {
+      const rawEvents = result.records.flatMap((record): WorkoutRunEvent[] => {
         const event = node(record, "event")?.properties;
         if (!event) return [];
         return [{
@@ -507,8 +507,12 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
           safeData: parse<WorkoutRunEvent["safeData"]>(event.safeData) ?? {},
         }];
       });
-      const after = events.at(-1)?.sequence !== undefined ? events.at(-1)!.sequence + 1 : nextSequence;
-      return { status: "ready", events: frozen(events) as readonly WorkoutRunEvent[], nextCursor: this.cursor({ schemaVersion: WORKOUT_RUN_CURSOR_SCHEMA_VERSION, runId, nextSequence: after }), highWaterSequence };
+      const events = rawEvents.map((event) => ({
+        event,
+        cursor: this.cursor({ schemaVersion: WORKOUT_RUN_CURSOR_SCHEMA_VERSION, runId, nextSequence: event.sequence + 1 }),
+      }));
+      const after = rawEvents.at(-1)?.sequence !== undefined ? rawEvents.at(-1)!.sequence + 1 : nextSequence;
+      return { status: "ready", events: frozen(events), nextCursor: this.cursor({ schemaVersion: WORKOUT_RUN_CURSOR_SCHEMA_VERSION, runId, nextSequence: after }), highWaterSequence };
     });
   }
 }
