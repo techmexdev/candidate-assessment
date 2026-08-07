@@ -5,8 +5,12 @@ import type {
   BoundedMemberContextQuery,
   CitationLookupQuery,
   CitationProjection,
+  ChurnAssessmentEvidenceProjection,
+  ChurnReasonEvidenceProjection,
   CoachBriefProjection,
+  CoachBriefEvidenceProjection,
   CoachBriefQuery,
+  CoachTaskEvidenceProjection,
   ConversationProjection,
   ConversationQuery,
   EvidenceQuery,
@@ -20,10 +24,13 @@ import type {
   MemberContextReadProvider,
   MemberContextTimeWindow,
   MemberEvidenceProjection,
+  MemberProfileEvidenceProjection,
   MediaAttachmentEvidenceProjection,
   MemberSummaryProjection,
   MessageProjection,
   ObservationEvidenceProjection,
+  GoalEvidenceProjection,
+  PreferenceEvidenceProjection,
   RelatedEvidenceQuery,
   SummaryQuery,
   WorkoutConstraintsProjection,
@@ -31,6 +38,7 @@ import type {
   WorkoutEquipmentConstraintProjection,
   WorkoutInjuryConstraintProjection,
   WorkoutPreferenceConstraintProjection,
+  WorkoutSessionEvidenceProjection,
 } from "../../domain/contracts/member-context-queries";
 import type {
   MemberContextAuthority,
@@ -116,6 +124,30 @@ function projectEvidence(
 function projectEvidence(
   node: Extract<MemberContextRevisionScopedNode, { kind: "message" }>,
 ): Extract<MemberEvidenceProjection, { kind: "message" }>;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "member-profile" }>,
+): MemberProfileEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "goal" }>,
+): GoalEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "preference" }>,
+): PreferenceEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "workout-session" }>,
+): WorkoutSessionEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "coach-brief" }>,
+): CoachBriefEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "coach-task" }>,
+): CoachTaskEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "churn-assessment" }>,
+): ChurnAssessmentEvidenceProjection;
+function projectEvidence(
+  node: Extract<MemberContextRevisionScopedNode, { kind: "churn-reason" }>,
+): ChurnReasonEvidenceProjection;
 function projectEvidence(node: MemberContextRevisionScopedNode): MemberEvidenceProjection;
 function projectEvidence(node: MemberContextRevisionScopedNode): MemberEvidenceProjection {
   const base = evidenceProjectionBase(node);
@@ -134,6 +166,71 @@ function projectEvidence(node: MemberContextRevisionScopedNode): MemberEvidenceP
       sourceOrder: node.sourceOrder,
       assetStatus: node.assetStatus,
       analysisStatus: node.analysisStatus,
+    };
+  }
+  if (node.kind === "member-profile") {
+    return { ...base, kind: node.kind, timezone: node.timezone };
+  }
+  if (node.kind === "goal") {
+    return {
+      ...base,
+      kind: node.kind,
+      text: node.text,
+      priority: node.priority,
+      targetDate: node.targetDate,
+      domainReference: node.domainReference,
+    };
+  }
+  if (node.kind === "preference") {
+    return {
+      ...base,
+      kind: node.kind,
+      preferredSessionMinutes: node.preferredSessionMinutes,
+      trainingDaysPerWeek: node.trainingDaysPerWeek,
+      preferredDays: node.preferredDays,
+      dislikes: node.dislikes,
+      notes: node.notes,
+      domainReferences: node.domainReferences,
+    };
+  }
+  if (node.kind === "workout-session") {
+    return {
+      ...base,
+      kind: node.kind,
+      title: node.title,
+      planned: node.planned,
+      completed: node.completed,
+      durationMinutes: node.durationMinutes,
+      rpe: node.rpe,
+    };
+  }
+  if (node.kind === "coach-brief") {
+    return { ...base, kind: node.kind, generatedFor: node.generatedFor };
+  }
+  if (node.kind === "coach-task") {
+    return {
+      ...base,
+      kind: node.kind,
+      taskType: node.taskType,
+      text: node.text,
+      sourceOrder: node.sourceOrder,
+    };
+  }
+  if (node.kind === "churn-assessment") {
+    return {
+      ...base,
+      kind: node.kind,
+      level: node.level,
+      ...(node.methodRevision ? { methodRevision: node.methodRevision } : {}),
+    };
+  }
+  if (node.kind === "churn-reason") {
+    return {
+      ...base,
+      kind: node.kind,
+      text: node.text,
+      sourceOrder: node.sourceOrder,
+      basisStatus: node.basisStatus,
     };
   }
   return base as MemberEvidenceProjection;
@@ -517,6 +614,11 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
       briefEvidenceId: brief.assertionId,
       taskEvidenceIds: tasks.map((node) => node.assertionId),
       assessmentEvidenceId: includedAssessment?.assertionId ?? null,
+      brief: projectEvidence(brief),
+      tasks: tasks.map((task) => projectEvidence(task)),
+      assessment: includedAssessment?.kind === "churn-assessment"
+        ? projectEvidence(includedAssessment)
+        : null,
     }, evidenceIds);
   }
 

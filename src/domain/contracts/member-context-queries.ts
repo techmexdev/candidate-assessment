@@ -139,7 +139,67 @@ export type MediaAttachmentEvidenceProjection = MemberEvidenceProjectionBase<"me
   readonly analysisStatus: "not-analyzed";
 };
 
-type SpecializedEvidenceKind = "observation" | "lab-panel" | "media-attachment";
+export type MemberProfileEvidenceProjection = MemberEvidenceProjectionBase<"member-profile"> & {
+  readonly timezone: string;
+};
+
+export type GoalEvidenceProjection = MemberEvidenceProjectionBase<"goal"> & {
+  readonly text: string;
+  readonly priority: number;
+  readonly targetDate: string | null;
+  readonly domainReference: DomainConceptReference;
+};
+
+export type PreferenceEvidenceProjection = MemberEvidenceProjectionBase<"preference"> & {
+  readonly preferredSessionMinutes: number;
+  readonly trainingDaysPerWeek: number;
+  readonly preferredDays: readonly string[];
+  readonly dislikes: readonly string[];
+  readonly notes: string;
+  readonly domainReferences: readonly DomainConceptReference[];
+};
+
+export type WorkoutSessionEvidenceProjection = MemberEvidenceProjectionBase<"workout-session"> & {
+  readonly title: string;
+  readonly planned: boolean;
+  readonly completed: boolean;
+  readonly durationMinutes: number;
+  readonly rpe: number | null;
+};
+
+export type CoachBriefEvidenceProjection = MemberEvidenceProjectionBase<"coach-brief"> & {
+  readonly generatedFor: string;
+};
+
+export type CoachTaskEvidenceProjection = MemberEvidenceProjectionBase<"coach-task"> & {
+  readonly taskType: string;
+  readonly text: string;
+  readonly sourceOrder: number;
+};
+
+export type ChurnAssessmentEvidenceProjection = MemberEvidenceProjectionBase<"churn-assessment"> & {
+  readonly level: string;
+  readonly methodRevision?: string;
+};
+
+export type ChurnReasonEvidenceProjection = MemberEvidenceProjectionBase<"churn-reason"> & {
+  readonly text: string;
+  readonly sourceOrder: number;
+  readonly basisStatus: "supported" | "unsupported-source";
+};
+
+type SpecializedEvidenceKind =
+  | "observation"
+  | "lab-panel"
+  | "media-attachment"
+  | "member-profile"
+  | "goal"
+  | "preference"
+  | "workout-session"
+  | "coach-brief"
+  | "coach-task"
+  | "churn-assessment"
+  | "churn-reason";
 type BasicMemberEvidenceProjection = {
   [Kind in Exclude<MemberContextRevisionScopedNode["kind"], SpecializedEvidenceKind>]: MemberEvidenceProjectionBase<Kind>;
 }[Exclude<MemberContextRevisionScopedNode["kind"], SpecializedEvidenceKind>];
@@ -148,7 +208,15 @@ export type MemberEvidenceProjection =
   | BasicMemberEvidenceProjection
   | ObservationEvidenceProjection
   | LabPanelEvidenceProjection
-  | MediaAttachmentEvidenceProjection;
+  | MediaAttachmentEvidenceProjection
+  | MemberProfileEvidenceProjection
+  | GoalEvidenceProjection
+  | PreferenceEvidenceProjection
+  | WorkoutSessionEvidenceProjection
+  | CoachBriefEvidenceProjection
+  | CoachTaskEvidenceProjection
+  | ChurnAssessmentEvidenceProjection
+  | ChurnReasonEvidenceProjection;
 
 export type LongitudinalPointProjection = ObservationEvidenceProjection;
 
@@ -168,6 +236,9 @@ export type CoachBriefProjection = {
   readonly briefEvidenceId: string;
   readonly taskEvidenceIds: readonly string[];
   readonly assessmentEvidenceId: string | null;
+  readonly brief: CoachBriefEvidenceProjection;
+  readonly tasks: readonly CoachTaskEvidenceProjection[];
+  readonly assessment: ChurnAssessmentEvidenceProjection | null;
 };
 
 type WorkoutConstraintProjectionBase<K extends "equipment-availability" | "injury-episode" | "preference"> = {

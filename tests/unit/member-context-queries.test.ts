@@ -193,6 +193,66 @@ describe("member context bounded query provider", () => {
     ]));
   });
 
+  it("exposes only bounded Copilot source values with their original provenance", async () => {
+    const { handle, snapshot } = await setup();
+    const result = await handle.getEvidence({
+      domains: ["profile", "goals", "preferences", "workouts", "coach-brief", "churn"],
+      limit: 30,
+      timeoutMs: 100,
+    });
+    if (result.status !== "ready") throw new Error(result.status);
+
+    expect(result.data.find((fact) => fact.kind === "member-profile")).toEqual(expect.objectContaining({
+      timezone: jordan.profile.timezone,
+      source: expect.objectContaining({ artifactDigest: snapshot.sourceArtifactDigest }),
+    }));
+    expect(result.data.filter((fact) => fact.kind === "goal")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        text: jordan.goals[0].text,
+        priority: jordan.goals[0].priority,
+        targetDate: jordan.goals[0].target_date,
+      }),
+    ]));
+    expect(result.data.find((fact) => fact.kind === "preference")).toEqual(expect.objectContaining({
+      preferredSessionMinutes: jordan.preferences.preferred_session_minutes,
+      trainingDaysPerWeek: jordan.preferences.training_days_per_week,
+      preferredDays: jordan.preferences.preferred_days,
+      dislikes: jordan.preferences.dislikes,
+      notes: jordan.preferences.notes,
+    }));
+    expect(result.data.filter((fact) => fact.kind === "workout-session")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: jordan.workout_history[0].title,
+        planned: jordan.workout_history[0].planned,
+        completed: jordan.workout_history[0].completed,
+        durationMinutes: jordan.workout_history[0].duration_min,
+        rpe: jordan.workout_history[0].rpe,
+      }),
+    ]));
+    expect(result.data.find((fact) => fact.kind === "coach-brief")).toEqual(expect.objectContaining({
+      generatedFor: jordan.coach_brief.generated_for,
+    }));
+    expect(result.data.filter((fact) => fact.kind === "coach-task")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        taskType: jordan.coach_brief.morning_tasks[0].type,
+        text: jordan.coach_brief.morning_tasks[0].text,
+        sourceOrder: 0,
+      }),
+    ]));
+    expect(result.data.find((fact) => fact.kind === "churn-assessment")).toEqual(expect.objectContaining({
+      level: jordan.coach_brief.churn_risk.level,
+    }));
+    expect(result.data.filter((fact) => fact.kind === "churn-reason")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: jordan.coach_brief.churn_risk.reasons[0], basisStatus: "supported" }),
+      expect.objectContaining({ text: jordan.coach_brief.churn_risk.reasons[2], basisStatus: "unsupported-source" }),
+    ]));
+
+    const profile = result.data.find((fact) => fact.kind === "member-profile");
+    expect(profile).not.toHaveProperty("name");
+    expect(profile).not.toHaveProperty("weightKg");
+    expect(result.evidenceIds).toEqual(result.data.map((fact) => fact.evidenceId));
+  });
+
   it("returns dated series exactly and reports typed insufficient history with available citations", async () => {
     const { handle } = await setup();
     const adherence = await handle.getLongitudinalSeries({
@@ -280,6 +340,15 @@ describe("member context bounded query provider", () => {
     expect(brief).toMatchObject({ status: "ready" });
     if (brief.status !== "ready") throw new Error(brief.status);
     expect(brief.data.taskEvidenceIds).toHaveLength(2);
+    expect(brief.data).toMatchObject({
+      brief: { generatedFor: jordan.coach_brief.generated_for },
+      tasks: jordan.coach_brief.morning_tasks.map((task, sourceOrder) => ({
+        taskType: task.type,
+        text: task.text,
+        sourceOrder,
+      })),
+      assessment: { level: jordan.coach_brief.churn_risk.level },
+    });
     const oneFactBrief = await handle.getCoachBrief({ generatedFor: "2026-06-04", limit: 1, timeoutMs: 100 });
     expect(oneFactBrief).toMatchObject({
       status: "ready",
