@@ -155,6 +155,72 @@ describe("Copilot route", () => {
     }), expect.anything());
   });
 
+  it("applies the route deadline while an incomplete body stream remains open", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"schemaVersion":"copilot-request/v1"'));
+      },
+      cancel,
+    });
+    const streamed = new Request("https://axon.test/api/copilot", {
+      method: "POST",
+      body,
+      headers: { origin: "https://axon.test", "content-type": "application/json" },
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const resolveSession = vi.fn(async () => session);
+    const answer = vi.fn(async () => outcome("empty"));
+    const response = await createCopilotPostHandler({ resolveSession, answer, deadlineMs: 20 })(streamed);
+
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      code: "graph-timeout",
+      retryable: true,
+      controls: { retry: true, refresh: false, keepLastReadyAnswer: true },
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(resolveSession).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+  }, 500);
+
+  it("applies the route deadline while session resolution is stalled", async () => {
+    const resolveSession = vi.fn(() => new Promise<typeof session>(() => undefined));
+    const answer = vi.fn(async () => outcome("empty"));
+    const response = await createCopilotPostHandler({ resolveSession, answer, deadlineMs: 20 })(request(validBody));
+
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      requestId: validBody.requestId,
+      code: "graph-timeout",
+      retryable: true,
+      controls: { retry: true, refresh: false, keepLastReadyAnswer: true },
+    });
+    expect(resolveSession).toHaveBeenCalledOnce();
+    expect(answer).not.toHaveBeenCalled();
+  }, 500);
+
+  it("preserves caller cancellation while session resolution is stalled", async () => {
+    let markSessionStarted: () => void = () => undefined;
+    const sessionStarted = new Promise<void>((resolve) => { markSessionStarted = resolve; });
+    const resolveSession = vi.fn(() => {
+      markSessionStarted();
+      return new Promise<typeof session>(() => undefined);
+    });
+    const answer = vi.fn(async () => outcome("empty"));
+    const controller = new AbortController();
+    const pending = createCopilotPostHandler({ resolveSession, answer })(request(validBody, { signal: controller.signal }));
+    await sessionStarted;
+    controller.abort();
+    const response = await pending;
+
+    expect(response.status).toBe(499);
+    expect(await response.json()).toMatchObject({ status: "cancelled", requestId: validBody.requestId });
+    expect(answer).not.toHaveBeenCalled();
+  });
+
   it("uses one non-enumerating denial for missing sessions, guessed members, and wrong grants", async () => {
     const deniedAnswer = vi.fn(async () => outcome("denied"));
     const wrongGrant = createCopilotPostHandler({ resolveSession: async () => session, answer: deniedAnswer });

@@ -88,26 +88,69 @@ function decodeRequest(value: unknown): CopilotRequest | null {
   };
 }
 
-async function readBoundedJson(request: Request): Promise<{ status: "ready"; value: unknown } | { status: "invalid" | "too-large" }> {
+type SignalRace<T> =
+  | { readonly status: "ready"; readonly value: T }
+  | { readonly status: "aborted" }
+  | { readonly status: "rejected" };
+
+async function raceSignal<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+  onAbort?: () => void,
+): Promise<SignalRace<T>> {
+  if (signal.aborted) {
+    onAbort?.();
+    return { status: "aborted" };
+  }
+  let pending: Promise<T>;
+  try { pending = operation(); } catch { return { status: "rejected" }; }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: SignalRace<T>) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      resolve(result);
+    };
+    const abort = () => {
+      onAbort?.();
+      finish({ status: "aborted" });
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    pending.then(
+      (value) => finish({ status: "ready", value }),
+      () => finish({ status: "rejected" }),
+    );
+    if (signal.aborted) abort();
+  });
+}
+
+async function readBoundedJson(request: Request, signal: AbortSignal): Promise<
+  { status: "ready"; value: unknown } | { status: "aborted" | "invalid" | "too-large" }
+> {
   const declared = request.headers.get("content-length");
   if (declared !== null) {
     const bytes = Number(declared);
     if (!Number.isSafeInteger(bytes) || bytes < 0) return { status: "invalid" };
     if (bytes > COPILOT_MAX_BODY_BYTES) {
-      await request.body?.cancel().catch(() => undefined);
+      void request.body?.cancel().catch(() => undefined);
       return { status: "too-large" };
     }
   }
   const reader = request.body?.getReader();
   if (!reader) return { status: "invalid" };
+  const cancelReader = () => { void reader.cancel().catch(() => undefined); };
   try {
     const chunks: Uint8Array[] = [];
     let byteLength = 0;
     while (true) {
-      const { done, value } = await reader.read();
+      const next = await raceSignal(() => reader.read(), signal, cancelReader);
+      if (next.status === "aborted") return { status: "aborted" };
+      if (next.status === "rejected") throw new Error("Request body read failed");
+      const { done, value } = next.value;
       if (done) break;
       if (byteLength + value.byteLength > COPILOT_MAX_BODY_BYTES) {
-        await reader.cancel().catch(() => undefined);
+        cancelReader();
         return { status: "too-large" };
       }
       chunks.push(value);
@@ -122,7 +165,7 @@ async function readBoundedJson(request: Request): Promise<{ status: "ready"; val
     const text = new TextDecoder().decode(bytes);
     return { status: "ready", value: JSON.parse(text) as unknown };
   } catch {
-    await reader.cancel().catch(() => undefined);
+    cancelReader();
     return { status: "invalid" };
   }
 }
@@ -164,15 +207,19 @@ function externalOutcome(outcome: CopilotOutcome): { readonly status: number; re
   return { status, payload: { ...outcome, controls } };
 }
 
+function interruptedOutcome(requestId: string, clientSignal: AbortSignal): CopilotOutcome {
+  return clientSignal.aborted
+    ? { status: "cancelled", requestId }
+    : { status: "unavailable", requestId, code: "graph-timeout", retryable: true, message: "Copilot request timed out." };
+}
+
 async function waitForOutcome(
   pending: Promise<CopilotOutcome>,
   signal: AbortSignal,
   requestId: string,
   clientSignal: AbortSignal,
 ): Promise<CopilotOutcome> {
-  if (signal.aborted) return clientSignal.aborted
-    ? { status: "cancelled", requestId }
-    : { status: "unavailable", requestId, code: "graph-timeout", retryable: true, message: "Copilot request timed out." };
+  if (signal.aborted) return interruptedOutcome(requestId, clientSignal);
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value: CopilotOutcome) => {
@@ -181,14 +228,13 @@ async function waitForOutcome(
       signal.removeEventListener("abort", onAbort);
       resolve(value);
     };
-    const onAbort = () => finish(clientSignal.aborted
-      ? { status: "cancelled", requestId }
-      : { status: "unavailable", requestId, code: "graph-timeout", retryable: true, message: "Copilot request timed out." });
+    const onAbort = () => finish(interruptedOutcome(requestId, clientSignal));
     signal.addEventListener("abort", onAbort, { once: true });
     pending.then(
       (value) => finish(value),
       () => finish({ status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Copilot is temporarily unavailable." }),
     );
+    if (signal.aborted) onAbort();
   });
 }
 
@@ -198,12 +244,19 @@ export function createCopilotPostHandler(dependencies: CopilotPostHandlerDepende
     throw new Error(`Copilot deadline must be between 1 and ${COPILOT_TOTAL_DEADLINE_MS} milliseconds`);
   }
   return async (request: Request): Promise<Response> => {
+    const timeout = AbortSignal.timeout(deadlineMs);
+    const signal = AbortSignal.any([request.signal, timeout]);
+    const interruptedResponse = (requestId: string) => {
+      const mapped = externalOutcome(interruptedOutcome(requestId, request.signal));
+      return response(mapped.payload, mapped.status);
+    };
     const origin = request.headers.get("origin");
     if (!origin) return response({ status: "forbidden" }, 403);
     try {
       if (new URL(origin).origin !== new URL(request.url).origin) return response({ status: "forbidden" }, 403);
     } catch { return response({ status: "forbidden" }, 403); }
-    const parsed = await readBoundedJson(request);
+    const parsed = await readBoundedJson(request, signal);
+    if (parsed.status === "aborted") return interruptedResponse("request:unavailable");
     if (parsed.status !== "ready") {
       return response({
         status: "invalid",
@@ -222,14 +275,16 @@ export function createCopilotPostHandler(dependencies: CopilotPostHandlerDepende
       controls: { retry: false, refresh: false, keepLastReadyAnswer: true },
     }, 400);
 
-    let session: MockCoachSession;
-    try { session = await dependencies.resolveSession(request); } catch { session = { status: "unavailable" }; }
+    const resolvedSession = await raceSignal(() => dependencies.resolveSession(request), signal);
+    if (resolvedSession.status === "aborted") return interruptedResponse(decoded.requestId);
+    const session: MockCoachSession = resolvedSession.status === "ready"
+      ? resolvedSession.value
+      : { status: "unavailable" };
     if (session.status !== "authorized" || !session.entitledMemberIds.includes(decoded.memberId)) {
       return response(deniedPayload, 404);
     }
 
-    const timeout = AbortSignal.timeout(deadlineMs);
-    const signal = AbortSignal.any([request.signal, timeout]);
+    if (signal.aborted) return interruptedResponse(decoded.requestId);
     const outcome = await waitForOutcome(dependencies.answer({
       coachId: session.coachId,
       authorizationId: session.authorizationId,
