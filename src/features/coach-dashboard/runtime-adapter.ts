@@ -1,5 +1,5 @@
 import type { WorkoutRunResource } from "../../application/use-cases/retrieve-workout-run";
-import type { WorkoutDecision } from "../../domain/contracts/workout-provenance";
+import { workoutDecisionWasSelected, type WorkoutDecision } from "../../domain/contracts/workout-provenance";
 import type { WorkoutDose, WorkoutSectionKind } from "../../domain/contracts/workout";
 import type { DashboardDecisionId, DashboardWorkoutItem } from "./dashboard-contract";
 
@@ -18,6 +18,8 @@ export type DashboardRuntimeWorkoutProjection = {
   readonly decisions: readonly {
     readonly id: string;
     readonly kind: WorkoutDecision["kind"];
+    readonly selectionDisposition?: WorkoutDecision["selectionDisposition"];
+    readonly safetyClassification?: WorkoutDecision["safetyClassification"];
     readonly exerciseConceptId: string;
     readonly explanation: string;
   }[];
@@ -103,7 +105,7 @@ function pathForDecision(decision: WorkoutDecision) {
 }
 
 function decisionPriority(decision: WorkoutDecision): number {
-  return ({ cautioned: 0, downranked: 1, substituted: 2, selected: 3, excluded: 4 } as const)[decision.kind];
+  return ({ cautioned: 0, downranked: 1, substituted: 2, selected: 3, "not-selected": 4, excluded: 5 } as const)[decision.kind];
 }
 
 /** Projects only the stored immutable workout and trace; it never reconstructs reasons from active state. */
@@ -123,7 +125,7 @@ export function projectWorkoutRunResource(resource: WorkoutRunResource): Dashboa
     title: sectionTitle[section.kind],
     items: section.items.map((item, index): DashboardWorkoutItem => {
       const decision = [...(decisionsByExercise.get(item.exerciseConceptId) ?? [])]
-        .filter((candidate) => candidate.kind !== "excluded")
+        .filter(workoutDecisionWasSelected)
         .sort((left, right) => decisionPriority(left) - decisionPriority(right))[0];
       return {
         id: `${section.kind}:${item.exerciseConceptId}:${index}`,
@@ -166,6 +168,8 @@ export function projectWorkoutRunResource(resource: WorkoutRunResource): Dashboa
     decisions: decisions.map((decision) => ({
       id: String(decision.decisionId),
       kind: decision.kind,
+      ...(decision.selectionDisposition ? { selectionDisposition: decision.selectionDisposition } : {}),
+      ...(decision.safetyClassification ? { safetyClassification: decision.safetyClassification } : {}),
       exerciseConceptId: decision.exerciseConceptId,
       explanation: decision.explanation,
     })),

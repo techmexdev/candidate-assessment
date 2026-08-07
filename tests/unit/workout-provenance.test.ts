@@ -3,6 +3,7 @@ import {
   createWorkoutProvenanceBundle,
   validateWorkoutProvenance,
 } from "../../src/domain/contracts/workout-provenance";
+import { canonicalWorkoutDecisionSetDigest } from "../../src/graph/schema/workout-run-schema";
 import { workoutDecision, TEST_MEMBER_REVISION, TEST_MOVEMENT_REVISION } from "../fixtures/workout-runtime-builder";
 import {
   WORKOUT_GENERATION_SCENARIOS,
@@ -40,6 +41,55 @@ describe("workout provenance", () => {
     expect(bundle.relations.filter((relation) => relation.kind === "used")).toHaveLength(6);
     expect(bundle.relations).toContainEqual({ kind: "wasGeneratedBy", entityId: "workout-version:test", activityId: "workout-run:test" });
     expect(bundle.decisions.map((decision) => decision.kind)).toEqual(["selected", "excluded", "cautioned", "downranked", "substituted"]);
+    expect(bundle.decisions.map(({ selectionDisposition, safetyClassification }) => ({ selectionDisposition, safetyClassification }))).toEqual([
+      { selectionDisposition: "selected", safetyClassification: "allowed" },
+      { selectionDisposition: "not-selected", safetyClassification: "excluded" },
+      { selectionDisposition: "selected", safetyClassification: "caution" },
+      { selectionDisposition: "selected", safetyClassification: "downranked" },
+      { selectionDisposition: "selected", safetyClassification: "allowed" },
+    ]);
+  });
+
+  it("binds selection disposition and safety classification into the canonical decision digest", () => {
+    const selected = workoutDecision("exercise:test", "cautioned", {
+      selectionDisposition: "selected",
+      safetyClassification: "caution",
+    });
+    const omitted = { ...selected, selectionDisposition: "not-selected" as const };
+
+    expect(canonicalWorkoutDecisionSetDigest([selected])).not.toBe(canonicalWorkoutDecisionSetDigest([omitted]));
+  });
+
+  it("rejects incomplete or contradictory explicit decision dimensions", () => {
+    const base = {
+      runId: "workout-run:test",
+      workoutVersionId: "workout-version:test",
+      promptEntityId: "entity:prompt:test",
+      candidateSetEntityId: "entity:candidates:test",
+      modelProposalEntityId: "entity:proposal:test",
+      policyEntityId: "entity:policy:test",
+      movementGraphRevisionId: TEST_MOVEMENT_REVISION,
+      memberContextRevisionId: TEST_MEMBER_REVISION,
+      traceSchemaVersion: "workout-provenance/v1" as const,
+      digest: "sha256:provenance",
+    };
+    const incomplete = createWorkoutProvenanceBundle({
+      ...base,
+      decisions: [workoutDecision("exercise:incomplete", "selected", { safetyClassification: undefined })],
+    });
+    const contradictory = createWorkoutProvenanceBundle({
+      ...base,
+      decisions: [workoutDecision("exercise:contradictory", "selected", { safetyClassification: "excluded" })],
+    });
+
+    expect(validateWorkoutProvenance(incomplete)).toMatchObject({
+      status: "invalid",
+      violations: [expect.objectContaining({ code: "incomplete-decision-dimensions" })],
+    });
+    expect(validateWorkoutProvenance(contradictory)).toMatchObject({
+      status: "invalid",
+      violations: [expect.objectContaining({ code: "inconsistent-decision-dimensions" })],
+    });
   });
 
   it.each([

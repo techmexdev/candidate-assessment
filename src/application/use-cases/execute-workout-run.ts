@@ -106,11 +106,10 @@ function asCatalogSafety(result: Extract<EvaluateCatalogSafetyResult, { readonly
 }
 
 function decisionKind(decision: CatalogSafetyReadyResult["decisions"][number], selected: ReadonlySet<string>): WorkoutDecision["kind"] {
-  if (selected.has(decision.exerciseConceptId)) return "selected";
   if (decision.classification === "excluded") return "excluded";
   if (decision.classification === "caution") return "cautioned";
   if (decision.classification === "downranked") return "downranked";
-  return "downranked";
+  return selected.has(decision.exerciseConceptId) ? "selected" : "not-selected";
 }
 
 function proposalIds(proposal: { readonly sections: readonly { readonly items: readonly { readonly exerciseConceptId: string }[] }[] }) {
@@ -283,6 +282,8 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         const provenanceDecisions: WorkoutDecision[] = catalogSafety.decisions.map((decision) => ({
           decisionId: dependencies.createId("decision"),
           kind: decisionKind(decision, selected),
+          selectionDisposition: selected.has(decision.exerciseConceptId) ? "selected" : "not-selected",
+          safetyClassification: decision.classification,
           exerciseConceptId: decision.exerciseConceptId,
           movementGraphRevisionId: decision.movementGraphRevisionId,
           memberContextRevisionId: decision.memberContextRevisionId,

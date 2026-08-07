@@ -42,6 +42,7 @@ function harness(overrides: Record<string, unknown> = {}) {
     catalogDecision("exercise:warm-up"),
     catalogDecision("exercise:main", "caution"),
     catalogDecision("exercise:cool-down", "downranked"),
+    catalogDecision("exercise:unused-allowed"),
     catalogDecision("exercise:split-squat-variant", "excluded"),
     catalogDecision("exercise:barbell-only", "excluded"),
   ];
@@ -141,7 +142,30 @@ describe("workout runtime", () => {
     });
     const trace = await dependencies.repository.getProvenance(RUN_ID, "coach:one", "member:one");
     expect(trace?.decisions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ exerciseConceptId: "exercise:split-squat-variant", kind: "excluded" }),
+      expect.objectContaining({
+        exerciseConceptId: "exercise:main",
+        kind: "cautioned",
+        selectionDisposition: "selected",
+        safetyClassification: "caution",
+      }),
+      expect.objectContaining({
+        exerciseConceptId: "exercise:cool-down",
+        kind: "downranked",
+        selectionDisposition: "selected",
+        safetyClassification: "downranked",
+      }),
+      expect.objectContaining({
+        exerciseConceptId: "exercise:unused-allowed",
+        kind: "not-selected",
+        selectionDisposition: "not-selected",
+        safetyClassification: "allowed",
+      }),
+      expect.objectContaining({
+        exerciseConceptId: "exercise:split-squat-variant",
+        kind: "excluded",
+        selectionDisposition: "not-selected",
+        safetyClassification: "excluded",
+      }),
       expect.objectContaining({ exerciseConceptId: "exercise:barbell-only", kind: "excluded" }),
     ]));
     const events = await dependencies.repository.readEvents(RUN_ID, "coach:one", "member:one", { limit: 100 });

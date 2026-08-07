@@ -133,9 +133,18 @@ export function workoutDecision(
   kind: WorkoutDecision["kind"] = "selected",
   overrides: Partial<WorkoutDecision> = {},
 ): WorkoutDecision {
+  const safetyClassification = kind === "excluded"
+    ? "excluded"
+    : kind === "cautioned"
+      ? "caution"
+      : kind === "downranked"
+        ? "downranked"
+        : "allowed";
   return {
     decisionId: `decision:${exerciseConceptId}:${kind}`,
     kind,
+    selectionDisposition: kind === "excluded" || kind === "not-selected" ? "not-selected" : "selected",
+    safetyClassification,
     exerciseConceptId,
     movementGraphRevisionId: TEST_MOVEMENT_REVISION,
     memberContextRevisionId: TEST_MEMBER_REVISION,

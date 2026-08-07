@@ -6,12 +6,17 @@ import {
   type WorkoutRunId,
   type WorkoutVersionId,
 } from "./workout";
+import type { CatalogSafetyClassification } from "./catalog-safety";
 
-export type WorkoutDecisionKind = "selected" | "excluded" | "cautioned" | "downranked" | "substituted";
+export type WorkoutDecisionKind = "selected" | "not-selected" | "excluded" | "cautioned" | "downranked" | "substituted";
+export type WorkoutSelectionDisposition = "selected" | "not-selected";
 
 export type WorkoutDecision = {
   readonly decisionId: WorkoutDecisionId | string;
+  /** Compatibility summary for existing trace consumers. New decisions also carry both canonical dimensions below. */
   readonly kind: WorkoutDecisionKind;
+  readonly selectionDisposition?: WorkoutSelectionDisposition;
+  readonly safetyClassification?: CatalogSafetyClassification;
   readonly exerciseConceptId: string;
   readonly movementGraphRevisionId: string;
   readonly memberContextRevisionId: string;
@@ -116,7 +121,16 @@ export function createWorkoutProvenanceBundle(input: CreateWorkoutProvenanceInpu
 
 export type WorkoutProvenanceViolation = {
   readonly decisionId?: WorkoutDecisionId | string;
-  readonly code: "missing-assertion" | "missing-path" | "missing-evidence" | "missing-explanation" | "mixed-revision" | "missing-entity" | "missing-relation";
+  readonly code:
+    | "missing-assertion"
+    | "missing-path"
+    | "missing-evidence"
+    | "missing-explanation"
+    | "mixed-revision"
+    | "missing-entity"
+    | "missing-relation"
+    | "incomplete-decision-dimensions"
+    | "inconsistent-decision-dimensions";
 };
 
 export type WorkoutProvenanceValidation =
@@ -130,6 +144,20 @@ export function validateWorkoutProvenance(bundle: WorkoutProvenanceBundle): Work
     if (decision.contributingPathIds.length === 0) violations.push({ decisionId: decision.decisionId, code: "missing-path" });
     if (decision.evidenceIds.length === 0) violations.push({ decisionId: decision.decisionId, code: "missing-evidence" });
     if (!decision.explanation.trim()) violations.push({ decisionId: decision.decisionId, code: "missing-explanation" });
+    const hasSelectionDisposition = decision.selectionDisposition !== undefined;
+    const hasSafetyClassification = decision.safetyClassification !== undefined;
+    if (hasSelectionDisposition !== hasSafetyClassification) {
+      violations.push({ decisionId: decision.decisionId, code: "incomplete-decision-dimensions" });
+    } else if (hasSelectionDisposition && hasSafetyClassification) {
+      const inconsistent = (decision.selectionDisposition === "selected" && decision.safetyClassification === "excluded")
+        || (decision.kind === "excluded" && (decision.selectionDisposition !== "not-selected" || decision.safetyClassification !== "excluded"))
+        || (decision.kind === "selected" && (decision.selectionDisposition !== "selected" || decision.safetyClassification !== "allowed"))
+        || (decision.kind === "not-selected" && decision.selectionDisposition !== "not-selected")
+        || (decision.kind === "cautioned" && decision.safetyClassification !== "caution")
+        || (decision.kind === "downranked" && decision.safetyClassification !== "downranked")
+        || (decision.kind === "substituted" && decision.selectionDisposition !== "selected");
+      if (inconsistent) violations.push({ decisionId: decision.decisionId, code: "inconsistent-decision-dimensions" });
+    }
     if (decision.movementGraphRevisionId !== bundle.movementGraphRevisionId
       || decision.memberContextRevisionId !== bundle.memberContextRevisionId) {
       violations.push({ decisionId: decision.decisionId, code: "mixed-revision" });
@@ -158,4 +186,10 @@ export function validateWorkoutProvenance(bundle: WorkoutProvenanceBundle): Work
       && relation.sourceEntityId === source.entityId)) violations.push({ code: "missing-relation" });
   }
   return violations.length === 0 ? { status: "valid" } : { status: "invalid", violations };
+}
+
+/** New traces use the explicit disposition; legacy v1 traces retain their historical kind semantics. */
+export function workoutDecisionWasSelected(decision: WorkoutDecision): boolean {
+  if (decision.selectionDisposition) return decision.selectionDisposition === "selected";
+  return decision.kind !== "excluded" && decision.kind !== "not-selected";
 }

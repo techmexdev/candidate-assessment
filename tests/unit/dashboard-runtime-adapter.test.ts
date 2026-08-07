@@ -59,8 +59,8 @@ const completedResource = (): WorkoutRunResource => ({
       { entityId: "workout:1", kind: "workout-version" },
     ],
     decisions: [
-      { decisionId: "decision:box", kind: "cautioned", exerciseConceptId: "exercise:box-squat", movementGraphRevisionId: "movement:7", memberContextRevisionId: "member:4", sourceAssertionIds: ["assertion:caution"], contributingPathIds: ["path:knee"], evidenceIds: ["evidence:knee"], explanation: "Retained with a reviewed range caution." },
-      { decisionId: "decision:split", kind: "excluded", exerciseConceptId: "exercise:split-squat", movementGraphRevisionId: "movement:7", memberContextRevisionId: "member:4", sourceAssertionIds: ["assertion:exclude"], contributingPathIds: ["path:joint"], evidenceIds: ["evidence:knee"], explanation: "Excluded because the path reaches the injured knee." },
+      { decisionId: "decision:box", kind: "cautioned", selectionDisposition: "selected", safetyClassification: "caution", exerciseConceptId: "exercise:box-squat", movementGraphRevisionId: "movement:7", memberContextRevisionId: "member:4", sourceAssertionIds: ["assertion:caution"], contributingPathIds: ["path:knee"], evidenceIds: ["evidence:knee"], explanation: "Retained with a reviewed range caution." },
+      { decisionId: "decision:split", kind: "excluded", selectionDisposition: "not-selected", safetyClassification: "excluded", exerciseConceptId: "exercise:split-squat", movementGraphRevisionId: "movement:7", memberContextRevisionId: "member:4", sourceAssertionIds: ["assertion:exclude"], contributingPathIds: ["path:joint"], evidenceIds: ["evidence:knee"], explanation: "Excluded because the path reaches the injured knee." },
       { decisionId: "decision:sub", kind: "substituted", exerciseConceptId: "exercise:box-squat", substitutedFromExerciseConceptId: "exercise:back-squat", movementGraphRevisionId: "movement:7", memberContextRevisionId: "member:4", sourceAssertionIds: ["assertion:sub"], contributingPathIds: ["path:sub"], evidenceIds: ["evidence:review"], explanation: "Reviewed substitution for back squat." },
     ],
     relations: [],
@@ -89,6 +89,8 @@ describe("dashboard workout runtime adapter", () => {
       expect.objectContaining({ name: "Pinned revisions", source: "movement:7 · member:4" }),
     ]);
     expect(projected.decisions.map((decision) => decision.kind)).toEqual(["cautioned", "excluded", "substituted"]);
+    expect(projected.decisions[0]).toMatchObject({ selectionDisposition: "selected", safetyClassification: "caution" });
+    expect(projected.decisions[1]).toMatchObject({ selectionDisposition: "not-selected", safetyClassification: "excluded" });
   });
 
   it("deduplicates replayed events and fetches the authoritative resource after completion", async () => {

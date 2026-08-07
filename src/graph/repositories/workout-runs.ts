@@ -22,7 +22,7 @@ import type {
 } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
-import { validateWorkoutProvenance } from "../../domain/contracts/workout-provenance";
+import { validateWorkoutProvenance, workoutDecisionWasSelected } from "../../domain/contracts/workout-provenance";
 import { deepFreeze } from "../revisions/movement-graph";
 import {
   WORKOUT_RUN_CURSOR_SCHEMA_VERSION,
@@ -101,7 +101,7 @@ export function validateCompletionBindings(run: WorkoutRun, input: CompleteWorko
 
   const workoutEntity = provenance.entities.find((entity) => entity.kind === "workout-version");
   if (workoutEntity?.entityId !== workoutVersion.workoutVersionId) return false;
-  const selected = new Set(provenance.decisions.filter((decision) => decision.kind !== "excluded").map((decision) => decision.exerciseConceptId));
+  const selected = new Set(provenance.decisions.filter(workoutDecisionWasSelected).map((decision) => decision.exerciseConceptId));
   return selectedExerciseIds(workoutVersion).every((exerciseId) => selected.has(exerciseId));
 }
 
