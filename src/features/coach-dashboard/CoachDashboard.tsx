@@ -12,6 +12,7 @@ import type {
   DashboardAdapter,
   DashboardDecisionId,
 } from "./dashboard-contract";
+import { createSpeechInputController, type SpeechInputController } from "./speech-input";
 import { buildTodayProjection, sessionDateKey } from "./synthetic-dashboard-base";
 import {
   dashboardReducer,
@@ -42,7 +43,7 @@ const prompts: { id: QuickPromptId; label: string }[] = [
   { id: "brief", label: "Morning brief" },
   { id: "adherence", label: "Adherence" },
   { id: "sleep", label: "Sleep" },
-  { id: "change", label: "Wk over wk" },
+  { id: "change", label: "What changed since last week?" },
   { id: "churn", label: "Churn risk" },
 ];
 
@@ -88,6 +89,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const suppressRouteFocusRestore = useRef(false);
   const dialogWasOpen = useRef(false);
   const previousRoutes = useRef<AthleteRoute[]>([]);
+  const speechInput = useMemo(() => createSpeechInputController(), []);
   const activeWorkflow = selectActiveAthleteState(state);
   const currentVersion = selectCurrentVersion(state);
   const published = selectIsPublished(state);
@@ -106,6 +108,16 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       decisionPaths: projection.decisionPaths,
     };
   }, [activeMember, activeWorkflow?.runtimeWorkout]);
+
+  useEffect(() => {
+    const memberId = state.activeMemberId;
+    if (!memberId) return;
+    const sync = () => dispatch({ type: "update-speech-capture", memberId, capture: speechInput.getSnapshot() });
+    sync();
+    return speechInput.subscribe(sync);
+  }, [speechInput, state.activeMemberId]);
+
+  useEffect(() => () => speechInput.dispose(), [speechInput]);
 
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
@@ -284,6 +296,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     conversationAbort.current?.abort();
     fullGraphAbort.current?.abort();
     memberGraphAbort.current?.abort();
+    speechInput.clear();
     clearOperationTimers();
     try { await capability?.client.signOut(); } catch { /* local state still clears */ }
     dispatch({ type: "reset-session" });
@@ -317,6 +330,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     setMemberContextGraphMemberId(null);
     setMemberContextGraphExpanded(false);
     setMemberContextGraphLoading(false);
+    speechInput.clear();
     dispatch({ type: "select-athlete", memberId, focusKey: captureReturnFocus(`today-row-athlete-${memberId}`) });
   };
 
@@ -325,6 +339,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     stopCopilot();
     stopGeneration();
     stopConversation();
+    speechInput.clear();
     suppressRouteFocusRestore.current = true;
     dispatch({ type: "select-destination", destination });
     window.requestAnimationFrame(() => {
@@ -336,7 +351,13 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     clearOperationTimers();
     stopCopilot();
     stopConversation();
-    dispatch({ type: "pop-route" });
+    const preserveCapture = currentRoute?.id === "voice"
+      && state.routeStack.at(-2)?.id === "copilot"
+      && (state.athleteStates[state.activeMemberId ?? ""]?.capture.status === "reviewing"
+        || state.athleteStates[state.activeMemberId ?? ""]?.capture.status === "over-limit");
+    if (preserveCapture) speechInput.stop();
+    else speechInput.clear();
+    dispatch({ type: "pop-route", preserveCapture });
   };
 
   const requestAdjustment = () => {
@@ -582,6 +603,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           workoutGenerationAvailable={adapter.capabilities.workoutGeneration?.available === true}
           generateWorkout={generateWorkout}
           retryWorkoutGeneration={retryWorkoutGeneration}
+          speechInput={speechInput}
           conversationAvailable={adapter.capabilities.conversation?.available === true}
           copilotAvailable={adapter.capabilities.copilot?.available === true && adapter.capabilities.copilot.supportsMember(state.activeMemberId!)}
           memberContextGraph={memberContextGraphMemberId === state.activeMemberId ? memberContextGraph : null}
@@ -879,7 +901,7 @@ function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading
   </section>;
 }
 
-function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, speechInput, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph }: {
   route: AthleteRoute;
   workflow: AthleteWorkflowState;
   selectedDate: string;
@@ -897,6 +919,7 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   retryWorkoutGeneration: () => void;
   copilotAvailable: boolean;
   conversationAvailable: boolean;
+  speechInput: SpeechInputController;
   memberContextGraph: FullGraphReadResult | null;
   memberContextGraphExpanded: boolean;
   memberContextGraphLoading: boolean;
@@ -907,8 +930,8 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
 }) {
   if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
-  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
-  if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen /></>;
+  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} speechInput={speechInput} selectedDate={selectedDate} copilotAvailable={copilotAvailable} /></>;
+  if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen state={workflow} submit={submitCopilot} speechInput={speechInput} copilotAvailable={copilotAvailable} onBack={onBack} /></>;
   if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} /></>;
   if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} memberContextGraph={memberContextGraph} memberContextGraphExpanded={memberContextGraphExpanded} memberContextGraphLoading={memberContextGraphLoading} memberContextGraphUnavailableReason={memberContextGraphUnavailableReason} onExpandMemberContextGraph={onExpandMemberContextGraph} onCollapseMemberContextGraph={onCollapseMemberContextGraph} onRetryMemberContextGraph={onRetryMemberContextGraph} />;
   if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
@@ -918,15 +941,92 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   return null;
 }
 
-function VoiceModeScreen() {
+function VoiceModeScreen({ state, submit, speechInput, copilotAvailable, onBack }: {
+  state: AthleteWorkflowState;
+  submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
+  speechInput: SpeechInputController;
+  copilotAvailable: boolean;
+  onBack: () => void;
+}) {
   const fixture = useDashboardViewModel();
+  const captureSequence = useRef(0);
+  const capture = state.capture;
+  const scope = capture.scope?.routeId === "voice" ? capture.scope : null;
+  const text = capture.transcript;
+  const displayTranscript = [text, capture.interimTranscript].filter(Boolean).join(text && capture.interimTranscript ? " " : "");
+  const beginDisclosure = () => {
+    if (!copilotAvailable) return;
+    speechInput.showDisclosure({
+      memberId: fixture.member.id,
+      routeId: "voice",
+      contextRevisionId: state.copilot.lastReadyAnswer?.contextRevisionId ?? null,
+      captureId: `voice:${Date.now()}:${++captureSequence.current}`,
+    });
+  };
+  const startListening = () => { if (scope) speechInput.start(scope); };
+  const submitQuestion = () => {
+    if (!scope || state.copilot.pending) return;
+    const input = speechInput.submit(scope);
+    if (!input) return;
+    submit(input, input.question, state.copilot.lastReadyAnswer?.continuation ? { continuation: state.copilot.lastReadyAnswer.continuation } : {});
+    onBack();
+  };
+  const statusLabel = capture.status === "requesting-permission"
+    ? "Requesting microphone permission"
+    : capture.status === "listening"
+      ? "Listening"
+      : capture.status === "reviewing" || capture.status === "over-limit"
+        ? "Review dictated question"
+        : capture.status === "disclosure"
+          ? "Review voice input disclosure"
+          : capture.status === "idle"
+            ? "Voice input ready"
+            : capture.status.replaceAll("-", " ");
   return (
     <section className={styles.voiceScreen} aria-label="Voice mode">
-      <div className={styles.voiceHero}><span className={styles.signalOrb} aria-hidden="true"><span className={styles.signalOrbCore}>◉</span></span></div>
-      <div className={`${styles.voiceLog} ${styles.stack}`} role="status">
-        <div className={styles.micro}>VOICE COPILOT · UNAVAILABLE</div>
-        <h2 className={styles.heroTitle}>Continue in text Copilot</h2>
-        <p className={styles.bodyCopy}>Speech transport is not implemented for {fixture.member.name}. No fixture or graph-backed voice answer will be generated.</p>
+      <div className={styles.voiceHero}>
+        <span className={`${styles.signalOrb} ${capture.status === "listening" ? styles.signalOrbListening : ""}`} aria-hidden="true"><span className={styles.signalOrbCore}>◉</span></span>
+        <div className={styles.voiceStateLabel} role="status" aria-live="polite">{statusLabel}</div>
+      </div>
+      <div className={`${styles.voiceLog} ${styles.stack}`}>
+        {!copilotAvailable ? <>
+          <div className={styles.micro}>VOICE INPUT · UNAVAILABLE</div>
+          <h2 className={styles.heroTitle}>Continue in text Copilot</h2>
+          <p className={styles.bodyCopy}>Member context is unavailable for {fixture.member.name}. Voice capture is disabled until the same Copilot capability is ready.</p>
+          <button className={styles.secondaryButton} type="button" onClick={onBack}>Back to text Copilot</button>
+        </> : capture.status === "idle" || capture.status === "cancelled" || ["unsupported", "denied", "no-speech", "audio-error", "network-error", "service-error", "language-error"].includes(capture.status) ? <>
+          <div className={styles.micro}>VOICE INPUT · REVIEW FIRST</div>
+          <h2 className={styles.heroTitle}>Talk through {fixture.member.name}&apos;s signal</h2>
+          <p className={styles.bodyCopy}>Your browser will turn speech into editable text. Review the transcript before it can be sent to graph-grounded Copilot. Audio is not stored by this screen.</p>
+          {capture.message && <div className={styles.capabilityNote} role="status"><strong>Voice input needs attention</strong><span>{capture.message}</span></div>}
+          <div className={styles.actionRow}>
+            <button className={styles.primaryButton} type="button" onClick={beginDisclosure}>Use voice input</button>
+            <button className={styles.secondaryButton} type="button" onClick={onBack}>Back to text Copilot</button>
+          </div>
+        </> : capture.status === "disclosure" ? <>
+          <div className={styles.micro}>VOICE INPUT · DISCLOSURE</div>
+          <h2 className={styles.heroTitle}>Before the microphone starts</h2>
+          <p className={styles.bodyCopy}>AXON will request microphone access through your browser&apos;s speech recognition. The transcript stays editable here and is only sent after you choose Submit question.</p>
+          <div className={styles.actionRow}>
+            <button className={styles.primaryButton} type="button" onClick={startListening}>Allow microphone &amp; start</button>
+            <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Cancel</button>
+          </div>
+        </> : capture.status === "requesting-permission" || capture.status === "listening" ? <>
+          <div className={styles.micro}>VOICE INPUT · {capture.status === "listening" ? "LISTENING" : "REQUESTING"}</div>
+          <h2 className={styles.heroTitle}>{capture.status === "listening" ? "Speak naturally" : "Waiting for browser permission"}</h2>
+          <p className={styles.bodyCopy}>{capture.interimTranscript || "Your words will appear here as editable text."}</p>
+          <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Stop listening</button>
+        </> : <>
+          <div className={styles.micro}>VOICE INPUT · REVIEW</div>
+          <h2 className={styles.heroTitle}>Review before Copilot</h2>
+          <label className={styles.runtimeField} htmlFor="voice-question"><span className={styles.bodyStrong}>Review dictated question</span><textarea id="voice-question" className={styles.textarea} value={displayTranscript} onChange={(event) => { if (scope) speechInput.setTranscript(scope, event.target.value); }} aria-describedby="voice-question-help" /></label>
+          <div id="voice-question-help" className={styles.subtle}>{Array.from(displayTranscript).length}/500 characters · You can edit this text before submitting.</div>
+          {capture.message && <div className={styles.capabilityNote} role="status"><strong>Question needs editing</strong><span>{capture.message}</span></div>}
+          <div className={styles.actionRow}>
+            <button className={styles.primaryButton} type="button" disabled={capture.status !== "reviewing" || !displayTranscript.trim() || Boolean(state.copilot.pending)} onClick={submitQuestion}>Submit question</button>
+            <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Clear voice input</button>
+          </div>
+        </>}
       </div>
     </section>
   );
@@ -1046,7 +1146,7 @@ function TodayScreen({
           <span className={styles.athleteAvatar} aria-hidden="true">AI</span><span className={styles.athleteCardBody}><strong>Copilot context</strong><span>{copilotAvailable ? briefAnswer ? "Graph-grounded context ready" : "Loading graph-grounded context" : "Member context unavailable"}</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
         </button>
         <button className={styles.athleteCard} type="button" data-focus-key="brief-voice" onClick={() => openScreen("voice")}>
-          <span className={styles.athleteAvatar} aria-hidden="true">◉</span><span className={styles.athleteCardBody}><strong>Talk through today</strong><span>Voice is unavailable; continue in text Copilot</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
+          <span className={styles.athleteAvatar} aria-hidden="true">◉</span><span className={styles.athleteCardBody}><strong>Talk through today</strong><span>{copilotAvailable ? "Voice input with review before submit" : "Member context unavailable; continue in text Copilot"}</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
         </button>
         <button className={styles.athleteCard} type="button" data-focus-key="brief-profile" onClick={() => openScreen("profile")}>
           <span className={styles.athleteAvatar} aria-hidden="true">{fixture.member.initials}</span><span className={styles.athleteCardBody}><strong>Athlete profile</strong><span>Injury, goals, preferences, and equipment</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
@@ -1195,39 +1295,96 @@ function WorkoutScreen({ workflow, currentVersion, published, openScreen, openDe
   );
 }
 
-function CopilotScreen({ state, dispatch, ask, submit, openScreen, copilotAvailable }: {
+function CopilotScreen({ state, dispatch, ask, submit, openScreen, speechInput, selectedDate, copilotAvailable }: {
   state: AthleteWorkflowState;
   dispatch: React.Dispatch<DashboardAction>;
   ask: (id: QuickPromptId) => void;
   submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
   openScreen: (screen: NestedScreen, detailId?: string) => void;
+  speechInput: SpeechInputController;
+  selectedDate: string;
   copilotAvailable: boolean;
 }) {
   const fixture = useDashboardViewModel();
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(() => state.capture.transcript);
+  const captureSequence = useRef(0);
   const pending = state.copilot.pending;
   const continuation = state.copilot.lastReadyAnswer?.continuation;
   const lastRequest = state.copilot.lastRequest;
+  const capture = state.capture;
+  const captureScope = capture.scope;
+  const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? state.copilot.lastReadyAnswer;
+  const voiceCaptureActive = capture.scope?.routeId === "copilot"
+    && capture.status !== "idle"
+    && capture.status !== "cancelled";
+  const beginInlineVoice = () => {
+    if (!copilotAvailable || pending) return;
+    speechInput.showDisclosure({
+      memberId: fixture.member.id,
+      routeId: "copilot",
+      contextRevisionId: state.copilot.lastReadyAnswer?.contextRevisionId ?? null,
+      captureId: `copilot:${Date.now()}:${++captureSequence.current}`,
+    });
+  };
+  const startInlineVoice = () => { if (captureScope?.routeId === "copilot") speechInput.start(captureScope); };
+  const cancelInlineVoice = () => speechInput.cancel();
+  const submitTypedQuestion = (event?: React.FormEvent) => {
+    event?.preventDefault();
+    const value = question.trim();
+    if (!value || pending) return;
+    submit({ kind: "free-text", question: value }, value, continuation ? { continuation } : {});
+    speechInput.clear();
+    setQuestion("");
+  };
+  useEffect(() => {
+    if ((capture.scope?.routeId === "voice" || capture.scope?.routeId === "copilot") && capture.transcript) setQuestion(capture.transcript);
+  }, [capture.scope?.captureId, capture.scope?.routeId, capture.status, capture.transcript]);
+  const updateQuestion = (value: string) => {
+    setQuestion(value);
+    if (captureScope) speechInput.setTranscript(captureScope, value);
+  };
   const retry = () => lastRequest && submit(lastRequest.input, lastRequest.promptLabel, lastRequest.continuation ? { continuation: lastRequest.continuation } : {});
   const refresh = () => lastRequest && submit(lastRequest.input, `${lastRequest.promptLabel} refresh`);
+  const taskAction = (task: NonNullable<typeof briefAnswer>["tasks"][number]) => {
+    const input: CopilotQuestionInput = task.actionId === "review-churn-risk"
+      ? { kind: "quick-prompt", promptId: "churn-risk" }
+      : { kind: "quick-prompt", promptId: "morning-brief" };
+    submit(input, task.text, continuation ? { continuation } : {});
+  };
+  const freshness = briefAnswer?.briefFreshness
+    ? `${briefAnswer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(briefAnswer.briefFreshness.generatedFor)}`
+    : "Awaiting fresh context";
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="Copilot">
-      <div><div className={styles.micro}>COPILOT · GRAPH-GROUNDED</div><h1 className={styles.heroTitle}>Member context, ready to inspect</h1></div>
+      <div>
+        <div className={styles.micro}>COPILOT · MORNING WORKBENCH</div>
+        <h1 className={styles.heroTitle}>{fixture.member.name}&apos;s morning workbench</h1>
+        <div className={styles.subtle}>{formatCoachDate(selectedDate)} · {freshness} · {fixture.member.tier}</div>
+      </div>
+      {briefAnswer && briefAnswer.tasks.length > 0 && <section className={styles.taskStack} aria-labelledby="copilot-tasks-title">
+        <div className={styles.sectionLabel} id="copilot-tasks-title">MORNING TASKS</div>
+        {briefAnswer.tasks.map((task) => <article className={styles.taskCard} data-task-id={task.taskId} key={task.taskId}>
+          <div className={styles.taskCardTop}><span className={styles.signalKicker}>{task.taskType === "celebrate" ? "CELEBRATE" : "REVIEW RISK"}</span><span className={styles.micro}>TASK {task.sourceOrder + 1}</span></div>
+          <div className={styles.bodyStrong}>{task.text}</div>
+          <div className={styles.taskCardBottom}><span className={styles.source}>GROUNDED · {task.actionId}</span><button className={styles.textButton} type="button" disabled={Boolean(pending)} onClick={() => taskAction(task)}>Open grounded context →</button></div>
+        </article>)}
+      </section>}
       <button
         className={styles.copilotVoiceCard}
         data-focus-key="copilot-voice"
         type="button"
+        disabled={voiceCaptureActive || Boolean(pending)}
         onClick={() => openScreen("voice")}
         aria-label="Open voice mode"
       >
         <span className={`${styles.signalOrb} ${styles.copilotSignalOrb}`} aria-hidden="true">
           <span className={styles.signalOrbCore}>◉</span>
         </span>
-        <span className={styles.copilotVoiceCopy}>
-          <span className={styles.micro}>VOICE COPILOT</span>
-          <span className={styles.copilotVoiceTitle}>Talk through {fixture.member.name}&apos;s signal</span>
-          <span className={styles.subtle}>Voice transport is unavailable. Continue with the same text workflow.</span>
-          <span className={styles.copilotVoiceAction}>Open voice mode →</span>
+          <span className={styles.copilotVoiceCopy}>
+            <span className={styles.micro}>VOICE COPILOT</span>
+            <span className={styles.copilotVoiceTitle}>Talk through {fixture.member.name}&apos;s signal</span>
+          <span className={styles.subtle}>Dictate, review, and send through the same grounded Copilot request.</span>
+          <span className={styles.copilotVoiceAction}>Open reviewed voice input →</span>
         </span>
       </button>
       <div className={styles.promptRow} aria-label="Copilot quick prompts">
@@ -1244,16 +1401,18 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, copilotAvaila
       {state.copilot.outcome && state.copilot.outcome.status !== "ready" && state.copilot.outcome.status !== "cancelled" && <CopilotOutcomeNotice outcome={state.copilot.outcome} />}
       {state.copilot.outcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={retry}>Retry</button>}
       {state.copilot.outcome?.controls.refresh && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={refresh}>Refresh active revision</button>}
-      {copilotAvailable && <form className={styles.copilotComposer} onSubmit={(event) => {
-        event.preventDefault();
-        const value = question.trim();
-        if (!value) return;
-        submit({ kind: "free-text", question: value }, value, continuation ? { continuation } : {});
-        setQuestion("");
-      }}>
+      {copilotAvailable && <form className={styles.copilotComposer} onSubmit={submitTypedQuestion}>
+        <div className={styles.composerTopline}><span className={styles.micro}>ASK COPILOT</span><span className={styles.subtle}>Typed or voice input · review before submit</span></div>
         <label className={styles.srOnly} htmlFor="copilot-question">Ask about {fixture.member.name}</label>
-        <textarea id="copilot-question" className={styles.textarea} value={question} disabled={Boolean(pending)} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder={`Ask about ${fixture.member.name}…`} />
-        <button className={styles.primaryButton} type="submit" disabled={Boolean(pending) || !question.trim()}>Ask Copilot</button>
+        <div className={styles.composerInputRow}>
+          <textarea id="copilot-question" className={styles.textarea} value={question} disabled={Boolean(pending)} maxLength={500} onChange={(event) => updateQuestion(event.target.value)} placeholder={`Ask about ${fixture.member.name}…`} />
+          <button className={styles.composerMicButton} type="button" disabled={Boolean(pending) || voiceCaptureActive} aria-label="Start voice input" onClick={beginInlineVoice}>◉</button>
+        </div>
+        {capture.status === "disclosure" && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>Before voice input</strong><span>Your browser will request microphone access. The transcript stays editable and is not sent until you submit it.</span><div className={styles.actionRow}><button className={styles.primaryButton} type="button" onClick={startInlineVoice}>Allow microphone &amp; start</button><button className={styles.secondaryButton} type="button" onClick={cancelInlineVoice}>Cancel</button></div></div>}
+        {(capture.status === "requesting-permission" || capture.status === "listening") && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>{capture.status === "listening" ? "Listening" : "Requesting microphone"}</strong><span>{capture.interimTranscript || "Speak naturally; your words will appear in the composer."}</span><button className={styles.secondaryButton} type="button" onClick={cancelInlineVoice}>Stop listening</button></div>}
+        {capture.status === "reviewing" && captureScope?.routeId === "copilot" && <div className={styles.subtle}>Voice transcript ready · edit the question, then choose Ask Copilot.</div>}
+        {capture.status === "over-limit" && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>Question is too long</strong><span>Shorten the dictated question before submitting.</span></div>}
+        <div className={styles.composerActions}><span className={styles.subtle}>{Array.from(question).length}/500 characters</span><button className={styles.primaryButton} type="submit" disabled={Boolean(pending) || !question.trim() || Array.from(question).length > 500}>Ask Copilot</button></div>
       </form>}
     </section>
   );

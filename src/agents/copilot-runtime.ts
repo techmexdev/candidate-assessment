@@ -2,6 +2,7 @@ import type { CopilotModel } from "../application/ports/copilot-model";
 import type { CopilotRuntime, CopilotRuntimeRequest } from "../application/ports/copilot-runtime";
 import {
   COPILOT_QUICK_PROMPT_IDS,
+  COPILOT_MORNING_TASK_ACTION_IDS,
   createCopilotAnswerPacket,
   type CopilotActionId,
   type CopilotAnswerClause,
@@ -9,11 +10,12 @@ import {
   type CopilotAnswerSection,
   type CopilotContinuationClaims,
   type CopilotFactEvidenceAtom,
+  type CopilotMorningTask,
   type CopilotOutcome,
   type CopilotSectionId,
   type SignedCopilotContinuation,
 } from "../domain/contracts/copilot";
-import type { MemberEvidenceProjection, MessageProjection, ObservationEvidenceProjection } from "../domain/contracts/member-context-queries";
+import type { CoachTaskEvidenceProjection, MemberEvidenceProjection, MessageProjection, ObservationEvidenceProjection } from "../domain/contracts/member-context-queries";
 import { deriveChurnRisk } from "../domain/policies/churn-risk";
 import {
   resolveCopilotIntent,
@@ -84,9 +86,10 @@ const actionText: Readonly<Record<CopilotActionId, string>> = {
   "review-churn-risk": "Review the supported churn signals with the member.",
 };
 
-function materialEvidenceIds(packet: Pick<CopilotAnswerPacket, "sections" | "chart" | "churn">): string[] {
+function materialEvidenceIds(packet: Pick<CopilotAnswerPacket, "sections" | "tasks" | "chart" | "churn">): string[] {
   return [...new Set([
     ...packet.sections.flatMap((section) => section.clauses.flatMap((clause) => clause.evidenceIds)),
+    ...packet.tasks.flatMap((task) => task.evidenceIds),
     ...(packet.chart?.points.flatMap((point) => point.evidenceIds) ?? []),
     ...(packet.churn?.derived.evidenceIds ?? []),
     ...(packet.churn?.derived.reasons.flatMap((reason) => reason.evidenceIds) ?? []),
@@ -210,6 +213,23 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
         return { status: "empty", requestId: request.requestId, message: "No supported evidence is available for this answer." };
       }
 
+      const tasks: CopilotMorningTask[] = retrieved.intentId === "morning-brief"
+        ? retrieved.sources.evidence
+          .filter((projection): projection is CoachTaskEvidenceProjection => projection.kind === "coach-task")
+          .sort((left, right) => left.sourceOrder - right.sourceOrder)
+          .flatMap((projection) => {
+            if (projection.taskType !== "celebrate" && projection.taskType !== "review_risk") return [];
+            return [{
+              taskId: `task:${projection.taskType}:${projection.evidenceId}`,
+              taskType: projection.taskType,
+              actionId: COPILOT_MORNING_TASK_ACTION_IDS[projection.taskType],
+              text: projection.text,
+              evidenceIds: [projection.evidenceId],
+              sourceOrder: projection.sourceOrder,
+            }];
+          })
+        : [];
+
       let chart: CopilotAnswerPacket["chart"] = null;
       if (retrieved.recipe.chart) {
         const chartSources = retrieved.recipe.chart.temporalMode === "calendar"
@@ -243,7 +263,7 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
         sourceAssessment: retrieved.sources.sourceChurnAssessment,
         sourceReasons: retrieved.sources.sourceChurnReasons,
       }) : null;
-      const partial = { sections, chart, churn };
+      const partial = { sections, tasks, chart, churn };
       const selectedEvidenceIds = materialEvidenceIds(partial);
       const issuedAt = now();
       const claims: CopilotContinuationClaims = {
@@ -276,6 +296,7 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
         authority: retrieved.authority,
         evidence: { memberId: retrieved.memberId, contextRevisionId: retrieved.contextRevisionId, authority: retrieved.authority, atoms: retrieved.evidence },
         sections,
+        tasks,
         chart,
         citations: retrieved.citations.filter((citation) => selectedEvidenceIds.includes(citation.evidenceId)),
         churn,

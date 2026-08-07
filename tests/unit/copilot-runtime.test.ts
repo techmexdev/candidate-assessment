@@ -6,6 +6,7 @@ import type { CopilotRetrievalReady } from "../../src/agents/tools/member-contex
 import { COPILOT_INTENT_REGISTRY } from "../../src/domain/policies/copilot-retrieval-plan";
 import type {
   CitationProjection,
+  CoachTaskEvidenceProjection,
   MemberContextQueryResult,
   MemberContextReadHandle,
   MessageProjection,
@@ -33,12 +34,25 @@ const observation: ObservationEvidenceProjection = {
   sourceOrder: 0,
 };
 
+const morningTask: CoachTaskEvidenceProjection = {
+  evidenceId: "assertion:task111111111111",
+  assertionId: "assertion:task111111111111",
+  semanticId: "coach-task:celebrate",
+  kind: "coach-task",
+  source,
+  classification: "observation",
+  temporal: { precision: "date", effectiveOn: "2026-06-04" },
+  taskType: "celebrate",
+  text: "Celebrate the completed training streak.",
+  sourceOrder: 0,
+};
+
 const handle = {
   ...scope,
   coachId: "coach_casey",
 } as MemberContextReadHandle;
 
-function retrieved(intentId: "adherence" | "churn-risk" = "adherence"): CopilotRetrievalReady {
+function retrieved(intentId: "adherence" | "churn-risk" | "morning-brief" = "adherence"): CopilotRetrievalReady {
   const recipe = COPILOT_INTENT_REGISTRY[intentId];
   return {
     status: "ready",
@@ -50,9 +64,15 @@ function retrieved(intentId: "adherence" | "churn-risk" = "adherence"): CopilotR
     evidenceAsOf: "2026-06-04T23:59:59.999-07:00",
     memberTimezone: "America/Los_Angeles",
     briefFreshness: null,
-    evidence: [{ ...scope, atomKind: "fact", evidenceId: observation.evidenceId, evidenceKind: observation.kind, source, classification: observation.classification, temporal: observation.temporal, value: observation.value, unit: observation.unit }],
-    citations: [{ ...scope, citationId: "citation:1", evidenceId: observation.evidenceId, label: source.locator, source, classification: observation.classification, temporal: observation.temporal, unit: observation.unit }],
-    sources: { evidence: [observation], longitudinal: [observation], relativeSequence: [], conversations: [], brief: null, workouts: [], sourceChurnAssessment: null, sourceChurnReasons: [] },
+    evidence: [
+      { ...scope, atomKind: "fact", evidenceId: observation.evidenceId, evidenceKind: observation.kind, source, classification: observation.classification, temporal: observation.temporal, value: observation.value, unit: observation.unit },
+      ...(intentId === "morning-brief" ? [{ ...scope, atomKind: "fact" as const, evidenceId: morningTask.evidenceId, evidenceKind: morningTask.kind, source, classification: morningTask.classification, temporal: morningTask.temporal, value: morningTask.text, unit: null }] : []),
+    ],
+    citations: [
+      { ...scope, citationId: "citation:1", evidenceId: observation.evidenceId, label: source.locator, source, classification: observation.classification, temporal: observation.temporal, unit: observation.unit },
+      ...(intentId === "morning-brief" ? [{ ...scope, citationId: "citation:task", evidenceId: morningTask.evidenceId, label: "/coach-brief/task/0", source, classification: morningTask.classification, temporal: morningTask.temporal, unit: null }] : []),
+    ],
+    sources: { evidence: intentId === "morning-brief" ? [observation, morningTask] : [observation], longitudinal: [observation], relativeSequence: [], conversations: [], brief: null, workouts: [], sourceChurnAssessment: null, sourceChurnReasons: [] },
   };
 }
 
@@ -69,7 +89,7 @@ function runtimeHarness(overrides: Record<string, unknown> = {}) {
       : selection.kind === "quick-prompt"
         ? selection.promptId
         : "adherence";
-    return retrieved(selected as "adherence");
+    return retrieved(selected as "adherence" | "morning-brief");
   });
   const runtime = createCopilotRuntime({
     model,
@@ -163,6 +183,17 @@ describe("bounded Copilot runtime", () => {
     const result = await runtime.answer(request({ kind: "quick-prompt", promptId: "adherence" }));
     expect(result.status).toBe("ready");
     expect(model.select).not.toHaveBeenCalled();
+  });
+
+  it("projects morning tasks with canonical action identities and cited coach-task evidence", async () => {
+    const { runtime } = runtimeHarness({ retrieve: vi.fn(async () => retrieved("morning-brief")) });
+    const result = await runtime.answer(request({ kind: "quick-prompt", promptId: "morning-brief" }));
+    expect(result).toMatchObject({
+      status: "ready",
+      answer: {
+        tasks: [{ taskType: "celebrate", actionId: "celebrate-progress", text: morningTask.text, sourceOrder: 0, evidenceIds: [morningTask.evidenceId] }],
+      },
+    });
   });
 
   it("renders a coach-authored message with the Coach role label", async () => {

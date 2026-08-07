@@ -1,5 +1,7 @@
 import {
   COPILOT_CANONICAL_INTENT_IDS,
+  COPILOT_MORNING_TASK_ACTION_IDS,
+  COPILOT_MORNING_TASK_TYPE_IDS,
   COPILOT_SECTION_IDS,
   createCopilotAnswerPacket,
   type CopilotAnswerClause,
@@ -12,6 +14,7 @@ import {
   type CopilotDerivedChurnAssessment,
   type CopilotEvidenceAtom,
   type CopilotEvidencePack,
+  type CopilotMorningTask,
   type CopilotQuickPromptId,
   type CopilotScopeEnvelope,
   type CopilotSourceChurnAssessment,
@@ -365,6 +368,26 @@ function decodeSection(value: unknown): CopilotAnswerSection | null {
   return clauses ? { sectionId: value.sectionId, clauses } : null;
 }
 
+function decodeMorningTask(value: unknown): CopilotMorningTask | null {
+  if (!record(value)
+    || typeof value.taskId !== "string"
+    || !oneOf(value.taskType, COPILOT_MORNING_TASK_TYPE_IDS)
+    || !oneOf(value.actionId, Object.values(COPILOT_MORNING_TASK_ACTION_IDS))
+    || typeof value.text !== "string"
+    || !Number.isInteger(value.sourceOrder)
+    || (value.sourceOrder as number) < 0) return null;
+  const evidenceIds = stringArray(value.evidenceIds);
+  if (!evidenceIds || COPILOT_MORNING_TASK_ACTION_IDS[value.taskType] !== value.actionId) return null;
+  return {
+    taskId: value.taskId,
+    taskType: value.taskType,
+    actionId: value.actionId,
+    text: value.text,
+    evidenceIds,
+    sourceOrder: value.sourceOrder as number,
+  };
+}
+
 function decodeChartPoint(value: unknown): CopilotChartPoint | null {
   if (!record(value) || typeof value.pointId !== "string" || typeof value.label !== "string" || typeof value.value !== "number" || !Number.isFinite(value.value)) return null;
   const evidenceIds = stringArray(value.evidenceIds);
@@ -499,13 +522,14 @@ function decodeAnswerPacket(value: unknown): CopilotAnswerPacket | null {
     || typeof value.memberTimezone !== "string") return null;
   const evidence = decodeEvidencePack(value.evidence);
   const sections = decodedArray(value.sections, decodeSection);
+  const tasks = decodedArray(value.tasks, decodeMorningTask);
   const citations = decodedArray(value.citations, decodeCitation);
   const chart = value.chart === null ? null : decodeChart(value.chart);
   const churn = value.churn === null ? null : decodeChurn(value.churn);
   const continuation = decodeContinuation(value.continuation);
   const briefFreshness = decodeBriefFreshness(value.briefFreshness);
-  if (!evidence || !sections || !citations || (value.chart !== null && !chart) || (value.churn !== null && !churn) || !continuation || briefFreshness === undefined) return null;
-  return { ...scope, schemaVersion: value.schemaVersion, requestId: value.requestId, answerId: value.answerId, intentId: value.intentId, requestedFor: value.requestedFor, evidenceAsOf: value.evidenceAsOf, memberTimezone: value.memberTimezone, briefFreshness, evidence, sections, chart, citations, churn, continuation };
+  if (!evidence || !sections || !tasks || !citations || (value.chart !== null && !chart) || (value.churn !== null && !churn) || !continuation || briefFreshness === undefined) return null;
+  return { ...scope, schemaVersion: value.schemaVersion, requestId: value.requestId, answerId: value.answerId, intentId: value.intentId, requestedFor: value.requestedFor, evidenceAsOf: value.evidenceAsOf, memberTimezone: value.memberTimezone, briefFreshness, evidence, sections, tasks, chart, citations, churn, continuation };
 }
 
 function unavailable(requestId: string): DashboardCopilotOutcome {

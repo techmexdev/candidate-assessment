@@ -65,6 +65,7 @@ export type SpeechInputController = {
   readonly start: (scope: SpeechCaptureScope) => boolean;
   readonly setTranscript: (scope: SpeechCaptureScope, transcript: string) => boolean;
   readonly submit: (scope: SpeechCaptureScope) => { readonly kind: "free-text"; readonly question: string } | null;
+  readonly stop: () => void;
   readonly cancel: () => void;
   readonly clear: () => void;
   readonly dispose: () => void;
@@ -356,6 +357,8 @@ export function createSpeechInputController(options: {
     });
   };
 
+  const stop = () => detachRecognizer(false);
+
   const clear = () => {
     detachRecognizer(true);
     activeScope = null;
@@ -373,6 +376,7 @@ export function createSpeechInputController(options: {
     start,
     setTranscript,
     submit,
+    stop,
     cancel,
     clear,
     dispose: () => {

@@ -243,8 +243,7 @@
   cursor: not-allowed;
 }
 
-.backButton,
-.todayProfileBack {
+.backButton {
   width: 44px;
   height: 44px;
   padding: 0;
@@ -890,6 +889,31 @@
   scrollbar-width: none;
 }
 
+.taskStack { display: grid; gap: 10px; }
+
+.taskCard {
+  display: grid;
+  gap: 9px;
+  padding: 14px 16px;
+  border: 1px solid var(--ax-line);
+  border-radius: 16px;
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
+}
+
+.taskCardTop,
+.taskCardBottom,
+.composerTopline,
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.taskCardBottom { align-items: baseline; }
+.taskCardBottom .source { margin-top: 0; }
+
 .copilotVoiceCard {
   min-height: 112px;
   padding: 14px 16px;
@@ -910,6 +934,7 @@
 
 .copilotVoiceCard:hover { border-color: var(--ax-line-strong); }
 .copilotVoiceCard:active { transform: scale(.99); }
+.copilotVoiceCard:disabled { cursor: default; opacity: .62; }
 
 .copilotSignalOrb {
   width: 68px;

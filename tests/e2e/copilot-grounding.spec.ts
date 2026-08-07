@@ -37,6 +37,10 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
   const scope = { memberId: body.memberId, contextRevisionId: revision, authority: "canonical" as const };
   const temporal = { precision: "date" as const, effectiveOn: "2026-06-04" };
   const source = { locator: "/synthetic/evidence", artifactDigest: `sha256:${"a".repeat(64)}` };
+  const taskEvidence = intentId === "morning-brief" ? [
+    { ...scope, atomKind: "fact" as const, evidenceId: `${evidenceId}:celebrate`, evidenceKind: "coach-task" as const, source, classification: "observation" as const, temporal, unit: null, value: "Celebrate the completed training streak." },
+    { ...scope, atomKind: "fact" as const, evidenceId: `${evidenceId}:risk`, evidenceKind: "coach-task" as const, source, classification: "observation" as const, temporal, unit: null, value: "Review the missed session risk." },
+  ] : [];
   const continuation = await continuationAuthority.sign({
     schemaVersion: "copilot-continuation-claims/v1",
     coachId: COACH_ID,
@@ -62,11 +66,15 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
       evidenceAsOf: "2026-06-04T23:59:59.999-05:00",
       memberTimezone: "America/Chicago",
       briefFreshness: intentId === "morning-brief" ? { status: "latest-recorded", generatedFor: "2026-06-04" } : null,
-      evidence: { ...scope, atoms: [{ ...scope, atomKind: "fact", evidenceId, evidenceKind: "observation", source, classification: "observation", temporal, unit: "percent", value: 50 }] },
+      evidence: { ...scope, atoms: [{ ...scope, atomKind: "fact", evidenceId, evidenceKind: "observation", source, classification: "observation", temporal, unit: "percent", value: 50 }, ...taskEvidence] },
       sections: [
         { sectionId: "answer", clauses: [{ clauseId: `clause:${answerId}`, text: `${intentId} grounded answer ${answerId}.`, evidenceIds: [evidenceId] }] },
         { sectionId: "next-action", clauses: [{ clauseId: `action:${answerId}`, text: "Review the supported evidence with the member.", evidenceIds: [evidenceId] }] },
       ],
+      tasks: taskEvidence.length === 2 ? [
+        { taskId: `${evidenceId}:task:celebrate`, taskType: "celebrate" as const, actionId: "celebrate-progress" as const, text: String(taskEvidence[0].value), evidenceIds: [taskEvidence[0].evidenceId], sourceOrder: 0 },
+        { taskId: `${evidenceId}:task:risk`, taskType: "review_risk" as const, actionId: "review-churn-risk" as const, text: String(taskEvidence[1].value), evidenceIds: [taskEvidence[1].evidenceId], sourceOrder: 1 },
+      ] : [],
       chart: intentId === "sleep" || intentId === "adherence" ? {
         ...scope,
         chartId: `chart:${answerId}`,
@@ -83,7 +91,10 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
           : [{ pointId: `point:${answerId}`, label: "Jun 4", value: 50, evidenceIds: [evidenceId] }],
         textSummary: options.allZeroChart ? "May 28: 0 percent. Jun 4: 0 percent." : "Jun 4: 50 percent.",
       } : null,
-      citations: [{ ...scope, citationId: `citation:${answerId}`, evidenceId, label: "Synthetic source", source, classification: "observation", temporal, unit: "percent" }],
+      citations: [
+        { ...scope, citationId: `citation:${answerId}`, evidenceId, label: "Synthetic source", source, classification: "observation", temporal, unit: "percent" },
+        ...taskEvidence.map((task) => ({ ...scope, citationId: `citation:${task.evidenceId}`, evidenceId: task.evidenceId, label: "Synthetic coach task", source, classification: "observation" as const, temporal, unit: null })),
+      ],
       churn: intentId === "morning-brief" || intentId === "churn-risk" ? {
         derived: {
           ...scope,
@@ -137,7 +148,7 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   for (const [label, promptId] of [
     ["Adherence", "adherence"],
     ["Sleep", "sleep"],
-    ["Wk over wk", "changes-since-last-week"],
+    ["What changed since last week?", "changes-since-last-week"],
     ["Churn risk", "churn-risk"],
   ] as const) {
     const requestIndex = seen.length;
@@ -237,7 +248,7 @@ test("other athletes and voice fail truthfully without fixture answers", async (
   await expect(page.getByRole("status").filter({ hasText: "Member context unavailable" })).toBeVisible();
   await page.getByRole("button", { name: /Talk through today/ }).click();
   await expect(page.getByText("Continue in text Copilot")).toBeVisible();
-  await expect(page.getByText(/graph-backed voice answer will be generated/i)).toBeVisible();
+  await expect(page.getByText(/Voice capture is disabled/i)).toBeVisible();
   expect(requests).toBe(0);
 });
 

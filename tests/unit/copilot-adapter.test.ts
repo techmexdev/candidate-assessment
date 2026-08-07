@@ -59,6 +59,7 @@ function readyAnswer(requestId = "request:1", answerId = "answer:1"): CopilotAns
       }],
     },
     sections: [{ sectionId: "answer", clauses: [{ clauseId: "clause:1", text: "Completion was 50%.", evidenceIds: ["evidence:1"] }] }],
+    tasks: [],
     chart: null,
     citations: [{
       memberId: "mbr_01HX9JORDAN",

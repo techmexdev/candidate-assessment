@@ -1,4 +1,4 @@
-import { sameScope, type CopilotAnswerPacket } from "../../domain/contracts/copilot";
+import { COPILOT_MORNING_TASK_ACTION_IDS, COPILOT_MORNING_TASK_TYPE_IDS, sameScope, type CopilotAnswerPacket } from "../../domain/contracts/copilot";
 import type { CopilotIntentRecipe } from "../../domain/policies/copilot-retrieval-plan";
 
 export type CopilotAnswerValidationResult =
@@ -11,6 +11,7 @@ export type CopilotAnswerValidationResult =
         | "evidence-kind-mismatch"
         | "citation-missing"
         | "chart-invalid"
+        | "task-invalid"
         | "quote-not-exact";
     };
 
@@ -51,6 +52,26 @@ export function validateCopilotAnswer(
           }
         }
       }
+    }
+  }
+
+  const taskIds = new Set<string>();
+  for (const task of packet.tasks) {
+    if (taskIds.has(task.taskId)
+      || !task.text.trim()
+      || task.evidenceIds.length === 0
+      || !Number.isInteger(task.sourceOrder)
+      || task.sourceOrder < 0
+      || !COPILOT_MORNING_TASK_TYPE_IDS.includes(task.taskType)
+      || COPILOT_MORNING_TASK_ACTION_IDS[task.taskType] !== task.actionId) {
+      return { status: "rejected", code: "task-invalid" };
+    }
+    taskIds.add(task.taskId);
+    for (const evidenceId of task.evidenceIds) {
+      const atom = atoms.get(evidenceId);
+      if (!atom) return { status: "rejected", code: "unknown-evidence" };
+      if (atom.evidenceKind !== "coach-task") return { status: "rejected", code: "task-invalid" };
+      if (!cited.has(evidenceId)) return { status: "rejected", code: "citation-missing" };
     }
   }
 

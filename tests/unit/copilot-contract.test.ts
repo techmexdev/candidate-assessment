@@ -71,6 +71,7 @@ function packetInput(revision: string = scope.contextRevisionId) {
       sectionId: "answer",
       clauses: [{ clauseId: "clause_1", text: "Completion was 50%.", evidenceIds: [atom.evidenceId] }],
     }],
+    tasks: [],
     chart: {
       ...scope,
       contextRevisionId: revision,

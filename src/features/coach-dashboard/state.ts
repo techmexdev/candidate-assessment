@@ -113,7 +113,7 @@ export type DashboardAction =
   | { type: "select-destination"; destination: DashboardDestination }
   | { type: "select-athlete"; memberId: string; focusKey?: string }
   | { type: "push-route"; route: Exclude<AthleteRoute, { id: "brief" }> }
-  | { type: "pop-route" }
+  | { type: "pop-route"; preserveCapture?: boolean }
   | { type: "open-adjustment" }
   | { type: "open-override"; decisionId: DashboardDecisionId }
   | { type: "set-draft-duration"; duration: number }
@@ -211,11 +211,11 @@ function isPublished(workflow: AthleteWorkflowState) {
   return workflow.publicationEvents.length > 0;
 }
 
-function cancelPending(workflow: AthleteWorkflowState): AthleteWorkflowState {
+function cancelPending(workflow: AthleteWorkflowState, options: { preserveCapture?: boolean } = {}): AthleteWorkflowState {
   const generationPending = ["submitting", "queued", "running"].includes(workflow.runtimeGeneration.status);
-  const capturePending = workflow.capture.status !== "idle"
+  const capturePending = !options.preserveCapture && (workflow.capture.status !== "idle"
     || Boolean(workflow.capture.transcript)
-    || Boolean(workflow.capture.interimTranscript);
+    || Boolean(workflow.capture.interimTranscript));
   if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !capturePending) return workflow;
   return {
     ...workflow,
@@ -333,7 +333,7 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
         return { ...leaveActiveRoute(state), destination: "today", announcement: "Today restored." };
       }
       {
-        const cancelled = updateActiveAthlete(state, cancelPending);
+        const cancelled = updateActiveAthlete(state, (workflow) => cancelPending(workflow, { preserveCapture: action.preserveCapture }));
         return {
           ...cancelled,
           routeStack: state.routeStack.slice(0, -1),

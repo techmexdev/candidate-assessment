@@ -38,6 +38,14 @@ export const COPILOT_ACTION_IDS = [
 ] as const;
 export type CopilotActionId = (typeof COPILOT_ACTION_IDS)[number];
 
+export const COPILOT_MORNING_TASK_TYPE_IDS = ["celebrate", "review_risk"] as const;
+export type CopilotMorningTaskType = (typeof COPILOT_MORNING_TASK_TYPE_IDS)[number];
+
+export const COPILOT_MORNING_TASK_ACTION_IDS: Readonly<Record<CopilotMorningTaskType, CopilotActionId>> = {
+  celebrate: "celebrate-progress",
+  review_risk: "review-churn-risk",
+};
+
 export type CopilotQuestionInput =
   | { readonly kind: "quick-prompt"; readonly promptId: CopilotQuickPromptId }
   | { readonly kind: "free-text"; readonly question: string };
@@ -118,6 +126,15 @@ export type CopilotAnswerClause = {
 export type CopilotAnswerSection = {
   readonly sectionId: CopilotSectionId;
   readonly clauses: readonly CopilotAnswerClause[];
+};
+
+export type CopilotMorningTask = {
+  readonly taskId: string;
+  readonly taskType: CopilotMorningTaskType;
+  readonly actionId: CopilotActionId;
+  readonly text: string;
+  readonly evidenceIds: readonly string[];
+  readonly sourceOrder: number;
 };
 
 export type CopilotChartPoint = {
@@ -202,6 +219,7 @@ export type CopilotAnswerPacket = CopilotScopeEnvelope & {
   readonly briefFreshness: CopilotBriefFreshness | null;
   readonly evidence: CopilotEvidencePack;
   readonly sections: readonly CopilotAnswerSection[];
+  readonly tasks: readonly CopilotMorningTask[];
   readonly chart: CopilotChart | null;
   readonly citations: readonly CopilotCitation[];
   readonly churn: CopilotChurnView | null;
@@ -321,6 +339,23 @@ export function createCopilotAnswerPacket(input: CopilotAnswerPacket): CopilotAn
   }
   for (const section of input.sections) {
     for (const clause of section.clauses) requireKnownEvidence(clause.evidenceIds, knownEvidence, "Answer clause");
+  }
+  const taskIds = new Set<string>();
+  for (const task of input.tasks) {
+    requireNonEmpty(task.taskId, "Morning task ID");
+    requireNonEmpty(task.text, "Morning task text");
+    if (taskIds.has(task.taskId)) throw new Error("Morning task IDs must be unique.");
+    taskIds.add(task.taskId);
+    if (!COPILOT_MORNING_TASK_TYPE_IDS.includes(task.taskType)
+      || COPILOT_MORNING_TASK_ACTION_IDS[task.taskType] !== task.actionId
+      || !Number.isInteger(task.sourceOrder)
+      || task.sourceOrder < 0) {
+      throw new Error("Morning task identity is not canonical.");
+    }
+    requireKnownEvidence(task.evidenceIds, knownEvidence, "Morning task");
+    if (task.evidenceIds.some((evidenceId) => input.evidence.atoms.find((atom) => atom.evidenceId === evidenceId)?.evidenceKind !== "coach-task")) {
+      throw new Error("Morning tasks must reference coach-task evidence.");
+    }
   }
   if (input.chart) {
     requireSameScope(input, input.chart);
