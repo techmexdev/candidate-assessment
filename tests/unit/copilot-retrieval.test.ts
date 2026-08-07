@@ -176,6 +176,7 @@ describe("Copilot bounded retrieval", () => {
     });
     expect(reauthorize).toHaveBeenCalledTimes(COPILOT_INTENT_REGISTRY.sleep.readBudget);
     expect(handle.getEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      evidenceKinds: ["member-profile"],
       limit: expect.any(Number),
       timeoutMs: COPILOT_INTENT_REGISTRY.sleep.timeoutMs,
     }));
@@ -261,6 +262,11 @@ describe("Copilot bounded retrieval", () => {
         contextRevisionId: snapshot.contextRevisionId,
       });
       expect(reauthorize, promptId).toHaveBeenCalledTimes(COPILOT_INTENT_REGISTRY[promptId as keyof typeof COPILOT_INTENT_REGISTRY].readBudget);
+      if (promptId === "changes-since-last-week" && result.status === "ready") {
+        expect(result.evidence.map((atom) => atom.evidenceKind)).toContain("preference");
+        expect(result.citations.map((citation) => citation.evidenceId))
+          .toEqual(expect.arrayContaining(result.evidence.map((atom) => atom.evidenceId)));
+      }
     }
   });
 });

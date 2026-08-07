@@ -108,4 +108,70 @@ describe("production isolation check", () => {
       "scripts/seed-member.ts references test fixture builder ../tests/fixtures/member-builder",
     );
   });
+
+  it.each([
+    [
+      "the Member Context seed",
+      "../../../data/member-context.json",
+      "data/member-context.json",
+      "{}",
+    ],
+    [
+      "the full dashboard fixture adapter",
+      "../../features/coach-dashboard/fixture-adapter",
+      "src/features/coach-dashboard/fixture-adapter.ts",
+      "export const fixtureAdapter = {};",
+    ],
+    [
+      "a graph publisher",
+      "../../graph/publication/neo4j-member-context-publisher",
+      "src/graph/publication/neo4j-member-context-publisher.ts",
+      "export const publisher = {};",
+    ],
+    [
+      "a raw Cypher module",
+      "../../graph/cypher/member-context",
+      "src/graph/cypher/member-context.ts",
+      "export const query = 'MATCH (n) RETURN n';",
+    ],
+  ] as const)("rejects connected Copilot imports of %s", async (_name, specifier, target, contents) => {
+    const result = await check(await fixture({
+      "src/server/copilot/composition.ts": `import ${JSON.stringify(specifier)}; export const composition = {};`,
+      [target]: contents,
+    }));
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(`src/server/copilot/composition.ts references Copilot-restricted module ${specifier}`);
+  });
+
+  it("rejects raw Cypher authored inside a connected Copilot boundary", async () => {
+    const result = await check(await fixture({
+      "src/app/api/copilot/route.ts": 'export const query = "MATCH (member:Member) RETURN member";',
+    }));
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("src/app/api/copilot/route.ts contains raw Cypher");
+  });
+
+  it("rejects a Copilot-restricted dependency hidden behind a production re-export", async () => {
+    const result = await check(await fixture({
+      "src/server/copilot/composition.ts": 'import "../../lib/copilot-bridge"; export const composition = {};',
+      "src/lib/copilot-bridge.ts": 'export { fixture } from "../features/coach-dashboard/fixture-adapter";',
+      "src/features/coach-dashboard/fixture-adapter.ts": "export const fixture = {};",
+    }));
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(
+      "src/lib/copilot-bridge.ts references Copilot-restricted module ../features/coach-dashboard/fixture-adapter",
+    );
+  });
+
+  it("allows the explicit non-Copilot synthetic dashboard base", async () => {
+    const result = await check(await fixture({
+      "src/features/coach-dashboard/ConnectedCoachDashboard.tsx": 'import { syntheticDashboardBase } from "./synthetic-dashboard-base"; export default syntheticDashboardBase;',
+      "src/features/coach-dashboard/synthetic-dashboard-base.ts": "export const syntheticDashboardBase = { athletes: [] };",
+    }));
+
+    expect(result).toMatchObject({ code: 0 });
+  });
 });

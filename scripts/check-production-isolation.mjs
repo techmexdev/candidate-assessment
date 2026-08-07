@@ -7,6 +7,10 @@ const root = await realpath(process.cwd());
 const checkerFile = await realpath(fileURLToPath(import.meta.url));
 const prototypeRoot = await canonicalPath(path.join(root, "ui"));
 const testFixtureRoot = await canonicalPath(path.join(root, "tests", "fixtures"));
+const memberContextSeed = await canonicalPath(path.join(root, "data", "member-context.json"));
+const dashboardFixtureAdapter = await canonicalPath(path.join(root, "src", "features", "coach-dashboard", "fixture-adapter"));
+const graphPublicationRoot = await canonicalPath(path.join(root, "src", "graph", "publication"));
+const graphCypherRoot = await canonicalPath(path.join(root, "src", "graph", "cypher"));
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".css"]);
 const resolutionExtensions = [...sourceExtensions, ".json"];
 const bannedText = [
@@ -92,6 +96,17 @@ function staticJavaScriptSpecifiers(source) {
   return specifiers;
 }
 
+function staticRuntimeJavaScriptSpecifiers(source) {
+  const typeOnly = new Set();
+  for (const pattern of [
+    /\bimport\s+type\s+[\s\S]*?\s+from\s+["']([^"']+)["']/g,
+    /\bexport\s+type\s+[\s\S]*?\s+from\s+["']([^"']+)["']/g,
+  ]) {
+    for (const match of source.matchAll(pattern)) typeOnly.add(match[1]);
+  }
+  return staticJavaScriptSpecifiers(source).filter((specifier) => !typeOnly.has(specifier));
+}
+
 function staticCssSpecifiers(source) {
   const specifiers = [];
   const importPattern = /@import\s+(?:url\(\s*)?(?:"([^"]+)"|'([^']+)')/gi;
@@ -171,9 +186,62 @@ async function restrictedReference(file, specifier, aliases, restrictedRoot) {
   return false;
 }
 
+function isCopilotBoundary(relativeFile) {
+  const normalized = relativeFile.split(path.sep).join("/");
+  return normalized.startsWith("src/app/api/copilot/")
+    || normalized.startsWith("src/server/copilot/")
+    || normalized.startsWith("src/agents/copilot/")
+    || normalized === "src/agents/copilot-runtime.ts"
+    || /^src\/features\/coach-dashboard\/(?:ConnectedCoachDashboard|production-adapter)\.[^.]+$/.test(normalized)
+    || /^src\/app\/page\.[^.]+$/.test(normalized);
+}
+
+async function isCopilotRestrictedReference(file, specifier, aliases) {
+  for (const candidate of candidatesForSpecifier(file, specifier, aliases)) {
+    for (const resolvedCandidate of resolutionCandidates(candidate)) {
+      const resolved = await canonicalPath(resolvedCandidate);
+      if (resolved === memberContextSeed
+        || resolved === `${dashboardFixtureAdapter}.js`
+        || resolved === `${dashboardFixtureAdapter}.jsx`
+        || resolved === `${dashboardFixtureAdapter}.ts`
+        || resolved === `${dashboardFixtureAdapter}.tsx`
+        || isWithin(resolved, graphPublicationRoot)
+        || isWithin(resolved, graphCypherRoot)) return true;
+    }
+  }
+  return false;
+}
+
+async function resolvedReferencePaths(file, specifier, aliases) {
+  const resolved = [];
+  for (const candidate of candidatesForSpecifier(file, specifier, aliases)) {
+    for (const resolvedCandidate of resolutionCandidates(candidate)) {
+      resolved.push(await canonicalPath(resolvedCandidate));
+    }
+  }
+  return resolved;
+}
+
+function isTransitiveCopilotRestriction(resolved) {
+  return resolved === memberContextSeed
+    || resolved === `${dashboardFixtureAdapter}.js`
+    || resolved === `${dashboardFixtureAdapter}.jsx`
+    || resolved === `${dashboardFixtureAdapter}.ts`
+    || resolved === `${dashboardFixtureAdapter}.tsx`
+    || isWithin(resolved, graphPublicationRoot);
+}
+
+function containsRawCypher(source) {
+  return /\b(?:MATCH|MERGE|CREATE|DETACH\s+DELETE|DELETE|SET)\s+(?:\(|[A-Za-z_$])/m.test(source);
+}
+
 const aliases = await configuredAliases();
 const failures = [];
-for (const file of await productionFiles()) {
+const productionFileList = await productionFiles();
+const productionFileByCanonicalPath = new Map(await Promise.all(productionFileList.map(async (file) => [await canonicalPath(file), file])));
+const specifiersByFile = new Map();
+const runtimeSpecifiersByFile = new Map();
+for (const file of productionFileList) {
   const source = await readFile(file, "utf8");
   const relativeFile = path.relative(root, file);
   if (await canonicalPath(file) !== checkerFile) {
@@ -181,18 +249,50 @@ for (const file of await productionFiles()) {
       if (source.includes(text)) failures.push(`${relativeFile} contains ${text}`);
     }
   }
+  const copilotBoundary = isCopilotBoundary(relativeFile);
+  if (copilotBoundary && containsRawCypher(source)) {
+    failures.push(`${relativeFile} contains raw Cypher`);
+  }
 
   const specifiers = isSourceFile(file)
     ? path.extname(file).toLowerCase() === ".css"
       ? staticCssSpecifiers(source)
       : staticJavaScriptSpecifiers(source)
     : [];
+  specifiersByFile.set(file, specifiers);
+  runtimeSpecifiersByFile.set(file, !isSourceFile(file)
+    ? []
+    : path.extname(file).toLowerCase() === ".css"
+      ? specifiers
+      : staticRuntimeJavaScriptSpecifiers(source));
   for (const specifier of specifiers) {
     if (await restrictedReference(file, specifier, aliases, prototypeRoot)) {
       failures.push(`${relativeFile} references prototype archive ${specifier}`);
     }
     if (await restrictedReference(file, specifier, aliases, testFixtureRoot)) {
       failures.push(`${relativeFile} references test fixture builder ${specifier}`);
+    }
+    if (copilotBoundary && await isCopilotRestrictedReference(file, specifier, aliases)) {
+      failures.push(`${relativeFile} references Copilot-restricted module ${specifier}`);
+    }
+  }
+}
+
+
+const reachable = productionFileList.filter((file) => isCopilotBoundary(path.relative(root, file)));
+const visited = new Set();
+while (reachable.length > 0) {
+  const file = reachable.shift();
+  const canonicalFile = await canonicalPath(file);
+  if (visited.has(canonicalFile)) continue;
+  visited.add(canonicalFile);
+  for (const specifier of runtimeSpecifiersByFile.get(file) ?? []) {
+    for (const resolved of await resolvedReferencePaths(file, specifier, aliases)) {
+      if (isTransitiveCopilotRestriction(resolved)) {
+        failures.push(`${path.relative(root, file)} references Copilot-restricted module ${specifier}`);
+      }
+      const dependency = productionFileByCanonicalPath.get(resolved);
+      if (dependency && !visited.has(resolved)) reachable.push(dependency);
     }
   }
 }
@@ -201,5 +301,5 @@ if (failures.length > 0) {
   console.error(`Production isolation failed:\n${[...new Set(failures)].map((failure) => `- ${failure}`).join("\n")}`);
   process.exitCode = 1;
 } else {
-  console.log("Production isolation passed: production sources and inputs have no prototype or test-fixture dependency.");
+  console.log("Production isolation passed: production sources and connected Copilot boundaries contain no prototype, test-fixture, fixture-Copilot, graph-write, or raw-Cypher dependency.");
 }

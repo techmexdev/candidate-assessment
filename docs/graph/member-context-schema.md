@@ -1,6 +1,6 @@
 # Member Context knowledge graph
 
-The Member Context graph is the canonical, revisioned retrieval substrate for one fictional member world. Its only seed is the tracked `data/member-context.json`; `data/member-context-avery.json`, `data/member-context-morgan.json`, globs, and directory discovery are deliberately outside this path. The source is synthetic only, the graph is not clinically validated, image contents are not analyzed, and Copilot is not implemented. No real member data or PHI belongs in this pipeline.
+The Member Context graph is the canonical, revisioned retrieval substrate for one fictional member world. Its only seed is the tracked `data/member-context.json`; `data/member-context-avery.json`, `data/member-context-morgan.json`, globs, and directory discovery are deliberately outside this path. The source is synthetic only, the graph is not clinically validated, image contents are not analyzed, and the graph layer does not itself generate Copilot answers. No real member data or PHI belongs in this pipeline.
 
 ## Architecture and graph boundary
 
@@ -180,7 +180,39 @@ A later workout or Copilot consumer follows this pin-and-cite sequence:
 4. Any persisted downstream Decision or Run records the member context revision plus contributing assertion/evidence IDs.
 5. If the revision becomes stale, the workflow restarts deliberately; it never mixes revisions in one answer or recommendation.
 
-The graph makes grounded retrieval possible but does not generate answers, rank passages, authenticate users, create charts, stream tokens, or deliver workouts. Semantic indexes are deferred: full-text search, vector indexes, embeddings, and retrieval-quality evaluation belong to a later Copilot implementation, after exact bounded behavior has a measurable baseline.
+The graph makes grounded retrieval possible but does not generate answers, rank passages, authenticate users, create charts, stream tokens, or deliver workouts. Semantic indexes remain deferred: full-text search, vector indexes, and embeddings may be compared later against the measurable exact-retrieval baseline described below.
+
+## Copilot exact-retrieval and answer boundary
+
+The Copilot application is one downstream pin-and-cite consumer of this graph. Its server route resolves the mock synthetic coach session, checks roster entitlement, and opens the active revision once or verifies a signed continuation bound to the same coach, member, answer, intent, evidence IDs, and sealed revision. Every follow-up re-authorizes and re-fetches through that revision's handle. A refresh deliberately opens a new active context; it never mutates an older rendered answer or pin.
+
+Retrieval uses the versioned `copilot-intents/v1` registry. Each recipe fixes evidence domains and kinds, metric names, read limits, time windows or relative-order bounds, minimum history, chart recipe, action IDs, timeout, and total read budget. The five quick prompts and their exact aliases select these recipes deterministically:
+
+| Intent | Exact evidence baseline | Deterministic output |
+|---|---|---|
+| `morning-brief` | Profile, source brief/tasks, workout, adherence, churn, and bounded message pattern | Dated brief context and separate source/derived churn; no model required. |
+| `adherence` | Four weekly completion points in the evidence-timezone window | Four-week bar chart when at least two points exist. |
+| `sleep` | Up to seven `relative-order` sleep observations | Relative-order chart with neutral labels, never invented weekdays. |
+| `changes-since-last-week` | Adherence, sleep, workout, and stable preference evidence | Recent/trend/stable sections plus the cited adherence series. |
+| `churn-risk` | Adherence, planned workouts, message timestamps/senders, and source risk | `churn-v1` plus separately labeled source context. |
+
+Non-alias free text may call the configured model only to choose one supplied canonical intent ID. Its DTO contains the current question, canonical intent choices, and bounded stable selection metadata. It contains no coach/member authorization, revision, graph query, unrelated lab/biomarker/chat evidence, or callable tool. Provider telemetry records neither input nor output. Stored message text is untrusted evidence, and an answer may quote it only as an exact cited substring.
+
+After retrieval, deterministic code owns every factual clause, chart point and summary, citation, timestamp, action copy, churn level, and authority field. The final validator rejects a packet when any material clause lacks a citation, an evidence kind is incompatible with its section, a chart point differs from its typed source value, a member or revision differs anywhere in the packet, or a media claim goes beyond metadata. Images retain `assetStatus=metadata-only` and `analysisStatus=not-analyzed`.
+
+### `churn-v1`
+
+The derived policy is method-versioned and record-order invariant. It requires the two latest weekly adherence points and at least two of the latest four planned workouts. Fewer points yields `insufficient-evidence`. An adherence drop of at least 25 percentage points or at least two misses is `elevated`; a 10–24 point drop or one miss is `watch`; otherwise the core result is `low`. If the prior 14-day window contains at least two member messages, zero messages in the latest window adds `elevated` and a decline of at least 50% adds `watch`. The highest supported signal wins. Raw prose, sentiment, coach-message counts, unsupported login frequency, and model output never affect the level.
+
+The source brief's risk remains visible as source-provided context. Supported source reasons retain their citations. Unsupported reasons, including the seeded login-frequency statement, may appear only as excluded source context and never as a derived reason or factual answer clause.
+
+### Failure, privacy, and evaluation contract
+
+The runtime preserves `invalid`, `denied`, `empty`, `insufficient-history`, `continuation-expired`, `stale`, `unavailable`, `model-error`, `unsupported`, and `cancelled` as distinct outcomes. Unknown and unauthorized members share one non-enumerating external denial. Empty or insufficient evidence has no answer/chart payload. Continuation failure requires deliberate refresh, graph/model failures are retryable, and late results after abort or member navigation cannot become ready. Client errors and routine diagnostics contain safe codes and IDs only, never raw questions, chat, labs, biomarkers, or provider errors.
+
+The reproducible grounding evaluation publishes the tracked synthetic Jordan snapshot to real Neo4j, injects a deterministic fake model, and runs all five quick prompts plus supported free text, follow-up, injection, provider-canary, sparse-history, cross-member, mixed-revision, citation, evidence-kind, chart, login, and image cases. Authorization, scope parity, evidence compatibility, citation coverage, chart fidelity, unsupported-claim exclusion, typed degraded behavior, and synthetic/production isolation are hard gates. Language quality and elapsed latency are recorded separately and cannot override a hard failure. Browser tests intercept `/api/copilot` with deterministic typed packets, so they require neither Neo4j nor provider network access.
+
+Production isolation treats the connected dashboard and Copilot server boundary as a separate dependency graph. It rejects direct imports of the Member Context JSON, the full fixture adapter and its Copilot/brief/risk content, graph publishers, raw Cypher, test fixture builders, or the disconnected root `ui/` archive. The sole synthetic exception is `synthetic-dashboard-base.ts`, which contains non-Copilot roster/workout presentation data and no Member Context, brief, risk, or Copilot answer fields.
 
 ## Workout safety constraint projection
 

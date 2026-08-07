@@ -262,6 +262,47 @@ describe("member context bounded query provider", () => {
     expect(result.evidenceIds).toEqual(result.data.map((fact) => fact.evidenceId));
   });
 
+  it("reserves bounded evidence capacity for every requested kind independent of query order", async () => {
+    const { handle } = await setup();
+    const forward = await handle.getEvidence({
+      domains: ["workouts", "preferences"],
+      evidenceKinds: ["workout-session", "preference"],
+      limit: 2,
+      timeoutMs: 100,
+    });
+    const reversed = await handle.getEvidence({
+      domains: ["preferences", "workouts"],
+      evidenceKinds: ["preference", "workout-session"],
+      limit: 2,
+      timeoutMs: 100,
+    });
+
+    if (forward.status !== "ready" || reversed.status !== "ready") throw new Error("expected bounded evidence");
+    expect(forward.data).toHaveLength(2);
+    expect(new Set(forward.data.map((fact) => fact.kind))).toEqual(new Set(["workout-session", "preference"]));
+    expect(forward.data.map((fact) => fact.evidenceId)).toEqual(reversed.data.map((fact) => fact.evidenceId));
+    expect(forward.nextCursor).toBeDefined();
+    expect(forward.nextCursor).toBe(reversed.nextCursor);
+    const next = await handle.getEvidence({
+      domains: ["preferences", "workouts"],
+      evidenceKinds: ["preference", "workout-session"],
+      limit: 2,
+      timeoutMs: 100,
+      cursor: forward.nextCursor,
+    });
+    if (next.status !== "ready") throw new Error("expected stable cursor");
+    expect(next.data).toHaveLength(2);
+    expect(next.data.every((fact) => ["workout-session", "preference"].includes(fact.kind))).toBe(true);
+    const firstPageIds = new Set(forward.data.map((fact) => fact.evidenceId));
+    expect(next.data.every((fact) => !firstPageIds.has(fact.evidenceId))).toBe(true);
+    await expect(handle.getEvidence({
+      domains: ["workouts", "preferences"],
+      evidenceKinds: ["workout-session", "preference"],
+      limit: 1,
+      timeoutMs: 100,
+    })).resolves.toMatchObject({ status: "invalid", code: "invalid-bound", evidenceIds: [] });
+  });
+
   it("returns dated series exactly and reports typed insufficient history with available citations", async () => {
     const { handle } = await setup();
     const adherence = await handle.getLongitudinalSeries({

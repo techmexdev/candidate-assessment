@@ -45,6 +45,7 @@ export type SummaryQuery = BoundedMemberContextQuery;
 
 export type EvidenceQuery = BoundedMemberContextQuery & {
   readonly domains: readonly MemberContextEvidenceDomain[];
+  readonly evidenceKinds?: readonly MemberContextRevisionScopedNode["kind"][];
   readonly window?: MemberContextTimeWindow;
 };
 

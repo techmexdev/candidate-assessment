@@ -53,6 +53,57 @@ pnpm graph:seed:member -- --inspect
 
 The graph is a bounded retrieval substrate, not a completed Copilot or clinical system. It does not support real member data, clinical validation, image analysis, model-authored Cypher, or direct client access to Neo4j. See [`docs/graph/member-context-schema.md`](./docs/graph/member-context-schema.md) for the complete schema, provenance and time rules, cross-graph boundary, publication lifecycle, application read port, and downstream pin-and-cite flow.
 
+## Coach AI Copilot
+
+The connected Copilot is a read-only server capability over the canonical Member Context graph. The server derives the synthetic coach entitlement, opens one active or explicitly continued revision, and gives the runtime only the bounded typed read handle. The browser and model never receive Neo4j credentials, Cypher, traversal controls, authorization claims, or permission to choose a member or revision.
+
+The five quick prompts are deterministic and do not require a model: `Morning brief`, `Adherence`, `Sleep`, `What changed since last week?`, and `Churn risk`. Exact aliases resolve through the same versioned intent registry. Other bounded free text is sent to the configured model only for canonical intent classification; the provider may return stable intent IDs, but it cannot author facts, chart points, citations, risk levels, identity, or actions. Factual clauses, exact message quotations, charts, accessible chart summaries, citations, timestamps, and churn are rendered and validated deterministically from the pinned evidence.
+
+Start Neo4j, seed the synthetic Jordan revision, and run the app:
+
+```bash
+pnpm install
+docker compose up -d neo4j
+pnpm graph:seed:member
+pnpm dev
+```
+
+Local development supplies a mock synthetic coach session when no session cookie is present. Jordan is the only canonical Member Context seed; Avery and Morgan remain in the synthetic roster but return a truthful unavailable-context state. For non-local use, configure `COPILOT_CONTINUATION_SECRET` and `COPILOT_SESSION_SECRET` with separate values of at least 32 bytes, plus the Neo4j variables documented below. `COPILOT_LOCAL_COACH_ID` and comma-separated `COPILOT_LOCAL_MEMBER_IDS` only customize the local mock scope.
+
+Free-text classification is optional. Set `AI_GATEWAY_API_KEY` and `COPILOT_MODEL_ID` to enable the AI SDK provider. Without them, deterministic quick prompts still work and non-alias free text returns a retryable model-unavailable state. Provider input is restricted to the current question, canonical intent IDs, and empty bounded selection metadata; input/output telemetry and provider retries are disabled at this boundary.
+
+The external result union keeps degraded behavior explicit:
+
+| State | Meaning and recovery |
+|---|---|
+| `empty` / `insufficient-history` | No canonical context, or too few points; no chart or invented trend is returned. |
+| `denied` | One non-enumerating response for unknown or unauthorized members. |
+| `continuation-expired` / `stale` | The saved pin cannot be reopened; the coach must deliberately refresh. |
+| `unavailable` | Graph failure or deadline; Retry is allowed and the prior ready answer may remain visible. |
+| `model-error` | Provider unavailable, timeout, malformed selection, or rejected grounding; Retry is allowed. |
+| `unsupported` / `invalid` | The question is outside supported intent or input bounds; Retry does not widen scope. |
+| `cancelled` | Navigation or abort won; late completion cannot update the active athlete. |
+
+`churn-v1` is a deterministic explanation policy, not a trained prediction. It requires at least two weekly adherence points and two planned workouts. A drop of at least 25 percentage points or at least two missed workouts is `elevated`; a 10–24 point drop or one miss is `watch`; otherwise the core result is `low`. Comparable member-message counts may add a signal, while source prose, sentiment, login-frequency claims, and model output cannot change the level. Source-provided risk remains separately labeled, and unsupported login reasons remain excluded.
+
+Run the reproducible Copilot gates with a fake model and synthetic data only:
+
+```bash
+pnpm vitest run tests/unit/check-production-isolation.test.ts
+pnpm check:isolation
+pnpm test
+pnpm test:integration
+pnpm test:e2e
+pnpm test:a11y
+pnpm typecheck
+pnpm lint
+pnpm build
+```
+
+The canonical grounding matrix runs all five quick prompts plus free text, follow-up, injection, sparse-history, and adversarial packet checks against real Neo4j without network model calls. It treats authorization, member/revision parity, evidence-kind compatibility, clause citations, chart equality, unsupported login/image claims, typed failures, and production isolation as release gates. Language quality and latency are reported signals only. If local Neo4j routing discovery is unavailable, the same focused test can use the direct endpoint with `NEO4J_URI=bolt://127.0.0.1:7687`.
+
+This exact-retrieval baseline is intentionally conservative: it is auditable and deterministic, but it supports a small intent vocabulary and does not provide semantic/vector search, persisted chat transcripts, image analysis, voice transport, member messaging, graph writes, clinical recommendations, or a trained churn model. Every record and example is synthetic take-home data; do not ingest real member data or PHI.
+
 ## Movement and Clinical knowledge graph
 
 This repository also contains the complete, member-agnostic Movement and Clinical graph contract. It has 13 node roles, 17 directed edge types, immutable revisions, deterministic safety paths, reviewed substitutions, and bounded ontology grounding. COPPER belongs to the Member Context graph. Recommendation history belongs to a separate Decision and Run graph.

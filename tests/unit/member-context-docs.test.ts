@@ -38,12 +38,29 @@ describe("member context graph documentation", () => {
       "bounded application read port",
       "insufficient_history",
       "backend_unavailable",
-      "Semantic indexes are deferred",
+      "Semantic indexes remain deferred",
       "synthetic only",
       "not clinically validated",
       "image contents are not analyzed",
-      "Copilot is not implemented",
+      "graph layer does not itself generate Copilot answers",
       "pin-and-cite",
+    ]) expect(documentation).toContain(phrase);
+  });
+
+  it("documents the Copilot exact-retrieval, churn, failure, and evaluation boundaries", async () => {
+    const documentation = await readFile(documentPath, "utf8");
+
+    for (const phrase of [
+      "Copilot exact-retrieval and answer boundary",
+      "copilot-intents/v1",
+      "changes-since-last-week",
+      "churn-v1",
+      "insufficient-history",
+      "unsupported login frequency",
+      "deterministic fake model",
+      "Language quality and elapsed latency",
+      "Production isolation",
+      "synthetic-dashboard-base.ts",
     ]) expect(documentation).toContain(phrase);
   });
 

@@ -149,6 +149,7 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
         if (step.operation === "evidence") {
           invoked = await run(step, () => handle.getEvidence({
             domains: step.domains,
+            evidenceKinds: step.evidenceKinds,
             limit: step.limit,
             timeoutMs: resolution.recipe.timeoutMs,
           }));

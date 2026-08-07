@@ -43,10 +43,11 @@ import type {
   WorkoutSessionEvidenceProjection,
 } from "../../domain/contracts/member-context-queries";
 import { deriveEvidenceAsOf } from "../../domain/policies/copilot-projections";
-import type {
-  MemberContextAuthority,
-  MemberContextGraphSnapshot,
-  MemberContextRevisionScopedNode,
+import {
+  MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS,
+  type MemberContextAuthority,
+  type MemberContextGraphSnapshot,
+  type MemberContextRevisionScopedNode,
 } from "../../domain/contracts/member-context";
 import type { InMemoryMemberContextPublisher } from "../publication/in-memory-member-context-publisher";
 
@@ -56,6 +57,9 @@ const memberContextEvidenceDomains = new Set<MemberContextEvidenceDomain>([
   "profile", "goals", "preferences", "equipment", "injuries", "workouts", "adherence",
   "biomarkers", "labs", "conversations", "coach-brief", "churn",
 ]);
+const memberContextEvidenceKinds = new Set<MemberContextRevisionScopedNode["kind"]>(
+  MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS,
+);
 
 type ReadProviderOptions = {
   readonly authority?: MemberContextAuthority;
@@ -532,15 +536,42 @@ class InMemoryMemberContextReadHandle implements MemberContextReadHandle {
   }
 
   async getEvidence(query: EvidenceQuery): Promise<MemberContextQueryResult<readonly MemberEvidenceProjection[]>> {
+    const bounds = this.validateBounds<readonly MemberEvidenceProjection[]>(query);
+    if (!("limit" in bounds)) return bounds;
     if (!Array.isArray(query.domains) || query.domains.length === 0
       || query.domains.length > memberContextEvidenceDomains.size
       || query.domains.some((domain) => !memberContextEvidenceDomains.has(domain))) {
       return this.invalid("invalid-bound", "Evidence domains are invalid or exceed the supported bound.");
     }
+    if (query.evidenceKinds !== undefined && (!Array.isArray(query.evidenceKinds)
+      || query.evidenceKinds.length > memberContextEvidenceKinds.size)) {
+      return this.invalid("invalid-bound", "Evidence kinds are invalid or exceed the requested result bound.");
+    }
+    const evidenceKinds = query.evidenceKinds === undefined
+      ? undefined
+      : [...new Set(query.evidenceKinds)].sort(compareCodePoints);
+    if (evidenceKinds && (evidenceKinds.length === 0
+      || evidenceKinds.length > bounds.limit
+      || evidenceKinds.some((kind) => !memberContextEvidenceKinds.has(kind)))) {
+      return this.invalid("invalid-bound", "Evidence kinds are invalid or exceed the requested result bound.");
+    }
     if (query.window && !isValidWindow(query.window)) return this.invalid("invalid-window", "The requested time window is invalid.");
-    const nodes = this.nodesForDomains(query.domains).filter((node) => !query.window || isInWindow(node, query.window));
-    const fingerprint = JSON.stringify({ domains: [...new Set(query.domains)].sort(), window: query.window ?? null });
-    const page = this.paginate("evidence", fingerprint, query, nodes);
+    const nodes = this.nodesForDomains(query.domains)
+      .filter((node) => !query.window || isInWindow(node, query.window))
+      .filter((node) => !evidenceKinds || evidenceKinds.includes(node.kind));
+    const reserved = evidenceKinds
+      ? evidenceKinds.flatMap((kind) => nodes.find((node) => node.kind === kind) ?? [])
+      : [];
+    const reservedIds = new Set(reserved.map((node) => node.assertionId));
+    const orderedNodes = evidenceKinds
+      ? [...reserved.sort(compareEvidence), ...nodes.filter((node) => !reservedIds.has(node.assertionId))]
+      : nodes;
+    const fingerprint = JSON.stringify({
+      domains: [...new Set(query.domains)].sort(),
+      evidenceKinds: evidenceKinds ?? null,
+      window: query.window ?? null,
+    });
+    const page = this.paginate("evidence", fingerprint, query, orderedNodes);
     if (page.status !== "ready") return page;
     if (page.data.length === 0) return this.empty("No evidence is available for the requested domain and window.");
     const data = page.data.map(projectEvidence);
