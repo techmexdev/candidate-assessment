@@ -49,7 +49,8 @@
 }
 
 .memberHeader,
-.screenHeader {
+.screenHeader,
+.todayProfileItem {
   min-height: 72px;
   padding: 12px 18px;
   display: flex;
@@ -58,6 +59,30 @@
   border-bottom: 1px solid var(--ax-line-2);
   background: rgb(247 247 244 / 94%);
   flex: none;
+}
+
+.todayProfileItem {
+  width: calc(100% + 36px);
+  margin: -22px -18px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ax-line-2);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todayProfileItem:hover {
+  background: var(--ax-surface);
+}
+
+.todayProfileBack {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.todayProfileIdentity {
+  flex: 1;
 }
 
 .memberButton {
@@ -74,7 +99,8 @@
   cursor: pointer;
 }
 
-.memberButton > span:last-child {
+.memberButton > span:last-child,
+.todayProfileIdentity {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -217,8 +243,10 @@
   cursor: not-allowed;
 }
 
-.backButton {
+.backButton,
+.todayProfileBack {
   width: 44px;
+  height: 44px;
   padding: 0;
   color: var(--ax-ink);
   background: var(--ax-surface);
@@ -277,10 +305,16 @@
   margin: 10px 0;
 }
 
-.sparkBars span,
-.barFill {
+.sparkBars span {
   flex: 1;
   min-height: 4px;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--ax-ink);
+}
+
+.barFill {
+  flex: 0 0 auto;
+  width: 100%;
   border-radius: 3px 3px 1px 1px;
   background: var(--ax-ink);
 }
@@ -314,30 +348,124 @@
 }
 
 .tabs {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid var(--ax-line);
-  background: var(--ax-surface-sub);
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
   flex: none;
+  margin: 0 10px calc(10px + env(safe-area-inset-bottom));
+  padding: 4px;
+  border: 1px solid var(--ax-line);
+  border-radius: 18px;
+  background: var(--ax-bg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
+}
+
+.tabPill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  z-index: 0;
+  border-radius: 14px;
+  background: var(--ax-signal-soft), var(--ax-surface);
+  box-shadow: var(--ax-shadow-card), 0 0 0 1px rgb(17 17 17 / 4%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tabPillReady {
+  opacity: 1;
+  transition:
+    transform var(--ax-dur-med) var(--ax-ease),
+    width var(--ax-dur-med) var(--ax-ease),
+    opacity var(--ax-dur-fast) var(--ax-ease);
+}
+
+.tabPill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: var(--ax-signal);
+  background-size: 200% 100%;
+  animation: ax-signal-shift 2.4s ease infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 .tab {
-  height: 62px;
+  position: relative;
+  z-index: 1;
+  height: 46px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   border: 0;
+  border-radius: 14px;
   color: var(--ax-ink-2);
   background: transparent;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  transition:
+    color var(--ax-dur-fast) var(--ax-ease),
+    transform var(--ax-dur-fast) var(--ax-ease);
 }
 
-.tab::before {
+.tab:hover {
+  color: var(--ax-ink-2);
+}
+
+.tab:disabled {
+  color: var(--ax-ink-3);
+  cursor: default;
+  opacity: .65;
+}
+
+.tab:active {
+  transform: scale(0.99);
+}
+
+.tabActive {
+  color: var(--ax-ink);
+  font-weight: 700;
+}
+
+.mobileTabs {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 0 0 env(safe-area-inset-bottom);
+  border: 0;
+  border-top: 1px solid var(--ax-line);
+  border-radius: 0;
+  background: var(--ax-surface-sub);
+  box-shadow: none;
+}
+
+.mobileTabs .tabPill {
+  display: none;
+}
+
+.mobileTabs .tab {
+  height: 62px;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 0;
+  font-size: 11.5px;
+}
+
+.mobileTabs .tab::before {
   content: "";
   width: 18px;
   height: 2.5px;
@@ -345,12 +473,320 @@
   background: transparent;
 }
 
-.tabActive {
-  color: var(--ax-ink);
+.mobileTabs .tabActive::before {
+  background: var(--ax-ink);
 }
 
-.tabActive::before {
+@keyframes voice-halo-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes voice-halo-breathe {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+@keyframes voice-equalizer {
+  0%, 100% { transform: scaleY(.25); }
+  50% { transform: scaleY(1); }
+}
+
+.voiceScreen {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ax-surface);
+  animation: ax-fade-up var(--ax-dur-med) var(--ax-ease);
+}
+
+.voiceHeader {
+  min-height: 64px;
+  padding: 10px 14px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--ax-line-2);
+  flex: none;
+}
+
+.voiceStatusDot,
+.voiceAnswerDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ax-signal);
+}
+
+.voiceHeaderLabel,
+.voiceHeaderMeta,
+.voiceStateLabel,
+.voiceControlStatus,
+.voiceThinking,
+.voiceKicker,
+.voiceSources,
+.voiceRow > span {
+  font: var(--ax-type-micro);
+  letter-spacing: var(--ax-track-micro);
+}
+
+.voiceHeaderLabel {
+  flex: 1;
+  color: var(--ax-ink-2);
+}
+
+.voiceHeaderMeta {
+  color: var(--ax-ink-4);
+  letter-spacing: .08em;
+}
+
+.voiceHero {
+  padding: 26px 0 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.signalOrb {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.signalOrb::before,
+.signalOrb::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.signalOrb::before {
+  inset: -10px;
+  background: conic-gradient(from 0deg, rgb(140 110 255 / 55%), rgb(60 190 255 / 50%), rgb(255 90 180 / 45%), rgb(140 110 255 / 55%));
+  filter: blur(12px);
+  animation: voice-halo-spin 7s linear infinite, voice-halo-breathe 2.6s ease-in-out infinite;
+}
+
+.signalOrb::after {
+  inset: 0;
+  background: conic-gradient(from 0deg, #8c6eff, #3cbeff, #ff5ab4, #8c6eff);
+  animation: voice-halo-spin 7s linear infinite;
+}
+
+.signalOrbCore {
+  position: absolute;
+  inset: 3.5px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ax-ink);
+  background: var(--ax-signal-soft), var(--ax-surface);
+  box-shadow: inset 0 0 18px rgb(140 110 255 / 30%);
+  font-size: 26px;
+}
+
+.signalOrbListening .signalOrbCore { box-shadow: inset 0 0 22px rgb(60 190 255 / 38%); }
+
+.voiceStateLabel { color: var(--ax-ink-3); }
+
+.voiceLog {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  scrollbar-width: none;
+}
+
+.voiceEmpty {
+  margin: auto 0;
+  padding: 14px 20px;
+  color: var(--ax-ink-4);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.voiceQuestion {
+  align-self: flex-end;
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 12px 12px 3px 12px;
+  color: var(--ax-on-ink);
   background: var(--ax-ink);
+  font-size: 13.5px;
+  animation: ax-fade-up .25s var(--ax-ease);
+}
+
+.voiceAnswer {
+  max-width: 94%;
+  display: flex;
+  gap: 9px;
+  color: var(--ax-ink-2);
+  font-size: 13.5px;
+  line-height: 1.45;
+  animation: ax-fade-up .25s var(--ax-ease);
+}
+
+.voiceAnswerDot { margin-top: 5px; }
+
+.voiceCard {
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid var(--ax-line);
+  border-radius: 10px;
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
+  animation: ax-fade-up .3s var(--ax-ease);
+}
+
+.voiceKicker {
+  width: fit-content;
+  padding: 5px 10px;
+  border: 1px solid rgb(120 110 255 / 30%);
+  border-radius: 4px;
+  color: var(--ax-ink);
+  background: var(--ax-signal-soft);
+}
+
+.voiceCardTitle { font: var(--ax-type-card-title); }
+
+.voiceRows { display: flex; flex-direction: column; gap: 7px; }
+
+.voiceRow { display: flex; gap: 10px; align-items: baseline; }
+
+.voiceRow > span { width: 74px; flex: none; color: var(--ax-ink-3); }
+
+.voiceRow strong { flex: 1; color: var(--ax-ink-2); font-size: 12.5px; font-weight: 400; }
+
+.voiceSources { display: flex; gap: 5px; flex-wrap: wrap; color: var(--ax-ink-3); letter-spacing: 0; }
+
+.voiceSources span { padding: 4px 8px; border: 1px solid var(--ax-line); border-radius: 4px; }
+
+.voiceSuggestions {
+  padding: 0 16px 8px;
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  flex: none;
+}
+
+.voiceSuggestion {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: var(--ax-r-pill);
+  color: var(--ax-ink-2);
+  background: var(--ax-surface);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.voiceControls {
+  min-height: 70px;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--ax-line-2);
+  flex: none;
+}
+
+.voiceControlStatus {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ax-ink-2);
+  font-size: 9.5px;
+}
+
+.voiceEqualizer { display: flex; align-items: center; gap: 3px; height: 18px; flex: none; }
+
+.voiceEqualizer i { width: 3px; height: 18px; border-radius: 2px; background: var(--ax-signal); animation: voice-equalizer .9s ease-in-out infinite; }
+.voiceEqualizer i:nth-child(2) { animation-delay: .12s; }
+.voiceEqualizer i:nth-child(3) { animation-delay: .24s; }
+.voiceEqualizer i:nth-child(4) { animation-delay: .36s; }
+.voiceEqualizer i:nth-child(5) { animation-delay: .48s; }
+
+.voiceThinking {
+  padding: 5px 9px;
+  border-radius: 3px;
+  color: var(--ax-ink);
+  background: var(--ax-signal-soft);
+  background-size: 200% 100%;
+  animation: ax-signal-shift 1.6s ease infinite;
+}
+
+.voiceIconButton,
+.voiceMicButton,
+.voiceSendButton {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.voiceIconButton {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ax-line-strong);
+  color: var(--ax-ink-2);
+  background: var(--ax-surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voiceIconButtonActive { color: var(--ax-on-ink); border-color: var(--ax-ink); background: var(--ax-ink); }
+
+.voiceMicButton {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--ax-line-strong);
+  color: var(--ax-ink);
+  background: var(--ax-surface);
+  font-size: 15px;
+}
+
+.voiceMicButtonActive { border-color: var(--ax-ink); color: var(--ax-on-ink); background: var(--ax-ink); }
+
+.voiceTextInput {
+  min-width: 0;
+  flex: 1;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: 8px;
+  color: var(--ax-ink);
+  background: var(--ax-bg);
+  font-size: 13.5px;
+}
+
+.voiceSendButton {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  color: var(--ax-on-ink);
+  background: var(--ax-ink);
+  font-size: 16px;
 }
 
 .workoutTopline {
@@ -412,7 +848,7 @@
 
 .exercise summary::-webkit-details-marker { display: none; }
 .exerciseName { font-size: 13.5px; font-weight: 600; }
-.exerciseDose { color: var(--ax-ink-3); font: var(--ax-type-micro); letter-spacing: .06em; text-align: right; }
+.exerciseDose { color: var(--ax-color-text-micro); font: var(--ax-type-micro); letter-spacing: .06em; text-align: right; }
 .exerciseDetail { padding: 0 13px 13px; border-top: 1px solid var(--ax-line-2); }
 .source { margin-top: 8px; color: var(--ax-ink-3); font: var(--ax-type-micro); letter-spacing: .06em; }
 
@@ -452,6 +888,62 @@
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: none;
+}
+
+.copilotVoiceCard {
+  min-height: 112px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--ax-line);
+  border-radius: 18px;
+  color: var(--ax-ink);
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--ax-dur-fast) var(--ax-ease),
+    transform var(--ax-dur-fast) var(--ax-ease);
+}
+
+.copilotVoiceCard:hover { border-color: var(--ax-line-strong); }
+.copilotVoiceCard:active { transform: scale(.99); }
+
+.copilotSignalOrb {
+  width: 68px;
+  height: 68px;
+  flex: none;
+  cursor: inherit;
+}
+
+.copilotSignalOrb .signalOrbCore {
+  font-size: 20px;
+}
+
+.copilotVoiceCopy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.copilotVoiceTitle {
+  font: var(--ax-type-card-title);
+  letter-spacing: var(--ax-track-title);
+}
+
+.copilotVoiceCopy .subtle {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.copilotVoiceAction {
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .copilotCard {
@@ -514,9 +1006,23 @@
 }
 
 .profileHero .avatar { width: 56px; height: 56px; font-size: 17px; }
+.profileHistoryLink {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--ax-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.profileHistoryLink > span:first-child { display: grid; gap: 3px; }
+.profileHistoryArrow { flex: none; font-size: 18px; }
 .goalRow { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--ax-line-2); }
 .goalRow:first-child { border-top: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.profileHistory { display: grid; gap: 10px; }
+.profileHistory .card { display: grid; gap: 6px; }
 
 .lane {
   position: relative;
@@ -560,22 +1066,360 @@
 
 .handle { width: 36px; height: 4px; justify-self: center; border-radius: 2px; background: var(--ax-line-strong); }
 .range { width: 100%; accent-color: var(--ax-ink); }
+
+.runtimeForm,
+.runtimeStatus {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--ax-line);
+  border-radius: 16px;
+  background: var(--ax-surface);
+}
+
+.runtimeField {
+  display: grid;
+  gap: 8px;
+}
+
+.runtimeStatus[data-runtime-status="completed"] {
+  border-color: var(--ax-line-strong);
+  background: var(--ax-signal-faint), var(--ax-surface);
+}
+
+.runtimeStatus[data-runtime-status="failed"],
+.runtimeStatus[data-runtime-status="no-safe-result"],
+.runtimeStatus[data-runtime-status="disconnected"] {
+  border-style: dashed;
+  border-color: var(--ax-line-strong);
+}
+
+.capabilityNote {
+  padding: 14px 16px;
+  display: grid;
+  gap: 5px;
+  border: 1px dashed var(--ax-line-strong);
+  border-radius: 14px;
+  color: var(--ax-ink-2);
+  background: var(--ax-surface);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.capabilityNote strong { color: var(--ax-ink); font-size: 14px; }
+
+.copilotComposer {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--ax-line);
+  border-radius: 16px;
+  background: var(--ax-surface);
+}
+
+.answerSection {
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ax-line-2);
+}
+
+.answerSection:first-of-type { padding-top: 0; border-top: 0; }
+.answerSection p { margin: 0; }
+
+.churnAssessment { display: grid; gap: 10px; }
+.churnBlock { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--ax-line-2); border-radius: 12px; background: var(--ax-bg); }
+.churnExcluded { border-style: dashed; }
+.churnList { display: grid; gap: 8px; margin: 2px 0 0; padding-left: 18px; }
+.churnList li { padding-left: 2px; }
+.churnList span { display: block; }
+
+.chartWrap { display: grid; gap: 8px; }
+.chartSummary { margin: 0; color: var(--ax-ink-2); font-size: 12px; line-height: 1.45; }
+
+.pillButton:disabled,
+.textButton:disabled { cursor: default; opacity: .5; }
 .choiceRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .choice { min-height: 42px; border: 1px solid var(--ax-line-strong); border-radius: 12px; background: var(--ax-surface); color: var(--ax-ink-2); font-weight: 600; }
 .choiceActive { background: var(--ax-ink); color: var(--ax-on-ink); border-color: var(--ax-ink); }
 .textarea { width: 100%; min-height: 84px; resize: none; border: 1px solid var(--ax-line); border-radius: 14px; padding: 12px 14px; background: var(--ax-bg); color: var(--ax-ink); }
 
-.contextStack {
-  gap: 12px;
+.coachDay {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 22px 18px 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 18px;
 }
 
-.capabilityNote {
-  padding: 12px 14px;
-  border: 1px dashed var(--ax-line-strong);
-  border-radius: 14px;
-  color: var(--ax-ink-3);
+.coachDay > * {
+  min-width: 0;
+}
+
+.coachDayHeader,
+.coachDaySectionHeader,
+.weekStripHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.coachDayHeader {
+  padding-bottom: 2px;
+}
+
+.coachDayTitle {
+  margin: 6px 0 4px;
+  font: var(--ax-type-title);
+  letter-spacing: var(--ax-track-title);
+}
+
+.coachDayIntro {
+  margin: 0;
+  color: var(--ax-ink-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.coachDayHeaderMark {
+  flex: none;
+  padding-top: 4px;
+  color: var(--ax-ink-2);
+  font: var(--ax-type-micro);
+  letter-spacing: var(--ax-track-micro);
+}
+
+.agendaPanel,
+.rosterPanel,
+.weekStrip {
+  padding: 16px;
+  border: 1px solid var(--ax-line);
+  border-radius: 18px;
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
+}
+
+.coachDaySectionTitle {
+  margin: 4px 0 0;
+  font: var(--ax-type-card-title);
+  letter-spacing: var(--ax-track-title);
+}
+
+.coachDayCount,
+.weekStripNote {
+  flex: none;
+  color: var(--ax-ink-2);
+  font: var(--ax-type-micro);
+  letter-spacing: var(--ax-track-micro);
+  text-transform: uppercase;
+}
+
+.agendaList,
+.rosterList {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.scheduledAthleteRow {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(250px, 88%);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  padding: 2px 2px 6px;
+}
+
+.scheduledAthleteRow > * {
+  scroll-snap-align: start;
+}
+
+.sessionCard,
+.athleteCard {
+  width: 100%;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--ax-line);
+  border-radius: 13px;
+  color: var(--ax-ink);
+  background: var(--ax-bg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ax-dur-fast) var(--ax-ease), transform var(--ax-dur-fast) var(--ax-ease);
+}
+
+.sessionCard:hover,
+.athleteCard:hover {
+  border-color: var(--ax-line-strong);
+}
+
+.sessionCard:active,
+.athleteCard:active {
+  transform: scale(.995);
+}
+
+.sessionTime {
+  width: 74px;
+  flex: none;
+  color: var(--ax-ink-2);
   font-size: 12px;
-  line-height: 1.4;
+  font-weight: 700;
+}
+
+.sessionCardBody,
+.athleteCardBody {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.sessionCardBody strong,
+.athleteCardBody strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.sessionCardBody span,
+.athleteCardBody span {
+  overflow: hidden;
+  color: var(--ax-ink-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionArrow {
+  color: var(--ax-ink-2);
+  font-size: 18px;
+}
+
+.agendaEmpty {
+  min-height: 112px;
+  margin-top: 14px;
+  padding: 18px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  border: 1px dashed var(--ax-line-strong);
+  border-radius: 13px;
+  color: var(--ax-ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agendaEmpty strong {
+  color: var(--ax-ink);
+  font-size: 14px;
+}
+
+.athleteAvatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: 50%;
+  color: var(--ax-ink);
+  background: var(--ax-signal-soft), var(--ax-surface);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.athleteAdherence {
+  display: grid;
+  justify-items: end;
+  color: var(--ax-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.athleteAdherence small {
+  color: var(--ax-ink-2);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.weekDays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 14px;
+}
+
+.weekDay {
+  min-width: 0;
+  min-height: 66px;
+  padding: 7px 2px 5px;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--ax-ink-2);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weekDay span {
+  font: var(--ax-type-micro);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.weekDay strong {
+  font-size: 16px;
+}
+
+.weekDay i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+
+.weekDayDot {
+  background: var(--ax-signal);
+}
+
+.weekDayActive {
+  border-color: var(--ax-line-strong);
+  color: var(--ax-ink);
+  background: var(--ax-signal-soft), var(--ax-surface);
+}
+
+.desktopNavRow,
+.desktopMain {
+  width: min(960px, calc(100% - 64px));
+  margin-inline: auto;
+}
+
+.desktopNavRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex: none;
+}
+
+.desktopNavMeta {
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  letter-spacing: var(--ax-track-micro);
+  white-space: nowrap;
 }
 
 @media (max-width: 359px) {
@@ -584,7 +1428,17 @@
     padding-inline: 12px;
   }
 
+  .todayProfileItem {
+    width: calc(100% + 24px);
+    margin-inline: -12px;
+    padding-inline: 12px;
+  }
+
   .scroll {
+    padding-inline: 12px;
+  }
+
+  .coachDay {
     padding-inline: 12px;
   }
 
@@ -642,64 +1496,119 @@
   .desktopLayout {
     min-height: 0;
     flex: 1;
-    display: grid;
-    grid-template-columns: minmax(280px, 320px) minmax(340px, 1fr) minmax(320px, 360px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 0;
   }
 
-  .desktopRail {
-    min-width: 0;
+  .desktopNavRow,
+  .desktopMain {
+    width: min(960px, calc(100% - 64px));
+  }
+
+  .desktopNavRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 52px;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .desktopNavRow .tabs {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(120px, auto));
+    width: max-content;
+    margin: 0;
+    padding: 4px;
+    border-radius: 16px;
+    background: var(--ax-surface-sub);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%), var(--ax-shadow-card);
+  }
+
+  .desktopNavRow .tab {
+    height: 40px;
+    min-width: 88px;
+    padding-inline: 16px;
+    font-size: 13px;
+  }
+
+  .desktopNavRow .tabPill {
+    border-radius: 12px;
+  }
+
+  .desktopMain {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid var(--ax-line);
+    border-radius: 20px;
+    background: var(--ax-surface-sub);
+    box-shadow: var(--ax-shadow-card);
+  }
+
+  .desktopContent {
+    width: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    background: var(--ax-bg);
   }
 
-  .workflowRail {
-    border-inline: 1px solid var(--ax-line);
-    background: var(--ax-surface-sub);
+  .desktopContent > .scroll,
+  .desktopContent > .screenHeader + .scroll {
+    width: min(760px, calc(100% - 64px));
+    align-self: center;
+    padding: 28px 0 40px;
   }
 
-  .workflowRail .scroll {
-    padding: 24px clamp(22px, 3vw, 42px) 40px;
-  }
-
-  .detailRail .scroll {
-    padding-inline: 16px;
-  }
-
-  .contextRail .tabs {
-    grid-template-columns: repeat(2, 1fr);
-    padding: 0;
+  .desktopContent > .screenHeader {
+    width: min(760px, calc(100% - 64px));
+    align-self: center;
+    margin-top: 18px;
     border: 1px solid var(--ax-line);
     border-radius: 14px;
-    overflow: hidden;
+    background: var(--ax-surface);
   }
 
-  .contextRail .tab {
-    height: 44px;
-    flex-direction: row;
-    gap: 7px;
-    border-bottom: 1px solid var(--ax-line-2);
+  .desktopContent .todayScreen > .metrics:last-child {
+    display: none;
   }
 
-  .contextRail .tab::before {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+  .desktopContent .heroCard {
+    padding: 24px;
   }
 
-  .contextRail .metrics {
+  .desktopContent .heroTitle {
+    font-size: 28px;
+  }
+
+  .desktopContent .actionRow {
+    position: sticky;
+    bottom: 0;
+    padding: 14px 0 2px;
+    background: linear-gradient(var(--ax-surface-sub), var(--ax-surface-sub));
+  }
+
+  .coachDay {
+    width: min(1120px, calc(100% - 64px));
+    align-self: center;
+    padding: 28px 0 40px;
+  }
+
+  .todayProfileItem {
+    width: 100%;
+    margin: -28px 0 0;
+    padding-inline: 0;
+  }
+
+  .scheduledAthleteRow {
+    grid-auto-flow: initial;
+    grid-auto-columns: initial;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .contextRail .metric {
-    min-width: 0;
-    padding-inline: 8px;
-  }
-
-  .contextRail .metric strong {
-    font-size: 17px;
+    overflow: visible;
   }
 
   .dialog {

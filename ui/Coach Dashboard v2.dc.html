@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#EDEDE9;font-family:'Archivo',system-ui,sans-serif}
+a{color:#111111}a:hover{color:#55554F}
+button{font-family:'Archivo',system-ui,sans-serif;cursor:pointer}
+textarea,input{font-family:'Archivo',system-ui,sans-serif}
+input[type=range]{accent-color:#111111;width:100%}
+::-webkit-scrollbar{width:0;height:0}
+[data-scroll]{scrollbar-width:none}
+[data-scroll]>*{flex-shrink:0}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes sheetUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+@keyframes holoShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+</style>
+</helmet>
+<div style="min-height:100dvh;display:flex;justify-content:center;background:radial-gradient(900px 420px at 50% -6%, rgba(220,203,255,.25), transparent 60%), #EDEDE9">
+<div style="position:relative;width:min(430px,100vw);height:100dvh;display:flex;flex-direction:column;background:#F7F7F4;border-left:1px solid #E3E3DE;border-right:1px solid #E3E3DE;overflow:hidden;color:#111111">
+
+<sc-if value="{{toast}}" hint-placeholder-val="{{false}}">
+<div style="position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:60;background:#111111;color:#FFFFFF;font-weight:600;font-size:13px;padding:11px 18px;border-radius:999px;box-shadow:0 10px 30px rgba(17,17,17,.18);animation:fadeUp .3s ease;white-space:nowrap">{{toast}}</div>
+</sc-if>
+
+<sc-if value="{{scrHome}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-direction:column;height:100%">
+<div style="padding:16px 18px 12px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #EAEAE5">
+<div onClick="{{openProfile}}" style="width:44px;height:44px;border-radius:50%;background:linear-gradient(115deg,rgba(220,203,255,.5),rgba(191,229,255,.5),rgba(255,221,233,.5));border:1px solid #111111;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;cursor:pointer">JR</div>
+<div onClick="{{openProfile}}" style="flex:1;min-width:0;cursor:pointer"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Jordan Rivera <span style="color:#A0A099;font-weight:400">›</span></div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#8A8A82;margin-top:2px">1:1 COACHING · 4 DAYS/WK</div></div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#A0A099;text-align:right;line-height:1.5">THU<br>JUN 4</div>
+</div>
+
+<sc-if value="{{tabToday}}" hint-placeholder-val="{{true}}">
+<div data-screen-label="Today" data-scroll="1" style="flex:1;overflow-y:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:12px">
+<div onClick="{{openWorkout}}" style="cursor:pointer;background:linear-gradient(135deg,rgba(220,203,255,.32),rgba(191,229,255,.28) 38%,rgba(255,221,233,.26) 72%,rgba(227,255,214,.3)),#FFFFFF;border:1px solid #E0E0DA;border-radius:20px;padding:18px;transition:transform .15s ease;box-shadow:0 1px 2px rgba(17,17,17,.04)" style-hover="transform:translateY(-1px)" style-active="transform:scale(.99)">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;color:#55554F">{{draftKicker}}</div>
+<div style="font-size:20px;font-weight:700;letter-spacing:-.015em;margin-top:5px">{{draftTitle}}</div>
+<div style="font-size:13px;color:#6E6E66;margin-top:4px">{{draftSub}}</div>
+<div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#111111;color:#FFFFFF;font-weight:600;font-size:13.5px;padding:0 18px;height:44px;border-radius:999px">{{draftCta}}</div>
+</div>
+
+<sc-for list="{{pinnedCards}}" as="p" hint-placeholder-count="0">
+<div onClick="{{p.open}}" style="cursor:pointer;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:13px 15px;display:flex;align-items:center;gap:10px">
+<div style="flex:1"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#8A8A82">PINNED · COPILOT</div><div style="font-weight:600;font-size:14px;margin-top:3px">{{p.title}}</div></div>
+<span style="font-size:13px">→</span>
+</div>
+</sc-for>
+
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:6px">MORNING BRIEF</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px;display:flex;gap:11px">
+<div style="width:26px;height:26px;flex:none;border-radius:50%;border:1.5px solid #111111;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">✓</div>
+<div><div style="font-weight:600;font-size:14px">First pain-free squat day</div><div style="font-size:12.5px;color:#6E6E66;margin-top:3px">Box squats Jun 3 — "knee felt okay". Worth celebrating today.</div></div>
+</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px">
+<div style="display:flex;gap:11px">
+<div style="width:26px;height:26px;flex:none;border-radius:50%;background:#111111;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">!</div>
+<div style="flex:1"><div style="font-weight:600;font-size:14px">Churn risk elevated</div><div style="font-size:12.5px;color:#6E6E66;margin-top:3px">Adherence 100% → 50% in 2 weeks · logins down</div></div>
+</div>
+<div style="display:flex;align-items:flex-end;gap:5px;height:34px;margin:10px 0 8px;padding-left:37px">
+<div style="flex:1;height:90%;background:#E0E0DA;border-radius:3px"></div><div style="flex:1;height:90%;background:#E0E0DA;border-radius:3px"></div><div style="flex:1;height:66%;background:#C9C9C2;border-radius:3px"></div><div style="flex:1;height:44%;background:#111111;border-radius:3px"></div>
+</div>
+<button onClick="{{askChurn}}" style="margin-left:37px;background:transparent;border:1px solid #D8D8D2;color:#111111;font-weight:600;font-size:12.5px;height:44px;padding:0 16px;border-radius:999px" style-hover="border-color:#111111">Ask Copilot about churn →</button>
+</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px;display:flex;flex-direction:column;gap:10px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#8A8A82">PENDING · 2</div>
+<div style="font-size:13.5px;font-weight:500">Reply to Jordan's check-in<div style="font-size:12px;color:#8A8A82;margin-top:2px;font-weight:400">"Knocked out the lower body session!" · Jun 3</div></div>
+<div style="height:1px;background:#EEEEE9"></div>
+<div style="font-size:13.5px;font-weight:500">Review churn signals<div style="font-size:12px;color:#8A8A82;margin-top:2px;font-weight:400">flagged by assistant · this morning</div></div>
+</div>
+<div style="display:flex;gap:10px">
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">50%</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">ADHERENCE WK</div></div>
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">6.3h</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">SLEEP AVG 7D</div></div>
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">58</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">RESTING HR</div></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{tabCopilot}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Copilot" data-scroll="1" style="flex:1;overflow-y:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{feedCards}}" as="c" hint-placeholder-count="1">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:18px;padding:16px;animation:fadeUp .35s ease;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(17,17,17,.03)">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+<span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#111111;background:linear-gradient(115deg,rgba(220,203,255,.55),rgba(191,229,255,.55),rgba(255,221,233,.5));border-radius:999px;padding:5px 10px">{{c.kicker}}</span>
+<button onClick="{{c.pin}}" style="background:transparent;border:none;color:#8A8A82;font-family:'JetBrains Mono',monospace;font-size:10px;height:32px;padding:0 6px" style-hover="color:#111111">{{c.pinLabel}}</button>
+</div>
+<div style="font-size:17px;font-weight:700;letter-spacing:-.015em">{{c.title}}</div>
+<sc-if value="{{c.headline}}" hint-placeholder-val="{{false}}"><div style="font-size:13.5px;color:#55554F">{{c.headline}}</div></sc-if>
+<sc-if value="{{c.bars}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;align-items:flex-end;gap:6px;height:84px;padding:10px;background:#F7F7F4;border:1px solid #EEEEE9;border-radius:12px">
+<sc-for list="{{c.bars}}" as="b" hint-placeholder-count="4">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:4px;height:100%">
+<div style="height:{{b.h}}%;background:#111111;border-radius:4px 4px 2px 2px"></div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#A0A099;text-align:center">{{b.lab}}</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{c.rows}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{c.rows}}" as="r" hint-placeholder-count="2">
+<div style="display:flex;gap:10px;align-items:baseline"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;width:92px;flex:none">{{r.k}}</span><span style="font-size:13px;color:#33332E;flex:1">{{r.v}}</span></div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<sc-for list="{{c.chips}}" as="ch" hint-placeholder-count="3"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;border:1px solid #E4E4DF;border-radius:999px;padding:5px 10px">{{ch}}</span></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{c.hasDetail}}" hint-placeholder-val="{{false}}">
+<button onClick="{{c.openDetail}}" style="align-self:flex-start;height:44px;padding:0 16px;border-radius:999px;border:1px solid #D8D8D2;background:transparent;color:#111111;font-weight:600;font-size:13px" style-hover="border-color:#111111">Recent vs trend vs stable →</button>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{pending}}" hint-placeholder-val="{{false}}">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#111111;background:linear-gradient(115deg,rgba(220,203,255,.55),rgba(191,229,255,.55),rgba(255,221,233,.5));background-size:200% 100%;animation:holoShift 1.6s ease infinite;border-radius:999px;padding:5px 10px;align-self:flex-start">RETRIEVING MEMBER CONTEXT…</div>
+<div style="height:12px;width:60%;background:linear-gradient(115deg,rgba(220,203,255,.4),rgba(191,229,255,.4),rgba(255,221,233,.4));background-size:200% 100%;animation:holoShift 1.6s ease infinite;border-radius:6px"></div>
+<div style="height:12px;width:85%;background:linear-gradient(115deg,rgba(220,203,255,.4),rgba(191,229,255,.4),rgba(255,221,233,.4));background-size:200% 100%;animation:holoShift 1.6s ease infinite;border-radius:6px"></div>
+</div>
+</sc-if>
+<div style="margin-top:auto;padding-top:8px"><div style="border:1px solid #E4E4DF;background:#FFFFFF;border-radius:999px;height:48px;display:flex;align-items:center;padding:0 18px;color:#A0A099;font-size:13px">Ask about Jordan… <span style="font-family:'JetBrains Mono',monospace;font-size:9px;margin-left:auto;letter-spacing:.08em">DEMO</span></div></div>
+</div>
+</sc-if>
+
+<div style="display:flex;border-top:1px solid #E7E7E2;background:#FBFBF8;padding-bottom:env(safe-area-inset-bottom)">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button onClick="{{t.on}}" style="flex:1;height:58px;background:transparent;border:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+<div style="width:18px;height:2.5px;border-radius:2px;background:#111111;opacity:{{t.dotOp}}"></div>
+<span style="font-size:12.5px;font-weight:600;color:{{t.c}};letter-spacing:.01em">{{t.label}}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{scrProfile}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Profile" style="display:flex;flex-direction:column;height:100%;animation:fadeUp .25s ease">
+<div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #EAEAE5">
+<button onClick="{{back}}" style="width:44px;height:44px;border-radius:12px;border:1px solid #E4E4DF;background:#FFFFFF;color:#111111;font-size:16px" style-hover="border-color:#111111">←</button>
+<div style="flex:1"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Jordan Rivera</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:1px">MEMBER PROFILE</div></div>
+</div>
+<div data-scroll="1" style="flex:1;overflow-y:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:11px">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:20px;padding:16px;display:flex;align-items:center;gap:14px;box-shadow:0 1px 2px rgba(17,17,17,.03)">
+<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(115deg,rgba(220,203,255,.5),rgba(191,229,255,.5),rgba(255,221,233,.5));border:1px solid #111111;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex:none">JR</div>
+<div style="min-width:0"><div style="font-weight:700;font-size:18px;letter-spacing:-.015em">Jordan Rivera</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;color:#8A8A82;margin-top:4px">41 · 168 CM · 71.2 KG</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;color:#8A8A82;margin-top:2px">1:1 COACHING · SINCE 09/2024</div></div>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:4px">STATUS</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span style="font-weight:600;font-size:14.5px">Patellofemoral pain — left knee</span><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#111111;border:1px solid #D8D8D2;border-radius:999px;padding:4px 9px;white-space:nowrap">RECOVERING</span></div>
+<div style="font-size:12.5px;color:#6E6E66;margin-top:5px">Mild · since May 10. Cleared for low-impact loading; avoid deep knee flexion under load and plyometrics.</div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#A0A099;margin-top:7px">INJURY REPORT · 05/10 · SNOMED CT SUBSET</div></sc-if>
+<button onClick="{{profilePath}}" style="margin-top:10px;height:44px;padding:0 15px;border-radius:999px;border:1px solid #D8D8D2;background:linear-gradient(115deg,rgba(220,203,255,.25),rgba(191,229,255,.22),rgba(255,221,233,.2)),#FFFFFF;color:#111111;font-weight:600;font-size:12.5px" style-hover="border-color:#111111">What this changes today →</button>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:4px">GOALS</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:6px 15px">
+<div style="display:flex;gap:10px;align-items:baseline;padding:10px 0;border-bottom:1px solid #EEEEE9"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#111111;width:22px;flex:none">P1</span><span style="font-size:13.5px;flex:1">Build lower-body strength</span><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#A0A099">SEP 2026</span></div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:10px 0;border-bottom:1px solid #EEEEE9"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#111111;width:22px;flex:none">P1</span><span style="font-size:13.5px;flex:1">Return to pain-free squatting</span><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#A0A099">JUL 2026</span></div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:10px 0"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#8A8A82;width:22px;flex:none">P2</span><span style="font-size:13.5px;flex:1;color:#55554F">7+ hours of sleep on weeknights</span><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#A0A099">ONGOING</span></div>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:4px">PREFERENCES</div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px;display:flex;flex-direction:column;gap:8px">
+<div style="font-size:13px;color:#33332E">50-min sessions · 4 days/wk <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8A8A82">MON WED THU SAT</span></div>
+<div style="font-size:13px;color:#33332E">Prefers dumbbell &amp; kettlebell work at home · dislikes high-impact jumping</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span style="font-size:12.5px;color:#8A8A82">Never:</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#A0A099;border:1px dashed #D8D8D2;border-radius:999px;padding:5px 10px;text-decoration:line-through">DEADLIFTS</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#A0A099;border:1px dashed #D8D8D2;border-radius:999px;padding:5px 10px;text-decoration:line-through">BURPEES</span></div>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:4px">EQUIPMENT</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;background:#FFFFFF;border-radius:999px;padding:8px 12px">DUMBBELL</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;background:#FFFFFF;border-radius:999px;padding:8px 12px">KETTLEBELL</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;background:#FFFFFF;border-radius:999px;padding:8px 12px">YOGA MAT</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;background:#FFFFFF;border-radius:999px;padding:8px 12px">LOOP BAND</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;background:#FFFFFF;border-radius:999px;padding:8px 12px">FLAT BENCH</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#B5B5AE;border:1px dashed #E0E0DA;border-radius:999px;padding:8px 12px">BARBELL —</span>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82;margin-top:4px">VITALS</div>
+<div style="display:flex;gap:10px">
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">58</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">RESTING HR</div></div>
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">47</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">HRV MS</div></div>
+<div style="flex:1;background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:12px"><div style="font-size:19px;font-weight:700;letter-spacing:-.01em">29.4%</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8A8A82;margin-top:3px">BODY FAT DEXA</div></div>
+</div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#A0A099;text-align:center;margin-top:2px">BLOOD PANEL 04/20 · DEXA 03/30 · SYNTHETIC MEMBER DATA</div></sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{scrWorkout}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Workout" style="display:flex;flex-direction:column;height:100%;animation:fadeUp .25s ease">
+<div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #EAEAE5">
+<button onClick="{{back}}" style="width:44px;height:44px;border-radius:12px;border:1px solid #E4E4DF;background:#FFFFFF;color:#111111;font-size:16px" style-hover="border-color:#111111">←</button>
+<div style="flex:1"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Thursday draft</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:1px">{{durLabel}} MIN · KNEE-SAFE · HOME</div></div>
+<span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;color:{{verC}};border:1px solid {{verBd}};border-radius:999px;padding:6px 11px;background:#FFFFFF">{{verPill}}</span>
+</div>
+<div data-scroll="1" style="flex:1;overflow-y:auto;padding:14px 18px 20px;display:flex;flex-direction:column;gap:10px">
+<sc-if value="{{diff}}" hint-placeholder-val="{{false}}">
+<div style="background:linear-gradient(115deg,rgba(220,203,255,.35),rgba(191,229,255,.32),rgba(255,221,233,.3)),#FFFFFF;border:1px solid #E0E0DA;border-radius:14px;padding:11px 14px;display:flex;align-items:center;gap:10px;animation:fadeUp .3s ease">
+<span style="font-size:13px;color:#111111;flex:1">{{diff}}</span>
+<button onClick="{{dismissDiff}}" style="background:transparent;border:none;color:#8A8A82;font-size:15px;width:32px;height:32px">✕</button>
+</div>
+</sc-if>
+<sc-for list="{{sections}}" as="sec" hint-placeholder-count="3">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;color:#8A8A82;margin-top:6px">{{sec.title}}</div>
+<sc-for list="{{sec.items}}" as="it" hint-placeholder-count="3">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:14px;overflow:hidden">
+<div onClick="{{it.toggle}}" style="display:flex;align-items:center;gap:10px;padding:13px 14px;min-height:52px;cursor:pointer">
+<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14.5px">{{it.name}}</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:3px">{{it.dose}}</div></div>
+<sc-if value="{{it.badge}}" hint-placeholder-val="{{false}}"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#FFFFFF;background:#111111;border-radius:999px;padding:4px 9px">OVERRIDE</span></sc-if>
+<span style="color:#8A8A82;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em">WHY {{it.caret}}</span>
+</div>
+<sc-if value="{{it.open}}" hint-placeholder-val="{{false}}">
+<div style="padding:0 14px 13px;display:flex;flex-direction:column;gap:8px;border-top:1px solid #EEEEE9">
+<div style="font-size:13px;color:#55554F;padding-top:11px">{{it.why}}</div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}"><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#A0A099">{{it.prov}}</div></sc-if>
+<sc-if value="{{it.hasPath}}" hint-placeholder-val="{{false}}">
+<button onClick="{{it.openPath}}" style="align-self:flex-start;height:44px;padding:0 15px;border-radius:999px;border:1px solid #D8D8D2;background:linear-gradient(115deg,rgba(220,203,255,.25),rgba(191,229,255,.22),rgba(255,221,233,.2)),#FFFFFF;color:#111111;font-weight:600;font-size:12.5px" style-hover="border-color:#111111">Decision path →</button>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</sc-for>
+<div style="background:#FBFBF9;border:1px dashed #D8D8D2;border-radius:14px;overflow:hidden;margin-top:6px">
+<div onClick="{{toggleExcl}}" style="display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;min-height:52px">
+<span style="width:20px;height:20px;border-radius:50%;background:#111111;color:#FFFFFF;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none">!</span>
+<span style="flex:1;font-size:13.5px;color:#33332E;font-weight:600">{{exclLabel}}</span>
+<span style="color:#8A8A82;font-size:12px">{{exclCaret}}</span>
+</div>
+<sc-if value="{{exclOpen}}" hint-placeholder-val="{{true}}">
+<div style="padding:0 14px 13px;display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{exclusions}}" as="x" hint-placeholder-count="3">
+<div style="border-top:1px solid #ECECE7;padding-top:10px">
+<div style="font-size:14px;font-weight:600;color:#A0A099;text-decoration:line-through">{{x.name}}</div>
+<div style="font-size:12.5px;color:#6E6E66;margin-top:3px">{{x.reason}}</div>
+<div style="display:flex;gap:8px;margin-top:9px">
+<button onClick="{{x.openPath}}" style="height:44px;padding:0 15px;border-radius:999px;border:1px solid #D8D8D2;background:#FFFFFF;color:#111111;font-weight:600;font-size:12.5px" style-hover="border-color:#111111">Decision path →</button>
+<sc-if value="{{x.overridable}}" hint-placeholder-val="{{false}}">
+<button onClick="{{openOverride}}" style="height:44px;padding:0 15px;border-radius:999px;border:1px solid #111111;background:#FFFFFF;color:#111111;font-weight:600;font-size:12.5px" style-hover="background:#111111;color:#FFFFFF">Override…</button>
+</sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</div>
+<sc-if value="{{notPublished}}" hint-placeholder-val="{{true}}">
+<div style="padding:12px 18px calc(12px + env(safe-area-inset-bottom));display:flex;gap:10px;border-top:1px solid #E7E7E2;background:rgba(251,251,248,.94)">
+<button onClick="{{openAdjust}}" style="flex:1;height:52px;border-radius:16px;border:1px solid #D8D8D2;background:#FFFFFF;color:#111111;font-weight:600;font-size:14.5px" style-hover="border-color:#111111">Adjust</button>
+<button onClick="{{goConfirm}}" style="flex:1.4;height:52px;border-radius:16px;border:none;background:#111111;color:#FFFFFF;font-weight:600;font-size:14.5px" style-hover="background:#2A2A26" style-active="transform:scale(.99)">Approve &amp; publish</button>
+</div>
+</sc-if>
+<sc-if value="{{published}}" hint-placeholder-val="{{false}}">
+<div style="padding:14px 18px calc(14px + env(safe-area-inset-bottom));border-top:1px solid #E7E7E2;background:#111111;text-align:center">
+<span style="font-size:13.5px;color:#FFFFFF;font-weight:600">✓ Published — exact {{verPill}} sent to Jordan</span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{scrLanes}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Decision paths" style="display:flex;flex-direction:column;height:100%;animation:fadeUp .25s ease">
+<div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #EAEAE5">
+<button onClick="{{back}}" style="width:44px;height:44px;border-radius:12px;border:1px solid #E4E4DF;background:#FFFFFF;color:#111111;font-size:16px" style-hover="border-color:#111111">←</button>
+<div style="flex:1"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Decision paths</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:1px">GRAPH-TRAVERSED · SOURCE-BACKED</div></div>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#111111;border:1px solid #111111;border-radius:999px;padding:6px 11px;background:#FFFFFF">{{kindPill}}</span>
+</div>
+<div data-scroll="1" style="padding:12px 18px 4px;display:flex;gap:8px;overflow-x:auto;flex:none">
+<sc-for list="{{decChips}}" as="d" hint-placeholder-count="4">
+<button onClick="{{d.on}}" style="flex:none;height:40px;padding:0 15px;border-radius:999px;border:1px solid {{d.bd}};background:{{d.bg}};color:{{d.fg}};font-weight:600;font-size:13px;white-space:nowrap">{{d.label}}</button>
+</sc-for>
+</div>
+<div data-scroll="1" style="flex:1;overflow-y:auto;padding:10px 18px 24px;display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{laneList}}" as="L" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;color:#8A8A82;margin-top:8px">{{L.name}}</div>
+<sc-if value="{{L.empty}}" hint-placeholder-val="{{false}}">
+<div style="border:1px dashed #D8D8D2;border-radius:12px;padding:11px 13px;font-size:12.5px;color:#A0A099">not used for this decision</div>
+</sc-if>
+<sc-for list="{{L.items}}" as="n" hint-placeholder-count="1">
+<div style="border:1px solid #E0E0DA;background:linear-gradient(115deg,rgba(220,203,255,.28),rgba(191,229,255,.25),rgba(255,221,233,.22)),#FFFFFF;border-radius:12px;padding:11px 13px">
+<div style="font-size:13.5px;font-weight:500">{{n.t}}</div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8A8A82;margin-top:4px">{{n.src}}</div></sc-if>
+</div>
+</sc-for>
+<sc-if value="{{L.arrow}}" hint-placeholder-val="{{true}}"><div style="text-align:center;color:#C9C9C2;font-size:13px;line-height:1">↓</div></sc-if>
+</div>
+</sc-for>
+<div style="margin-top:14px;font-size:12px;color:#A0A099;text-align:center;text-wrap:pretty">Same four lanes explain every selection, exclusion, substitution, override and Copilot claim.</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{scrInsight}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Insight detail" style="display:flex;flex-direction:column;height:100%;animation:fadeUp .25s ease">
+<div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #EAEAE5">
+<button onClick="{{back}}" style="width:44px;height:44px;border-radius:12px;border:1px solid #E4E4DF;background:#FFFFFF;color:#111111;font-size:16px" style-hover="border-color:#111111">←</button>
+<div style="flex:1"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">{{ins.title}}</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:1px">{{ins.kicker}} · LONGITUDINAL</div></div>
+</div>
+<div data-scroll="1" style="flex:1;overflow-y:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:10px">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#8A8A82">RECENT STATE</div><div style="font-size:13.5px;color:#33332E;margin-top:6px">{{ins.recent}}</div></div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#8A8A82">TREND</div><div style="font-size:13.5px;color:#33332E;margin-top:6px">{{ins.trend}}</div></div>
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:14px 15px"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#8A8A82">STABLE CONTEXT</div><div style="font-size:13.5px;color:#33332E;margin-top:6px">{{ins.stable}}</div></div>
+<div style="background:linear-gradient(115deg,rgba(220,203,255,.35),rgba(191,229,255,.32),rgba(255,221,233,.3)),#FFFFFF;border:1px solid #E0E0DA;border-radius:16px;padding:14px 15px"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#111111">SUGGESTED ACTION</div><div style="font-size:13.5px;font-weight:500;margin-top:6px">{{ins.action}}</div></div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
+<sc-for list="{{ins.chips}}" as="ch" hint-placeholder-count="3"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;border:1px solid #E4E4DF;border-radius:999px;padding:5px 10px">{{ch}}</span></sc-for>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{scrConfirm}}" hint-placeholder-val="{{false}}">
+<div data-screen-label="Approve" style="display:flex;flex-direction:column;height:100%;animation:fadeUp .25s ease">
+<div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #EAEAE5">
+<button onClick="{{backToWorkout}}" style="width:44px;height:44px;border-radius:12px;border:1px solid #E4E4DF;background:#FFFFFF;color:#111111;font-size:16px" style-hover="border-color:#111111">←</button>
+<div style="flex:1"><div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Approve {{verPill}}</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:1px">FINAL CHECK BEFORE PUBLISH</div></div>
+</div>
+<div data-scroll="1" style="flex:1;overflow-y:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:12px">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:16px;padding:15px">
+<div style="font-weight:700;font-size:15px;letter-spacing:-.01em">Thu · {{durLabel}} min · {{exCount}} exercises</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A8A82;margin-top:4px">{{ovLabel}}</div>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#8A8A82">CHANGES SINCE V1</div>
+<sc-if value="{{confEmpty}}" hint-placeholder-val="{{false}}">
+<div style="border:1px dashed #D8D8D2;border-radius:14px;padding:13px;font-size:13px;color:#8A8A82">No coach changes — approving the auto draft as generated.</div>
+</sc-if>
+<sc-for list="{{confChanges}}" as="chg" hint-placeholder-count="2">
+<div style="background:#FFFFFF;border:1px solid #E4E4DF;border-radius:12px;padding:11px 14px;font-size:13px;color:#33332E;display:flex;gap:8px"><span>·</span><span>{{chg}}</span></div>
+</sc-for>
+<div style="background:linear-gradient(115deg,rgba(220,203,255,.3),rgba(191,229,255,.28),rgba(255,221,233,.26)),#FFFFFF;border:1px solid #E0E0DA;border-radius:14px;padding:13px;font-size:12.5px;color:#55554F;text-wrap:pretty">Publishing sends exactly this version to Jordan. Every prior draft, adjustment and override stays in History.</div>
+</div>
+<div style="padding:12px 18px calc(12px + env(safe-area-inset-bottom));border-top:1px solid #E7E7E2">
+<button onClick="{{publish}}" style="width:100%;height:54px;border-radius:16px;border:none;background:#111111;color:#FFFFFF;font-weight:600;font-size:15px" style-hover="background:#2A2A26" style-active="transform:scale(.99)">Approve &amp; publish {{verPill}}</button>
+<div style="text-align:center;font-size:12px;color:#A0A099;margin-top:9px">or go back to keep adjusting</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{adjustOpen}}" hint-placeholder-val="{{false}}">
+<div style="position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:flex-end">
+<div onClick="{{closeAdjust}}" style="position:absolute;inset:0;background:rgba(20,20,18,.32)"></div>
+<div style="position:relative;background:#FFFFFF;border:1px solid #E4E4DF;border-bottom:none;border-radius:22px 22px 0 0;padding:14px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:13px;animation:sheetUp .28s ease;box-shadow:0 -12px 40px rgba(17,17,17,.08)">
+<div style="width:36px;height:4px;background:#E0E0DA;border-radius:2px;align-self:center"></div>
+<sc-if value="{{notRerunning}}" hint-placeholder-val="{{true}}">
+<div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Adjust draft</div>
+<div style="background:#F7F7F4;border:1px solid #EEEEE9;border-radius:14px;padding:13px 14px">
+<div style="display:flex;justify-content:space-between;font-size:13.5px"><span style="color:#55554F">Duration</span><span style="font-weight:700">{{duration}} min</span></div>
+<input type="range" min="30" max="60" step="5" value="{{duration}}" onChange="{{onDur}}" style="margin-top:10px">
+</div>
+<div style="display:flex;gap:8px">
+<sc-for list="{{intOpts}}" as="o" hint-placeholder-count="3">
+<button onClick="{{o.on}}" style="flex:1;height:44px;border-radius:12px;border:1px solid {{o.bd}};background:{{o.bg}};color:{{o.fg}};font-weight:600;font-size:13.5px">{{o.label}}</button>
+</sc-for>
+</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;border-radius:999px;padding:6px 11px">DUMBBELL ✓</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;border-radius:999px;padding:6px 11px">KETTLEBELL ✓</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;border-radius:999px;padding:6px 11px">BANDS ✓</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#55554F;border:1px solid #E0E0DA;border-radius:999px;padding:6px 11px">BENCH ✓</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#B5B5AE;border:1px dashed #E0E0DA;border-radius:999px;padding:6px 11px">BARBELL —</span>
+</div>
+<button onClick="{{rerunNow}}" style="height:52px;border-radius:16px;border:none;background:#111111;color:#FFFFFF;font-weight:600;font-size:14.5px" style-hover="background:#2A2A26">Re-run constraints</button>
+</sc-if>
+<sc-if value="{{rerunning}}" hint-placeholder-val="{{false}}">
+<div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Re-running…</div>
+<div style="display:flex;flex-direction:column;gap:12px;padding:6px 2px 10px">
+<sc-for list="{{rerunSteps}}" as="s" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:10px"><div style="width:10px;height:10px;border-radius:50%;background:{{s.fill}};border:1.5px solid {{s.bd}};flex:none"></div><span style="font-size:13.5px;color:{{s.c}}">{{s.t}}</span></div>
+</sc-for>
+</div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#A0A099">DETERMINISTIC CONSTRAINTS · NO LLM IN THE SAFETY PATH</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{overrideOpen}}" hint-placeholder-val="{{false}}">
+<div style="position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:flex-end">
+<div onClick="{{closeOverride}}" style="position:absolute;inset:0;background:rgba(20,20,18,.32)"></div>
+<div style="position:relative;background:#FFFFFF;border:1px solid #E4E4DF;border-bottom:none;border-radius:22px 22px 0 0;padding:14px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px;animation:sheetUp .28s ease;box-shadow:0 -12px 40px rgba(17,17,17,.08)">
+<div style="width:36px;height:4px;background:#E0E0DA;border-radius:2px;align-self:center"></div>
+<div style="font-weight:700;font-size:16px;letter-spacing:-.01em">Override: DB Goblet Split Squat</div>
+<div style="background:#F7F7F4;border:1px solid #111111;border-radius:14px;padding:13px 14px">
+<div style="font-size:13.5px;font-weight:600">! Deep knee flexion under load</div>
+<div style="font-size:12.5px;color:#55554F;margin-top:4px">Flagged for patellofemoral pain (left, recovering). The warning stays attached to the new version.</div>
+<sc-if value="{{showProv}}" hint-placeholder-val="{{true}}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#8A8A82;margin-top:6px">SNOMED CT SUBSET · INJURY REPORT 05/10</div></sc-if>
+</div>
+<div style="font-size:12.5px;color:#8A8A82">Graph alternatives already in plan: Box Goblet Squat, Step-Up</div>
+<textarea value="{{overrideReason}}" onChange="{{onReason}}" placeholder="Reason (required) — e.g. cleared by PT, light load only" style="background:#F7F7F4;border:1px solid #E4E4DF;border-radius:14px;color:#111111;font-size:13.5px;padding:12px 14px;min-height:76px;resize:none;outline:none"></textarea>
+<div style="display:flex;gap:10px">
+<button onClick="{{closeOverride}}" style="flex:1;height:50px;border-radius:14px;border:1px solid #D8D8D2;background:#FFFFFF;color:#55554F;font-weight:600;font-size:14px">Cancel</button>
+<button onClick="{{doOverride}}" disabled="{{ovDisabled}}" style="flex:1.5;height:50px;border-radius:14px;border:none;background:{{ovBg}};color:{{ovFg}};font-weight:600;font-size:14px">Override — keep warning</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:430,&quot;height&quot;:932},&quot;showProvenance&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;simLatencyMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:900,&quot;min&quot;:0,&quot;max&quot;:2500,&quot;step&quot;:100,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;today&quot;,&quot;copilot&quot;],&quot;default&quot;:&quot;today&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  state = { tab: null, screen: null, expandedEx: null, exclOpen: false, duration: 50, appliedDuration: 50, intensity: 'Moderate', rerun: -1, adjustOpen: false, overrideOpen: false, overrideReason: '', benchDropped: false, splitIncluded: false, ovReasonSaved: '', published: false, diff: null, toast: null, decision: 'd1', insight: null, feed: ['brief', 'adherence', 'sleep', 'change', 'churn'], pendingPrompt: null, pinned: [],
+    versions: [{ v: 1, note: 'Auto daily draft', who: 'Assistant · safety-checked', time: '6:02 AM', dot: '#FFFFFF', changes: ['Built from goals, injury, equipment, recent training', '3 constraint decisions applied (2 safety, 1 preference)'] }] };
+
+  HOLO = 'linear-gradient(115deg,#DCCBFF,#BFE5FF,#FFDDE9)';
+
+  CARDS = {
+    brief: { kicker: 'MORNING BRIEF · THU JUN 4', title: 'Celebrate the knee win, watch churn', rows: [ { k: 'CELEBRATE', v: 'First pain-free squat work since the flare-up — box squats Jun 3, "knee felt okay".' }, { k: 'RISK', v: 'Adherence 100% → 50% over 2 weeks · churn elevated' }, { k: 'DO NEXT', v: "Reply to Jordan's check-in · review today's draft" } ], chips: ['workout 06/03', 'adherence log', 'chat 06/03'] },
+    adherence: { kicker: 'ADHERENCE', title: 'Declining — 100% → 50%', headline: 'Two strong weeks, then a slide. One skipped session ("work blew up").', bars: [ { h: 92, lab: '5/12' }, { h: 92, lab: '5/19' }, { h: 70, lab: '5/26' }, { h: 47, lab: '6/02' } ], chips: ['adherence log · 4 wks', 'chat 05/30'], detail: { recent: '50% last week — one skipped Thursday session, apologized citing work fatigue.', trend: 'Declining four weeks straight from 100%. Logins also down vs prior month.', stable: 'Historically consistent: 4 days/week preference, 14-month member, engaged when the knee feels good.', action: 'Trim sessions to 35–40 min this week and anchor the check-in on the pain-free squat milestone.' } },
+    sleep: { kicker: 'SLEEP', title: '6.3h avg vs 7h goal', headline: 'Two nights under 5.5h this week; weekends recover.', bars: [ { h: 76, lab: 'F' }, { h: 67, lab: 'S' }, { h: 90, lab: 'S' }, { h: 75, lab: 'M' }, { h: 64, lab: 'T' }, { h: 97, lab: 'W' }, { h: 79, lab: 'T' } ], chips: ['sleep log · 7 days', 'goal: 7h weeknights'], detail: { recent: '6.3h average over the last 7 days; 5.1h Tuesday was the low.', trend: 'Weeknights consistently under goal; weekend catch-up pattern for 3 weeks.', stable: 'Goal on file: 7+ hours on weeknights (priority 2).', action: 'Keep intensity moderate after short-sleep nights; today qualifies.' } },
+    change: { kicker: 'WEEK OVER WEEK', title: 'What changed since last week', rows: [ { k: 'ADHERENCE', v: '75% → 50% — one planned session missed' }, { k: 'SLEEP', v: '6.5h → 6.3h avg — small dip, not a trend' }, { k: 'KNEE', v: 'First pain-free loaded squats ✓ (box-supported)' } ], chips: ['4 workouts', 'sleep log', '2 messages'] },
+    churn: { kicker: 'CHURN RISK', title: 'Elevated — act this week', bars: [ { h: 92, lab: '5/12' }, { h: 92, lab: '5/19' }, { h: 70, lab: '5/26' }, { h: 47, lab: '6/02' } ], rows: [ { k: 'SIGNALS', v: 'Adherence 100% → 50% · skipped session · logins down vs prior month' }, { k: 'COUNTER', v: 'Pain-free knee day + upbeat message Jun 3' } ], chips: ['adherence log', 'chat 05/30', 'login events'], detail: { recent: 'Skipped Thursday, apologized citing work fatigue. Upbeat again after Jun 3 session.', trend: 'Engagement sliding for 2 weeks across sessions and logins.', stable: '14-month member on 1:1 tier; historically responds well to milestone recognition.', action: 'Send a personal nudge tied to the squat milestone before scheduling this week.' } } };
+
+  DECS = {
+    d1: { chip: 'Split squat ✗', kind: 'SAFETY EXCLUSION', member: [{ t: 'Patellofemoral pain, left knee · recovering', src: 'INJURY REPORT · 05/10' }], anatomy: [{ t: 'patellofemoral joint ⊂ knee joint', src: 'SNOMED CT SUBSET · ANATOMY HIERARCHY' }], rule: [{ t: 'Avoid deep knee flexion under load', src: 'CONTRAINDICATION EDGE' }], workout: [{ t: '✗ DB Goblet Split Squat removed as candidate', src: 'SAFETY LAYER · DETERMINISTIC' }, { t: '→ Box Goblet Squat offered instead', src: 'EQUIVALENCE · SQUAT PATTERN' }] },
+    d2: { chip: 'Jumps ✗', kind: 'SAFETY EXCLUSION', member: [{ t: 'Patellofemoral pain, left knee · recovering', src: 'INJURY REPORT · 05/10' }], anatomy: [{ t: 'knee joint + modeled substructures', src: 'SNOMED CT SUBSET' }], rule: [{ t: 'Avoid plyometric loading', src: 'CONTRAINDICATION EDGE' }], workout: [{ t: '✗ Static Jump removed as candidate', src: 'SAFETY LAYER · DETERMINISTIC' }, { t: '→ Step-Up selected for lower push', src: 'SUBSTITUTION EDGE' }] },
+    d3: { chip: 'Deadlifts ✗', kind: 'PREFERENCE', member: [{ t: 'Dislikes: deadlifts, burpees', src: 'MEMBER PROFILE · PREFERENCES' }], anatomy: [], rule: [{ t: 'Explicit exclusion, incl. mapped variations', src: 'EQUIVALENCE SET · HINGE PATTERN' }], workout: [{ t: '✗ KB Romanian Deadlift + 2 variations hidden', src: 'PREFERENCE FILTER' }] },
+    d4: { chip: 'Box squat ✓', kind: 'SELECTION', member: [{ t: 'Goal: build lower-body strength', src: 'GOALS · PRIORITY 1' }, { t: 'Box squats pain-free Jun 3', src: 'WORKOUT LOG · 06/03' }], anatomy: [{ t: 'Limited flexion range at knee joint', src: 'SNOMED CT SUBSET' }], rule: [{ t: 'Prefer knee-safe squat patterns while recovering', src: 'GRADED-RETURN RULE' }], workout: [{ t: '✓ Box Goblet Squat 3×10 selected', src: 'COMPOSER · DUMBBELL AVAILABLE' }] } };
+
+  go = (screen) => this.setState({ screen });
+  back = () => this.setState((s) => ({ screen: (s.screen === 'lanes' || s.screen === 'insight') ? (s.retTo ?? null) : null, retTo: null }));
+  setTab = (tab) => this.setState({ tab, screen: null });
+  lat = () => this.props.simLatencyMs ?? 900;
+
+  openPath = (decision) => this.setState((s) => ({ screen: 'lanes', decision, retTo: s.screen }));
+  openInsight = (insight) => this.setState((s) => ({ screen: 'insight', insight, retTo: s.screen }));
+  toggleEx = (id) => this.setState((s) => ({ expandedEx: s.expandedEx === id ? null : id }));
+
+  ask = (id) => { if (this.state.pendingPrompt) return; this.setState({ pendingPrompt: id }); setTimeout(() => this.setState((s) => ({ feed: [...s.feed.filter((f) => f !== id), id], pendingPrompt: null })), this.lat()); };
+  askChurn = () => { this.setState({ tab: 'copilot', screen: null }); this.ask('churn'); };
+  togglePin = (id) => this.setState((s) => ({ pinned: s.pinned.includes(id) ? s.pinned.filter((p) => p !== id) : [...s.pinned, id] }));
+
+  rerunNow = () => { this.setState({ rerun: 1 }); setTimeout(() => this.setState({ rerun: 2 }), 550); setTimeout(() => this.setState({ rerun: 3 }), 1100); setTimeout(() => this.setState((s) => { const drop = s.duration <= 40; const vn = s.versions.length + 1; return { rerun: -1, adjustOpen: false, appliedDuration: s.duration, benchDropped: drop || s.benchDropped, versions: [...s.versions, { v: vn, note: 'Coach adjustment', who: 'Coach Sam · guided controls', time: '7:41 AM', dot: '#111111', changes: [ 'Duration ' + s.duration + ' min · intensity ' + s.intensity, ...(drop ? ['DB Neutral-Grip Bench Press removed (time budget)'] : []), 'Rest guidance re-sized to window' ] }], diff: 'v' + vn + ' · ' + s.duration + ' min — ' + (drop ? 'Bench Press removed, rest re-sized' : 'rest guidance re-sized') + ', reasons updated' }; }), 1700); };
+
+  doOverride = () => this.setState((s) => { const vn = s.versions.length + 1; return { overrideOpen: false, splitIncluded: true, ovReasonSaved: s.overrideReason, overrideReason: '', versions: [...s.versions, { v: vn, note: 'Safety override', who: 'Coach Sam · reason on file', time: '7:48 AM', dot: this.HOLO, changes: ['DB Goblet Split Squat added · 2×8 light', 'Deep-flexion warning retained on version', 'Reason: "' + s.overrideReason + '"'] }], diff: 'v' + vn + ' · override — split squat included, warning kept' }; });
+
+  publish = () => this.setState((s) => { const vn = s.versions.length; return { published: true, screen: 'workout', toast: '✓ Published to Jordan — exact v' + vn, versions: [...s.versions, { v: vn, note: 'Published', who: 'Coach Sam · approved', time: '7:52 AM', dot: '#111111', changes: ['Exact approved version sent to Jordan', 'All prior versions retained with actor + reason'] }] }; }, () => setTimeout(() => this.setState({ toast: null }), 2800));
+
+  getItems() {
+    const S = this.state, mk = (id, name, dose, why, prov, path, badge) => ({ id, name, dose, why, prov, hasPath: !!path, badge: !!badge, open: S.expandedEx === id, caret: S.expandedEx === id ? '−' : '+', toggle: () => this.toggleEx(id), openPath: path ? () => this.openPath(path) : null });
+    const warm = [ mk('wgs', "World's Greatest Stretch", '2 MIN · FLOW', 'Dynamic full-body mobility with no loaded knee flexion. Mat only.', 'CATALOG · MOBILITY-DYNAMIC'), mk('blw', 'Banded Lateral Walk', '2×12 · LOOP BAND', 'Knee-stability activation without flexion load — her loop band at home.', 'EQUIPMENT GRAPH · RESISTANCE BAND') ];
+    const main = [ mk('bgs', 'Box Goblet Squat', '3×10 · DUMBBELL', 'Strength goal + first pain-free box squats Jun 3. Box caps depth below the flexion threshold.', 'GOALS · WORKOUT LOG 06/03 · ANATOMY', 'd4'), mk('su', 'Step-Up (low box)', '3×8 / SIDE · DUMBBELL', 'Knee-safe lower push — selected where jump and lunge patterns were removed.', 'SUBSTITUTION EDGE · SAFETY LAYER', 'd2'), mk('ht', 'Hip Thrust', '3×12 · BENCH', 'Posterior chain with minimal knee flexion; bench available at home.', 'ANATOMY TRAVERSAL · EQUIPMENT GRAPH') ];
+    if (!S.benchDropped) main.push(mk('bp', 'DB Neutral-Grip Bench Press', '3×10 · DB + BENCH', 'Upper push to balance the session — dumbbells and flat bench on hand.', 'EQUIPMENT GRAPH'));
+    if (S.splitIncluded) main.push(mk('split', 'DB Goblet Split Squat', '2×8 · LIGHT', 'Included by coach override — deep-flexion warning retained. Reason: "' + S.ovReasonSaved + '"', 'PROV-O · OVERRIDE · COACH SAM', 'd1', true));
+    const cool = [ mk('cow', 'Cow Pose', '1 MIN · MAT', 'Down-regulation and gentle lumbar mobility to close.', 'CATALOG · REGEN'), mk('trap', 'Ground Upper Trap Stretch', '1 MIN / SIDE', 'Neck and trap release — desk-day counterbalance.', 'CATALOG · MOBILITY-STATIC') ];
+    return [ { title: 'WARM-UP', items: warm }, { title: 'MAIN', items: main }, { title: 'COOL-DOWN', items: cool } ];
+  }
+
+  renderVals() {
+    const S = this.state, P = this.props;
+    const tab = S.tab ?? (P.startTab ?? 'today');
+    const showProv = P.showProvenance ?? true;
+    const verN = S.versions.length - (S.published ? 1 : 0);
+    const sections = this.getItems();
+    const exCount = sections.reduce((n, s) => n + s.items.length, 0);
+    const exclusions = [ ...(S.splitIncluded ? [] : [{ name: 'DB Goblet Split Squat', reason: 'Deep knee flexion under load — patellofemoral pain (recovering)', overridable: true, openPath: () => this.openPath('d1') }]), { name: 'Static Jump / plyometrics', reason: 'Plyometric loading contraindicated during knee recovery', overridable: false, openPath: () => this.openPath('d2') }, { name: 'KB Romanian Deadlift + variations', reason: 'Member dislikes deadlifts — explicit preference exclusion', overridable: false, openPath: () => this.openPath('d3') } ];
+    const decs = { ...this.DECS };
+    if (S.splitIncluded) decs.d5 = { chip: 'Override !', kind: 'COACH OVERRIDE', member: [{ t: 'Coach override — "' + S.ovReasonSaved + '"', src: 'COACH SAM · TODAY 7:48 AM' }], anatomy: [{ t: 'patellofemoral joint ⊂ knee joint', src: 'SNOMED CT SUBSET' }], rule: [{ t: 'Warning retained and attached to version', src: 'PROV-O · VERSION v' + verN }], workout: [{ t: '! DB Goblet Split Squat included · 2×8 light', src: 'OVERRIDE · ALTERNATIVES WERE OFFERED' }] };
+    const D = decs[S.decision] || decs.d1;
+    const lanes = ['member', 'anatomy', 'rule', 'workout'];
+    const laneList = lanes.map((k, i) => ({ name: k.toUpperCase(), items: D[k], empty: D[k].length === 0, arrow: i < 3 }));
+    const cardOf = (id) => { const c = this.CARDS[id]; return { ...c, hasDetail: !!c.detail, pin: () => this.togglePin(id), pinLabel: S.pinned.includes(id) ? 'PINNED ✓' : 'PIN TO TODAY', openDetail: () => this.openInsight(id) }; };
+    const ins = S.insight ? { title: this.CARDS[S.insight].title, kicker: this.CARDS[S.insight].kicker, chips: this.CARDS[S.insight].chips, ...this.CARDS[S.insight].detail } : { chips: [] };
+    const confChanges = S.versions.slice(1).flatMap((v) => v.changes);
+    return {
+      showProv, toast: S.toast,
+      scrHome: !S.screen, scrWorkout: S.screen === 'workout', scrLanes: S.screen === 'lanes', scrInsight: S.screen === 'insight', scrConfirm: S.screen === 'confirm', scrProfile: S.screen === 'profile',
+      openProfile: () => this.go('profile'), profilePath: () => this.openPath('d1'),
+      tabToday: tab === 'today', tabCopilot: tab === 'copilot', tabHistory: tab === 'history',
+      tabs: [{ id: 'today', label: 'Today' }, { id: 'copilot', label: 'Copilot' }].map((t) => ({ ...t, on: () => this.setTab(t.id), c: tab === t.id ? '#111111' : '#A6A69E', dotOp: tab === t.id ? 1 : 0 })),
+      openWorkout: () => this.go('workout'), back: this.back, backToWorkout: () => this.go('workout'),
+      draftKicker: S.published ? 'PUBLISHED ✓' : "TODAY'S DRAFT · READY", draftTitle: S.published ? 'Workout sent to Jordan' : S.appliedDuration + '-min knee-safe strength', draftSub: S.published ? 'Exact approved v' + verN + ' · history retained' : '3 constraint decisions · warm-up to cool-down sized to ' + S.appliedDuration + ' min', draftCta: S.published ? 'View published workout →' : 'Review & approve →',
+      pinnedCards: S.pinned.map((id) => ({ title: this.CARDS[id].title, open: () => this.openInsight(id) })),
+      askChurn: this.askChurn,
+      prompts: [{ id: 'brief', label: 'Morning brief' }, { id: 'adherence', label: 'Adherence' }, { id: 'sleep', label: 'Sleep' }, { id: 'change', label: 'Wk over wk' }, { id: 'churn', label: 'Churn risk' }].map((q) => ({ ...q, on: () => this.ask(q.id) })),
+      feedCards: S.feed.map(cardOf), pending: !!S.pendingPrompt,
+      hist: [...S.versions].reverse(),
+      sections, exclusions, exCount,
+      exclOpen: S.exclOpen, toggleExcl: () => this.setState({ exclOpen: !S.exclOpen }), exclLabel: exclusions.length + ' exclusions applied by the graph', exclCaret: S.exclOpen ? 'hide −' : 'show +',
+      verPill: 'v' + verN, verC: '#111111', verBd: S.published ? '#111111' : '#DCDCD6', durLabel: S.appliedDuration,
+      diff: S.diff, dismissDiff: () => this.setState({ diff: null }),
+      notPublished: !S.published, published: S.published,
+      openAdjust: () => this.setState({ adjustOpen: true, duration: S.appliedDuration }), closeAdjust: () => this.setState({ adjustOpen: false, rerun: -1 }), adjustOpen: S.adjustOpen,
+      duration: S.duration, onDur: (e) => this.setState({ duration: +e.target.value }),
+      intOpts: ['Light', 'Moderate', 'Hard'].map((o) => ({ label: o, on: () => this.setState({ intensity: o }), bg: S.intensity === o ? '#111111' : '#FFFFFF', fg: S.intensity === o ? '#FFFFFF' : '#55554F', bd: S.intensity === o ? '#111111' : '#D8D8D2' })),
+      rerunNow: this.rerunNow, rerunning: S.rerun > 0, notRerunning: S.rerun <= 0,
+      rerunSteps: ['Resolve adjustments to graph concepts', 'Traverse injury, equipment & preference constraints', 'Recompose draft & diff versions'].map((t, i) => ({ t, fill: S.rerun > i ? '#111111' : 'transparent', bd: S.rerun > i ? '#111111' : '#C9C9C2', c: S.rerun > i ? '#111111' : '#A0A099' })),
+      openOverride: () => this.setState({ overrideOpen: true }), closeOverride: () => this.setState({ overrideOpen: false }), overrideOpen: S.overrideOpen,
+      overrideReason: S.overrideReason, onReason: (e) => this.setState({ overrideReason: e.target.value }),
+      ovDisabled: S.overrideReason.trim().length < 4, ovBg: S.overrideReason.trim().length < 4 ? '#ECECE7' : '#111111', ovFg: S.overrideReason.trim().length < 4 ? '#ABABA4' : '#FFFFFF', doOverride: this.doOverride,
+      goConfirm: () => this.go('confirm'), publish: this.publish,
+      confChanges, confEmpty: confChanges.length === 0, ovLabel: S.splitIncluded ? '1 OVERRIDE · REASON ON FILE · WARNING RETAINED' : 'NO OVERRIDES · ALL CONSTRAINTS PASS',
+      decChips: Object.keys(decs).map((k) => ({ label: decs[k].chip, on: () => this.setState({ decision: k }), bg: S.decision === k ? '#111111' : '#FFFFFF', fg: S.decision === k ? '#FFFFFF' : '#55554F', bd: S.decision === k ? '#111111' : '#D8D8D2' })),
+      kindPill: D.kind, laneList, ins
+    };
+  }
+}
+</script>
+</body>
+</html>

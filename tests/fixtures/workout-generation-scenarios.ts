@@ -5,7 +5,7 @@ import { createExecuteWorkoutRun, type ExecuteWorkoutRunDependencies } from "../
 import type { WorkoutComposerInput, WorkoutComposerProposal } from "../../src/application/ports/workout-composer";
 import { validateWorkoutProvenance, workoutDecisionWasSelected, type WorkoutProvenanceBundle } from "../../src/domain/contracts/workout-provenance";
 import type { WorkoutRun, WorkoutRunState } from "../../src/domain/contracts/workout-run";
-import { asWorkoutInputRevisionId, asWorkoutRunId } from "../../src/domain/contracts/workout";
+import { asWorkoutInputRevisionId, asWorkoutRunId, type ImmutableWorkoutVersion, type WorkoutDose } from "../../src/domain/contracts/workout";
 import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
 import { catalogDecision, catalogResult, compositionCandidate, TEST_MEMBER_REVISION, TEST_MOVEMENT_REVISION } from "./workout-runtime-builder";
 
@@ -71,6 +71,7 @@ export type WorkoutScenarioCapture = {
     readonly movementGraphRevisionId: string;
     readonly memberContextRevisionId: string;
   };
+  readonly workout?: ImmutableWorkoutVersion;
   readonly provenance?: WorkoutProvenanceBundle;
   readonly evidence: {
     readonly candidateExerciseIds: readonly string[];
@@ -467,6 +468,7 @@ export async function executeWorkoutGenerationScenario(scenarioInput: WorkoutGen
       ...lists,
     },
     run: { runId: storedRun.runId, movementGraphRevisionId: storedRun.movementGraphRevisionId, memberContextRevisionId: storedRun.memberContextRevisionId },
+    ...(workout ? { workout } : {}),
     ...(provenance ? { provenance } : {}),
     evidence: {
       candidateExerciseIds: decisions.map((item) => item.exerciseConceptId),
@@ -613,6 +615,101 @@ export function renderWorkoutRuntimeDemoScenarios(scenarios: readonly WorkoutGen
   ].join("\n");
 }
 
+const DOCUMENTED_EXAMPLE_IDS = [
+  "jordan-knee-applicability",
+  "limited-equipment",
+  "split-squat-family-exclusion",
+] as const;
+
+function markdownCell(value: string) {
+  return value.replaceAll("|", "\\|").replaceAll("\n", " ");
+}
+
+function durationLabel(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return remainingSeconds === 0 ? `${minutes}m` : `${minutes}m ${remainingSeconds}s`;
+}
+
+function doseLabel(dose: Readonly<WorkoutDose>) {
+  return dose.kind === "timed"
+    ? `${dose.sets} × ${durationLabel(dose.workSecondsPerSet)}`
+    : `${dose.sets} × ${dose.repetitionsPerSet} reps`;
+}
+
+/**
+ * Submission examples are rendered from executed captures, not expected fixture
+ * values. Keeping this file in the evaluation drift gate prevents the README
+ * examples from becoming hand-maintained success stories.
+ */
+export function renderWorkoutRuntimeExamples(
+  scenarios: readonly WorkoutGenerationScenario[],
+  captures: readonly WorkoutScenarioCapture[],
+) {
+  const scenariosById = new Map(scenarios.map((item) => [item.id, item]));
+  const capturesById = new Map(captures.map((item) => [item.scenarioId, item]));
+  const sections = DOCUMENTED_EXAMPLE_IDS.map((scenarioId, index) => {
+    const scenarioInput = scenariosById.get(scenarioId);
+    const capture = capturesById.get(scenarioId);
+    if (!scenarioInput || !capture?.workout || !capture.provenance || !capture.evidence.providerInput) {
+      throw new Error(`documented example ${scenarioId} did not produce a complete captured run`);
+    }
+    const planRows = capture.workout.workout.sections.flatMap((section) => section.items.map((item) =>
+      `| ${section.kind} | \`${item.exerciseConceptId}\` | ${doseLabel(item.dose)} | ${durationLabel(item.restSeconds)} | ${markdownCell(item.rationale)} |`,
+    ));
+    const traceRows = capture.provenance.decisions.map((decision) =>
+      `| \`${decision.exerciseConceptId}\` | ${decision.selectionDisposition ?? "legacy"} | ${decision.safetyClassification ?? decision.kind} | ${decision.sourceAssertionIds.map((id) => `\`${id}\``).join("; ")} | ${decision.contributingPathIds.map((id) => `\`${id}\``).join("; ")} | ${decision.evidenceIds.map((id) => `\`${id}\``).join("; ")} | ${markdownCell(decision.explanation)} |`,
+    );
+    const providerCandidateIds = capture.evidence.providerInput.candidates.map((candidate) => candidate.exerciseConceptId);
+    return [
+      `## Example ${index + 1}: ${scenarioInput.title}`,
+      "",
+      `**Input** (${scenarioInput.input.durationMinutes} minutes):`,
+      "",
+      "```json",
+      JSON.stringify({
+        memberId: scenarioInput.input.memberId,
+        prompt: scenarioInput.input.prompt,
+        durationMinutes: scenarioInput.input.durationMinutes,
+      }, null, 2),
+      "```",
+      "",
+      "**Captured plan**",
+      "",
+      "| Section | Canonical exercise | Dose | Rest | Rationale |",
+      "|---|---|---:|---:|---|",
+      ...planRows,
+      "",
+      `Total planned duration: ${durationLabel(capture.workout.workout.timing.totalSeconds)}; requested: ${durationLabel(capture.workout.workout.timing.requestedDurationSeconds)}; difference: ${capture.workout.workout.timing.differenceSeconds}s.`,
+      "",
+      "**Filtering boundary**",
+      "",
+      `- Candidate catalog before safety: ${capture.evidence.candidateExerciseIds.map((id) => `\`${id}\``).join(", ")}.`,
+      `- Hard-filtered before the model: ${capture.observed.excludedExerciseIds.length > 0 ? capture.observed.excludedExerciseIds.map((id) => `\`${id}\``).join(", ") : "none"}.`,
+      `- Allowlisted candidates visible to the model: ${providerCandidateIds.map((id) => `\`${id}\``).join(", ")}.`,
+      "- The model received canonical IDs, dose bounds, safety status, and citation IDs; it did not receive the raw prompt, member facts, authorization material, Cypher, or excluded candidates.",
+      "",
+      "**Provenance trace**",
+      "",
+      `Run \`${capture.run.runId}\` pins Movement revision \`${capture.run.movementGraphRevisionId}\` and Member Context revision \`${capture.run.memberContextRevisionId}\`. Trace digest: \`${capture.provenance.digest}\`.`,
+      "",
+      "| Exercise | Disposition | Safety | Source assertions | Contributing path | Evidence | Decision |",
+      "|---|---|---|---|---|---|---|",
+      ...traceRows,
+      "",
+    ].join("\n");
+  });
+  return [
+    "# Executed workout examples",
+    "",
+    "> Synthetic data only. This file is generated from executed runtime captures. The offline harness uses deterministic graph-port fixtures and a deterministic composer, while exercising the real workout use case, validator, repository, lifecycle, and PROV-O projection. It does not claim a live model or clinical validation.",
+    "",
+    "Regenerate and drift-check these examples with `pnpm eval:workout-runtime`. Print only this document with `pnpm eval:workout-runtime -- --print-examples`.",
+    "",
+    ...sections,
+  ].join("\n");
+}
+
 export function renderWorkoutRuntimeEvaluation(evaluation: WorkoutCorpusScore) {
   const rows = evaluation.scenarios.map((item) => `| \`${item.scenarioId}\` | ${percent(item.recommendationValidity)} | ${percent(item.provenanceCompleteness)} | ${item.releaseReady ? "pass" : item.hardGateFailures.join(", ")} | ${item.latencyMs ?? "unavailable"} | ${item.modelStyleScore ?? "unavailable"} |`);
   return [
@@ -648,6 +745,7 @@ async function runEvaluationCli() {
   const captures = await executeWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
   const evaluation = scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS, captures);
   const demo = renderWorkoutRuntimeDemoScenarios(WORKOUT_GENERATION_SCENARIOS);
+  const examples = renderWorkoutRuntimeExamples(WORKOUT_GENERATION_SCENARIOS, captures);
   const report = renderWorkoutRuntimeEvaluation(evaluation);
   const args = new Set(process.argv.slice(2));
   if (args.has("--print-demo")) {
@@ -658,7 +756,15 @@ async function runEvaluationCli() {
     process.stdout.write(report);
     return;
   }
-  const documentationChecks = [["docs/demo-scenarios.md", demo], ["docs/evaluation.md", report]] as const;
+  if (args.has("--print-examples")) {
+    process.stdout.write(examples);
+    return;
+  }
+  const documentationChecks = [
+    ["docs/demo-scenarios.md", demo],
+    ["docs/example-plans.md", examples],
+    ["docs/evaluation.md", report],
+  ] as const;
   const drifted = documentationChecks.filter(([path, expected]) => {
     try { return readFileSync(resolve(path), "utf8") !== expected; } catch { return true; }
   });

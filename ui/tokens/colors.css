@@ -1,0 +1,55 @@
+:root {
+  /* ---- Carbon (ink scale) ---- */
+  --ax-ink: #111111;        /* primary ink, human action */
+  --ax-ink-2: #55554F;      /* secondary text */
+  --ax-ink-3: #8A8A82;      /* tertiary, microlabels */
+  --ax-ink-4: #A0A099;      /* faint, placeholders, struck text */
+  --ax-on-ink: #FFFFFF;
+
+  /* ---- Chalk (surface scale) ---- */
+  --ax-bg-desk: #EDEDE9;    /* outermost desk */
+  --ax-bg: #F7F7F4;         /* app background */
+  --ax-surface: #FFFFFF;    /* cards */
+  --ax-surface-sub: #FBFBF9;/* recessed groups (exclusions, tab bar) */
+  --ax-line: #E4E4DF;       /* default hairline */
+  --ax-line-2: #EEEEE9;     /* internal dividers */
+  --ax-line-strong: #D8D8D2;/* interactive outlines */
+
+  /* ---- Signal (holo — machine reasoning ONLY) ---- */
+  --ax-signal-a: #DCCBFF;
+  --ax-signal-b: #BFE5FF;
+  --ax-signal-c: #FFDDE9;
+  --ax-signal-d: #E3FFD6;
+  --ax-signal: linear-gradient(115deg, var(--ax-signal-a) 0%, var(--ax-signal-b) 38%, var(--ax-signal-c) 72%, var(--ax-signal-d) 100%);
+  --ax-signal-soft: linear-gradient(115deg, rgba(220,203,255,.32), rgba(191,229,255,.28) 38%, rgba(255,221,233,.26) 72%, rgba(227,255,214,.30));
+  --ax-signal-faint: linear-gradient(115deg, rgba(220,203,255,.18), rgba(191,229,255,.15) 38%, rgba(255,221,233,.13) 72%, rgba(227,255,214,.16));
+
+  /* ---- Semantic aliases ---- */
+  --ax-action: var(--ax-ink);          /* human decisions: buttons, approvals */
+  --ax-on-action: var(--ax-on-ink);
+  --ax-text-body: var(--ax-ink);
+  --ax-text-sub: var(--ax-ink-2);
+  --ax-text-micro: var(--ax-ink-3);
+  --ax-surface-card: var(--ax-surface);
+  --ax-alert: var(--ax-ink);           /* warnings are carbon + glyph, never red */
+  --ax-disabled-bg: #ECECE7;
+  --ax-disabled-fg: #ABABA4;
+}
+
+/* Carbon theme — in-workout / night surfaces. Signal tokens are shared. */
+[data-ax-theme="carbon"] {
+  --ax-bg-desk: #0A0A09;
+  --ax-bg: #0F0F0E;
+  --ax-surface: #171716;
+  --ax-surface-sub: #131312;
+  --ax-ink: #F2F2EE;
+  --ax-ink-2: #B5B5AE;
+  --ax-ink-3: #8A8A82;
+  --ax-ink-4: #6C6C66;
+  --ax-on-ink: #111111;
+  --ax-line: #262624;
+  --ax-line-2: #1F1F1D;
+  --ax-line-strong: #3A3A36;
+  --ax-disabled-bg: #222220;
+  --ax-disabled-fg: #6C6C66;
+}

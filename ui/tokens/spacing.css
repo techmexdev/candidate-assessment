@@ -1,0 +1,25 @@
+:root {
+  /* 4px base */
+  --ax-s1: 4px;
+  --ax-s2: 8px;
+  --ax-s3: 12px;
+  --ax-s4: 16px;
+  --ax-s5: 20px;
+  --ax-s6: 24px;
+  --ax-s7: 32px;
+  --ax-s8: 48px;
+
+  /* Radii */
+  --ax-r-sm: 10px;   /* inputs, small tiles */
+  --ax-r-md: 14px;   /* list rows, banners, sheets' children */
+  --ax-r-lg: 20px;   /* hero cards, sheets */
+  --ax-r-pill: 999px;/* every action is a pill */
+
+  /* Hit targets */
+  --ax-hit: 44px;      /* minimum interactive height */
+  --ax-hit-lg: 52px;   /* primary action bars */
+
+  /* Layout */
+  --ax-app-max: 430px; /* mobile column */
+  --ax-pad-screen: 18px;
+}

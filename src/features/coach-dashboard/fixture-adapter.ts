@@ -1,17 +1,26 @@
 import exercisesData from "../../../data/exercises.json";
+import averyMemberContextData from "../../../data/member-context-avery.json";
+import coachSessionsData from "../../../data/coach-sessions.json";
 import memberContextData from "../../../data/member-context.json";
+import morganMemberContextData from "../../../data/member-context-morgan.json";
 import type {
+  CoachAthleteSummary,
+  CoachDashboardMemberViewModel,
+  CoachDashboardFixtureMemberViewModel,
+  CoachDashboardWorkspace,
   CoachDashboardViewModel,
+  CoachTodayProjection,
   DashboardAdapter,
   DashboardCopilotCard,
+  CoachSession,
   DashboardInsightId,
   DashboardWorkoutItem,
 } from "./dashboard-contract";
 
-export type CatalogExercise = (typeof exercisesData)[number];
+type CatalogExercise = (typeof exercisesData)[number];
 export type MemberContext = typeof memberContextData;
 
-export type WorkoutItem = DashboardWorkoutItem;
+type WorkoutItem = DashboardWorkoutItem;
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
@@ -28,7 +37,7 @@ function shortDate(value: string) {
 export function buildDashboardFixture(
   memberContext: MemberContext,
   exercises: CatalogExercise[],
-): CoachDashboardViewModel {
+): CoachDashboardFixtureMemberViewModel {
   const profile = memberContext.profile;
   const latestAdherence = memberContext.adherence.weekly_completion_pct.at(-1)!;
   const latestWorkout = memberContext.workout_history[0];
@@ -62,16 +71,18 @@ export function buildDashboardFixture(
   }));
   const sleepAverage = roundedAverage(memberContext.biomarkers.sleep_hours_last_7_days);
   const skippedWorkout = memberContext.workout_history.find((workout) => !workout.completed)!;
+  const isShoulderPlan = injury.joint.toLowerCase().includes("shoulder");
+  const injuryLabel = injury.joint.toLowerCase();
 
   const copilotCards: Record<DashboardInsightId, DashboardCopilotCard> = {
     brief: {
       id: "brief",
       kicker: "MORNING BRIEF · THU JUN 4",
-      title: "Celebrate the knee win, watch churn",
+      title: `Celebrate ${profile.name}'s recent win, watch churn`,
       rows: [
         { label: "CELEBRATE", value: memberContext.coach_brief.morning_tasks[0].text },
         { label: "RISK", value: `Adherence ${memberContext.adherence.weekly_completion_pct[0].pct}% → ${latestAdherence.pct}% over 2 weeks · churn ${memberContext.coach_brief.churn_risk.level}` },
-        { label: "DO NEXT", value: "Reply to Jordan’s check-in · review today’s draft" },
+        { label: "DO NEXT", value: `Reply to ${profile.name}'s check-in · review today's draft` },
       ],
       sources: ["workout 06/03", "adherence log", "chat 06/03"],
     },
@@ -86,7 +97,7 @@ export function buildDashboardFixture(
         recent: `${latestAdherence.pct}% last week — ${skippedWorkout.title} was not completed.`,
         trend: `Weekly completion moved from ${adherenceBars[0].value}% to ${latestAdherence.pct}%.`,
         stable: `Preference remains ${memberContext.preferences.training_days_per_week} days/week.`,
-        action: "Trim sessions to 35–40 min this week and anchor the check-in on the pain-free squat milestone.",
+        action: `Trim sessions to 35–40 min this week and anchor the check-in on the recent ${injuryLabel} milestone.`,
       },
     },
     sleep: {
@@ -114,7 +125,7 @@ export function buildDashboardFixture(
       rows: [
         { label: "ADHERENCE", value: `${adherenceBars.at(-2)!.value}% → ${latestAdherence.pct}% — one planned session missed` },
         { label: "SLEEP", value: `${sleepAverage}h current average — still under goal` },
-        { label: "KNEE", value: `First pain-free loaded squats ✓ (${latestWorkout.exercises[0]})` },
+        { label: injury.joint.toUpperCase(), value: `Recent completed work ✓ (${latestWorkout.exercises[0] ?? latestWorkout.title})` },
       ],
       sources: ["4 workouts", "sleep log", "2 messages"],
     },
@@ -125,14 +136,14 @@ export function buildDashboardFixture(
       bars: adherenceBars,
       rows: [
         { label: "SIGNALS", value: memberContext.coach_brief.churn_risk.reasons.join(" · ") },
-        { label: "COUNTER", value: "Pain-free knee day + upbeat message Jun 3" },
+        { label: "COUNTER", value: `${latestWorkout.title} completed + recent member check-in` },
       ],
       sources: ["adherence log", "chat 05/30", "login events"],
       detail: {
-        recent: "Skipped Thursday, citing work fatigue. Upbeat again after Jun 3 session.",
+        recent: `${skippedWorkout.title} was missed; the latest member check-in is available for follow-up.`,
         trend: "Engagement has slid for 2 weeks across sessions and logins.",
         stable: `${profile.tier} member since ${profile.member_since}.`,
-        action: "Send a personal nudge tied to the squat milestone before scheduling this week.",
+        action: `Send a personal nudge tied to the recent ${injuryLabel} milestone before scheduling this week.`,
       },
     },
   };
@@ -170,9 +181,9 @@ export function buildDashboardFixture(
       restingHeartRate: `${memberContext.biomarkers.resting_hr_bpm}`,
     },
     morningBrief: {
-      celebrationTitle: "First pain-free squat day",
+      celebrationTitle: `${latestWorkout.title} completed`,
       celebration: memberContext.coach_brief.morning_tasks[0].text,
-      celebrationSummary: `Box squats ${shortDate(latestWorkout.date)} — “knee felt okay”. Worth celebrating today.`,
+      celebrationSummary: `${latestWorkout.title} · ${shortDate(latestWorkout.date)} · ${latestWorkout.duration_min} min. Worth celebrating today.`,
       riskTitle: `Churn risk ${memberContext.coach_brief.churn_risk.level}`,
       risk: memberContext.coach_brief.morning_tasks[1].text,
       riskSummary: `Adherence ${memberContext.adherence.weekly_completion_pct[0].pct}% → ${latestAdherence.pct}% in 2 weeks · logins down`,
@@ -190,7 +201,31 @@ export function buildDashboardFixture(
       preferences: memberContext.preferences,
       equipment: memberContext.equipment_available,
     },
-    workoutSections: [
+    workoutSections: isShoulderPlan ? [
+      {
+        title: "WARM-UP",
+        items: [
+          catalogItem("worlds-greatest-stretch", "World's Greatest Stretch", "2 MIN · FLOW", "Dynamic mobility before controlled upper-body loading.", "CATALOG · MOBILITY-DYNAMIC"),
+          contextualItem("scapular-wall-slide", "Scapular Wall Slide", "2×8 · CONTROLLED", "Shoulder-blade control before pressing; stay in a pain-free range.", `INJURY REPORT · ${shortDate(injury.since).toUpperCase()}`),
+        ],
+      },
+      {
+        title: "MAIN",
+        items: [
+          contextualItem("floor-press", "Dumbbell Neutral-Grip Floor Press", "3×8 · CONTROLLED", "Controlled neutral-grip pressing matches the shoulder clearance and available dumbbells.", "INJURY REPORT · EQUIPMENT", "floor-press"),
+          contextualItem("cable-row", "Single-Arm Cable Row", "3×10 / SIDE", "Upper-back strength with a cable machine and no painful overhead position.", "GOALS · EQUIPMENT"),
+          catalogItem("split-squat", "Dumbbell Goblet Split Squat", "3×8 / SIDE", "Lower-body strength work that does not load the irritated shoulder overhead.", "CATALOG · GOALS"),
+          contextualItem("dead-bug", "Dead Bug", "3×8 / SIDE", "Trunk control with no shoulder loading beyond a comfortable position.", "WORKOUT HISTORY · SAFETY"),
+        ],
+      },
+      {
+        title: "COOL-DOWN",
+        items: [
+          catalogItem("cow-pose", "Cow Pose", "1 MIN · MAT", "Down-regulation and gentle spinal mobility.", "CATALOG · REGEN"),
+          catalogItem("upper-trap-stretch", "Ground Upper Trap Stretch", "1 MIN / SIDE", "Gentle neck and trap release without overhead loading.", "CATALOG · MOBILITY-STATIC"),
+        ],
+      },
+    ] : [
       {
         title: "WARM-UP",
         items: [
@@ -215,12 +250,53 @@ export function buildDashboardFixture(
         ],
       },
     ],
-    exclusions: [
+    exclusions: isShoulderPlan ? [
+      { ...catalogItem("overhead-press", "Alternating Dumbbell Overhead Press", "", "", "CATALOG · INJURY REPORT", "overhead-press"), decisionId: "overhead-press", reason: `Painful overhead volume avoided while ${injury.region} is ${injury.status}`, overridable: true },
+      { ...contextualItem("wide-grip-pull-up", "Wide-Grip Pull-Up", "", "", "INJURY REPORT", "wide-grip-pull-up"), decisionId: "wide-grip-pull-up", reason: "Wide overhead position removed during shoulder monitoring", overridable: false },
+      { ...contextualItem("burpees", "Burpees", "", "", "MEMBER PREFERENCES", "burpees"), decisionId: "burpees", reason: "Member dislikes burpees — explicit preference exclusion", overridable: false },
+    ] : [
       { ...splitSquat, decisionId: "split-squat", reason: "Deep knee flexion under load — patellofemoral pain (recovering)", overridable: true },
       { ...catalogItem("jumps", "Static Jump", "", "", "CATALOG · INJURY REPORT", "jumps"), decisionId: "jumps", reason: "Plyometric loading contraindicated during knee recovery", overridable: false },
       { ...contextualItem("deadlifts", "Deadlift variations", "", "", "MEMBER PREFERENCES", "deadlifts"), decisionId: "deadlifts", reason: "Member dislikes deadlifts — explicit preference exclusion", overridable: false },
     ],
-    decisionPaths: {
+    decisionPaths: isShoulderPlan ? {
+      "overhead-press": {
+        kind: "SAFETY EXCLUSION",
+        lanes: [
+          { name: "MEMBER", text: `${injury.region} · ${injury.status}`, source: `INJURY REPORT · ${shortDate(injury.since).toUpperCase()}` },
+          { name: "ANATOMY", text: "shoulder joint and overhead loading", source: "SNOMED CT SUBSET" },
+          { name: "RULE", text: "Avoid painful overhead volume", source: "GRADED-RETURN RULE" },
+          { name: "WORKOUT", text: "Overhead press removed", source: "SAFETY LAYER · DETERMINISTIC" },
+        ],
+      },
+      "wide-grip-pull-up": {
+        kind: "SAFETY EXCLUSION",
+        lanes: [
+          { name: "MEMBER", text: `${injury.region} · ${injury.status}`, source: "INJURY REPORT" },
+          { name: "ANATOMY", text: "wide overhead position", source: "MOVEMENT CLASSIFICATION" },
+          { name: "RULE", text: "Keep upper-body work in a comfortable range", source: "GRADED-RETURN RULE" },
+          { name: "WORKOUT", text: "Wide-grip pull-up hidden", source: "SAFETY FILTER" },
+        ],
+      },
+      burpees: {
+        kind: "PREFERENCE",
+        lanes: [
+          { name: "MEMBER", text: `Dislikes: ${memberContext.preferences.dislikes.join(", ")}`, source: "MEMBER PREFERENCES" },
+          { name: "ANATOMY", text: "No anatomy restriction", source: "—" },
+          { name: "RULE", text: "Explicit preference exclusion", source: "PREFERENCE FILTER" },
+          { name: "WORKOUT", text: "Burpees hidden", source: "PREFERENCE FILTER" },
+        ],
+      },
+      "floor-press": {
+        kind: "SELECTION",
+        lanes: [
+          { name: "MEMBER", text: `${memberContext.goals[0].text}; controlled pressing felt comfortable`, source: "GOALS · MEMBER CHECK-IN" },
+          { name: "ANATOMY", text: `${injury.region} monitored`, source: "INJURY REPORT" },
+          { name: "RULE", text: "Prefer controlled neutral-grip pressing", source: "GRADED-RETURN RULE" },
+          { name: "WORKOUT", text: "Neutral-grip floor press selected", source: "COMPOSER · EQUIPMENT" },
+        ],
+      },
+    } : {
       "split-squat": {
         kind: "SAFETY EXCLUSION",
         lanes: [
@@ -263,7 +339,105 @@ export function buildDashboardFixture(
   };
 }
 
-export const dashboardFixture = buildDashboardFixture(memberContextData, exercisesData);
+function lastSessionLabel(member: CoachDashboardMemberViewModel) {
+  const lastSession = member.history[0];
+  return `${shortDate(lastSession.date)} · ${lastSession.title}`;
+}
+
+function summaryForMember(
+  member: CoachDashboardMemberViewModel,
+  sessions: CoachSession[],
+): CoachAthleteSummary {
+  const nextSession = sessions.find((session) => session.athleteId === member.member.id) ?? null;
+  return {
+    id: member.member.id,
+    name: member.member.name,
+    initials: member.member.initials,
+    tier: member.member.tier,
+    adherence: member.metrics.adherence,
+    suggestedWorkoutTitle: member.workoutTitle,
+    lastSessionLabel: lastSessionLabel(member),
+    nextSessionId: nextSession?.id ?? null,
+    nextSessionLabel: nextSession ? `${shortDate(nextSession.startsAt)} · ${nextSession.label}` : null,
+    nextSessionAt: nextSession?.startsAt ?? null,
+  };
+}
+
+export function sessionDateKey(value: string, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timezone,
+  }).formatToParts(new Date(value));
+  const valueFor = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${valueFor("year")}-${valueFor("month")}-${valueFor("day")}`;
+}
+
+export function buildTodayProjection(
+  workspace: CoachDashboardWorkspace,
+  selectedDate: string,
+): CoachTodayProjection {
+  const sessions = workspace.sessions
+    .filter((session) => sessionDateKey(session.startsAt, workspace.timezone) === selectedDate)
+    .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
+  const athletesById = new Map(workspace.athletes.map((athlete) => [athlete.id, athlete]));
+  const seen = new Set<string>();
+  const scheduledAthletes: CoachTodayProjection["scheduledAthletes"] = [];
+
+  for (const session of sessions) {
+    if (seen.has(session.athleteId)) continue;
+    const athlete = athletesById.get(session.athleteId);
+    if (!athlete) continue;
+    seen.add(session.athleteId);
+    scheduledAthletes.push({ athlete, firstSession: session });
+  }
+
+  return { sessions, scheduledAthletes };
+}
+
+export function buildCoachWorkspace(
+  members: CoachDashboardMemberViewModel[],
+  sessions: CoachSession[],
+): CoachDashboardWorkspace {
+  const sortedSessions = [...sessions].sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
+  const memberViews = Object.fromEntries(members.map((member) => [member.member.id, member]));
+  const missingAthlete = sortedSessions.find((session) => !memberViews[session.athleteId]);
+  if (missingAthlete) {
+    throw new Error(`Session ${missingAthlete.id} references unknown athlete ${missingAthlete.athleteId}.`);
+  }
+  const referenceMember = members[0];
+  const timezone = "America/Chicago";
+  const coachDayDate = sortedSessions[0]
+    ? sessionDateKey(sortedSessions[0].startsAt, timezone)
+    : referenceMember?.history[0]?.date ?? "2026-07-08";
+  return {
+    coach: referenceMember?.coach ?? { name: "Coach" },
+    asOfDate: {
+      weekday: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(`${coachDayDate}T00:00:00Z`)).toUpperCase(),
+      monthDay: shortDate(coachDayDate).toUpperCase(),
+    },
+    coachDayDate,
+    timezone,
+    athletes: members.map((member) => summaryForMember(member, sortedSessions)),
+    sessions: sortedSessions,
+    memberViews,
+  };
+}
+
+const jordanFixture = buildDashboardFixture(memberContextData, exercisesData);
+const averyFixture = buildDashboardFixture(averyMemberContextData, exercisesData);
+const noSessionFixture = buildDashboardFixture(morganMemberContextData, exercisesData);
+const coachSessions: CoachSession[] = coachSessionsData.map((session) => {
+  if (session.status !== "upcoming") throw new Error(`Unsupported coach session status: ${session.status}`);
+  return { ...session, status: "upcoming" };
+});
+const dashboardWorkspace = buildCoachWorkspace([jordanFixture, averyFixture, noSessionFixture], coachSessions);
+
+export const dashboardFixture: CoachDashboardViewModel = {
+  ...jordanFixture,
+  workspace: dashboardWorkspace,
+};
 
 export const fixtureDashboardAdapter: DashboardAdapter = {
   initialState: { status: "ready", data: dashboardFixture },

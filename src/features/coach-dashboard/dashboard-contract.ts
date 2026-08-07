@@ -31,8 +31,41 @@ export type DashboardAdapter = {
     workoutGeneration?:
       | { available: false; reason: string }
       | { available: true; runtime: import("./runtime-adapter").DashboardWorkoutRuntime };
+    copilot?: DashboardCopilotCapability;
   };
 };
+
+export type DashboardCopilotControls = {
+  readonly retry: boolean;
+  readonly refresh: boolean;
+  readonly keepLastReadyAnswer: boolean;
+};
+
+export type DashboardCopilotOutcome = CopilotOutcome & { readonly controls: DashboardCopilotControls };
+
+export type DashboardCopilotRequest = {
+  readonly requestId: string;
+  readonly memberId: string;
+  readonly requestedFor: string;
+  readonly input: CopilotQuestionInput;
+  readonly continuation?: SignedCopilotContinuation;
+  readonly signal?: AbortSignal;
+};
+
+export type DashboardCopilotClient = {
+  readonly request: (input: DashboardCopilotRequest) => Promise<DashboardCopilotOutcome>;
+};
+
+export type DashboardCopilotCapability =
+  | { readonly available: false; readonly reason: string }
+  | {
+      readonly available: true;
+      readonly client: DashboardCopilotClient;
+      readonly supportsMember: (memberId: string) => boolean;
+    };
+
+export type CoachContext = { name: string };
+export type CoachAsOfDate = { weekday: string; monthDay: string };
 
 export type DashboardWorkoutItem = {
   id: string;
@@ -57,9 +90,9 @@ export type DashboardCopilotCard = {
   detail?: { recent: string; trend: string; stable: string; action: string };
 };
 
-export type CoachDashboardViewModel = {
-  coach: { name: string };
-  asOfDate: { weekday: string; monthDay: string };
+export type CoachDashboardMemberViewModel = {
+  coach: CoachContext;
+  asOfDate: CoachAsOfDate;
   workoutTitle: string;
   member: {
     id: string;
@@ -73,16 +106,6 @@ export type CoachDashboardViewModel = {
     trainingDaysPerWeek: number;
   };
   metrics: { adherence: string; sleep: string; restingHeartRate: string };
-  morningBrief: {
-    celebrationTitle: string;
-    celebration: string;
-    celebrationSummary: string;
-    riskTitle: string;
-    risk: string;
-    riskSummary: string;
-    memberMessage: string;
-    memberMessageDate: string;
-  };
   profile: {
     injury: {
       id: string;
@@ -116,7 +139,6 @@ export type CoachDashboardViewModel = {
       lanes: readonly { name: string; text: string; source: string }[];
     }
   >>;
-  copilotCards: Record<DashboardInsightId, DashboardCopilotCard>;
   history: {
     date: string;
     title: string;
@@ -127,3 +149,66 @@ export type CoachDashboardViewModel = {
     exercises: string[];
   }[];
 };
+
+export type CoachDashboardFixtureMemberViewModel = CoachDashboardMemberViewModel & {
+  morningBrief: {
+    celebrationTitle: string;
+    celebration: string;
+    celebrationSummary: string;
+    riskTitle: string;
+    risk: string;
+    riskSummary: string;
+    memberMessage: string;
+    memberMessageDate: string;
+  };
+  copilotCards: Record<DashboardInsightId, DashboardCopilotCard>;
+};
+
+export type CoachAthleteSummary = {
+  id: string;
+  name: string;
+  initials: string;
+  tier: string;
+  adherence: string;
+  suggestedWorkoutTitle: string;
+  lastSessionLabel: string;
+  nextSessionId: string | null;
+  nextSessionLabel: string | null;
+  nextSessionAt: string | null;
+};
+
+export type CoachSession = {
+  id: string;
+  athleteId: string;
+  startsAt: string;
+  label: string;
+  durationMinutes: number;
+  status: "upcoming";
+};
+
+export type CoachDashboardWorkspace = {
+  coach: CoachContext;
+  asOfDate: CoachAsOfDate;
+  coachDayDate: string;
+  timezone: string;
+  athletes: CoachAthleteSummary[];
+  sessions: CoachSession[];
+  memberViews: Record<string, CoachDashboardMemberViewModel>;
+};
+
+export type CoachTodayProjection = {
+  sessions: CoachSession[];
+  scheduledAthletes: {
+    athlete: CoachAthleteSummary;
+    firstSession: CoachSession;
+  }[];
+};
+
+export type CoachDashboardViewModel = CoachDashboardMemberViewModel & {
+  workspace: CoachDashboardWorkspace;
+};
+import type {
+  CopilotOutcome,
+  CopilotQuestionInput,
+  SignedCopilotContinuation,
+} from "../../domain/contracts/copilot";

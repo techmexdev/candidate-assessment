@@ -1,0 +1,18 @@
+[
+  {
+    "id": "session_avery_20260708",
+    "athleteId": "mbr_02HX9AVERY",
+    "startsAt": "2026-07-08T08:00:00-05:00",
+    "label": "Upper-body check-in",
+    "durationMinutes": 45,
+    "status": "upcoming"
+  },
+  {
+    "id": "session_jordan_20260708",
+    "athleteId": "mbr_01HX9JORDAN",
+    "startsAt": "2026-07-08T09:30:00-07:00",
+    "label": "Knee-safe strength",
+    "durationMinutes": 50,
+    "status": "upcoming"
+  }
+]

@@ -4,3 +4,7 @@ node_modules/
 playwright-report/
 test-results/
 tsconfig.tsbuildinfo
+data/triggers.db*
+.env
+.env.*
+!.env.example

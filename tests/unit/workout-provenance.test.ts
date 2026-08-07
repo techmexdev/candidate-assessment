@@ -9,6 +9,7 @@ import {
   WORKOUT_GENERATION_SCENARIOS,
   executeWorkoutGenerationCorpus,
   renderWorkoutRuntimeDemoScenarios,
+  renderWorkoutRuntimeExamples,
   renderWorkoutRuntimeEvaluation,
   scoreWorkoutGenerationCorpus,
   scoreWorkoutGenerationScenario,
@@ -193,6 +194,7 @@ describe("workout runtime deterministic evaluation", () => {
   it("renders documentation from executed captures and the same fixture IDs used by evaluation", async () => {
     const captures = await executeWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS);
     const demo = renderWorkoutRuntimeDemoScenarios(WORKOUT_GENERATION_SCENARIOS);
+    const examples = renderWorkoutRuntimeExamples(WORKOUT_GENERATION_SCENARIOS, captures);
     const evaluation = renderWorkoutRuntimeEvaluation(scoreWorkoutGenerationCorpus(WORKOUT_GENERATION_SCENARIOS, captures));
 
     for (const scenario of WORKOUT_GENERATION_SCENARIOS) {
@@ -200,6 +202,11 @@ describe("workout runtime deterministic evaluation", () => {
       expect(evaluation).toContain(`\`${scenario.id}\``);
     }
     expect(demo).toContain("Synthetic data only");
+    expect(examples).toContain("jordan-knee-applicability");
+    expect(examples).toContain("limited-equipment");
+    expect(examples).toContain("split-squat-family-exclusion");
+    expect(examples).toContain("Hard-filtered before the model");
+    expect(examples).toContain("Provenance trace");
     expect(evaluation).toContain("100.0%");
   });
 });

@@ -1,0 +1,106 @@
+{
+  "_note": "Synthetic, fictional sample member for the take-home. No real person or PHI. Use only as seed data.",
+  "profile": {
+    "id": "mbr_02HX9AVERY",
+    "name": "Avery Chen",
+    "age": 34,
+    "sex": "male",
+    "height_cm": 180,
+    "weight_kg": 82.4,
+    "timezone": "America/Chicago",
+    "member_since": "2025-02-10",
+    "coach_id": "coach_01HXSAM",
+    "tier": "1:1 Coaching"
+  },
+  "goals": [
+    { "id": "goal_strength", "text": "Build upper-body strength", "priority": 1, "target_date": "2026-10-01" },
+    { "id": "goal_consistency", "text": "Train consistently through a busy travel season", "priority": 1, "target_date": "2026-09-15" },
+    { "id": "goal_sleep", "text": "Average 7+ hours of sleep on weeknights", "priority": 2, "target_date": null }
+  ],
+  "preferences": {
+    "preferred_session_minutes": 45,
+    "training_days_per_week": 3,
+    "preferred_days": ["Tue", "Thu", "Sat"],
+    "dislikes": ["Burpees"],
+    "notes": "Prefers barbell and cable work; travels with a compact training kit."
+  },
+  "equipment_available": ["Barbell", "Cable Machine", "Dumbbell", "Yoga Mat", "Pull-Up Bar"],
+  "injuries": [
+    {
+      "id": "inj_shoulder_right",
+      "region": "right shoulder",
+      "joint": "shoulder",
+      "status": "monitoring",
+      "severity": "mild",
+      "since": "2026-06-18",
+      "notes": "Mild shoulder irritation after tennis. Cleared for controlled pressing; avoid painful overhead volume.",
+      "snomedct_hint": "Look up shoulder pain and shoulder joint structures in SNOMED CT via NCI EVS."
+    }
+  ],
+  "workout_history": [
+    { "date": "2026-07-07", "title": "Upper Body Strength", "planned": true, "completed": true, "duration_min": 42, "rpe": 7, "exercises": ["Bench Press", "Cable Row", "Incline Push-Up"] },
+    { "date": "2026-07-04", "title": "Travel Full Body", "planned": true, "completed": true, "duration_min": 35, "rpe": 6, "exercises": ["Goblet Squat", "Single-Arm Row", "Plank"] },
+    { "date": "2026-07-01", "title": "Upper Body", "planned": true, "completed": false, "duration_min": 0, "rpe": null, "exercises": [] },
+    { "date": "2026-06-27", "title": "Full Body", "planned": true, "completed": true, "duration_min": 39, "rpe": 6, "exercises": ["Dead Bug", "Split Squat", "Dumbbell Row"] }
+  ],
+  "adherence": {
+    "weekly_completion_pct": [
+      { "week_of": "2026-06-16", "pct": 100 },
+      { "week_of": "2026-06-23", "pct": 75 },
+      { "week_of": "2026-06-30", "pct": 75 },
+      { "week_of": "2026-07-07", "pct": 67 }
+    ],
+    "trend": "steady"
+  },
+  "biomarkers": {
+    "resting_hr_bpm": 62,
+    "hrv_ms": 52,
+    "sleep_hours_last_7_days": [6.8, 7.1, 6.3, 7.4, 6.9, 7.6, 7.0],
+    "weight_trend_kg": [
+      { "date": "2026-06-09", "kg": 83.1 },
+      { "date": "2026-06-23", "kg": 82.8 },
+      { "date": "2026-07-07", "kg": 82.4 }
+    ]
+  },
+  "labs": {
+    "blood_panel": {
+      "date": "2026-05-20",
+      "ldl_mg_dl": 106,
+      "hdl_mg_dl": 58,
+      "triglycerides_mg_dl": 88,
+      "hba1c_pct": 5.1,
+      "vitamin_d_ng_ml": 34,
+      "ferritin_ng_ml": 56,
+      "crp_mg_l": 0.8
+    },
+    "dexa_scan": {
+      "date": "2026-04-15",
+      "body_fat_pct": 21.8,
+      "lean_mass_kg": 64.3,
+      "fat_mass_kg": 18.1,
+      "bone_density_z_score": 0.8,
+      "visceral_fat_cm2": 54
+    }
+  },
+  "chat_history": [
+    { "ts": "2026-07-07T18:10:00-05:00", "from": "member", "text": "The shorter travel session worked well. Shoulder felt fine with controlled pressing." },
+    { "ts": "2026-07-07T18:24:00-05:00", "from": "coach", "text": "Great adjustment. We will keep the next session focused and controlled." },
+    { "ts": "2026-07-01T08:20:00-05:00", "from": "member", "text": "Missed yesterday while traveling, but I can get back on track Thursday." },
+    { "ts": "2026-06-23T07:50:00-05:00", "from": "member", "text": "The hotel gym had dumbbells and a cable stack available." }
+  ],
+  "coach_brief": {
+    "generated_for": "2026-07-08",
+    "morning_tasks": [
+      { "type": "celebrate", "text": "Recognize Avery for completing a compact travel session while keeping shoulder loading controlled." },
+      { "type": "review_risk", "text": "Check consistency after travel: adherence is steady at 67% this week." }
+    ],
+    "churn_risk": {
+      "level": "moderate",
+      "reasons": [
+        "Two recent sessions adapted around travel",
+        "One missed session during a travel day",
+        "Shoulder monitoring may change preferred pressing volume"
+      ]
+    }
+  }
+}

@@ -1,31 +1,40 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { SignalKicker } from "@/ui/axon/components/agentic/SignalKicker";
 import { VersionTimeline } from "@/ui/axon/components/data/VersionTimeline";
-import type { CoachDashboardViewModel, DashboardAdapter, DashboardDecisionId } from "./dashboard-contract";
-import { fixtureDashboardAdapter } from "./fixture-adapter";
+import { createCopilotPin, type CopilotQuestionInput, type SignedCopilotContinuation } from "../../domain/contracts/copilot";
+import type {
+  CoachDashboardMemberViewModel,
+  CoachDashboardWorkspace,
+  DashboardAdapter,
+  DashboardDecisionId,
+} from "./dashboard-contract";
+import { buildTodayProjection, sessionDateKey } from "./synthetic-dashboard-base";
 import {
   dashboardReducer,
   initialDashboardState,
+  selectActiveAthleteState,
+  selectCurrentRoute,
   selectCurrentVersion,
   selectIsPublished,
+  type AthleteRoute,
+  type AthleteWorkflowState,
   type DashboardAction,
-  type DashboardScreen,
+  type DashboardDestination,
   type DashboardState,
-  type InsightId,
   type QuickPromptId,
   type WorkoutVersion,
 } from "./state";
 import styles from "./dashboard.module.css";
 
-const tabs = [
+const destinations: { id: DashboardDestination; label: string }[] = [
   { id: "today", label: "Today" },
-  { id: "workout", label: "Workout" },
-  { id: "copilot", label: "Copilot" },
-  { id: "history", label: "History" },
-] as const;
+  { id: "coach", label: "Coach" },
+];
+
+type NestedScreen = Exclude<AthleteRoute, { id: "brief" | "decision-path" }>["id"];
 
 const prompts: { id: QuickPromptId; label: string }[] = [
   { id: "brief", label: "Morning brief" },
@@ -35,7 +44,7 @@ const prompts: { id: QuickPromptId; label: string }[] = [
   { id: "churn", label: "Churn risk" },
 ];
 
-const DashboardViewModelContext = createContext<CoachDashboardViewModel | null>(null);
+const DashboardViewModelContext = createContext<CoachDashboardMemberViewModel | null>(null);
 
 function useDashboardViewModel() {
   const viewModel = useContext(DashboardViewModelContext);
@@ -43,21 +52,42 @@ function useDashboardViewModel() {
   return viewModel;
 }
 
-export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?: DashboardAdapter }) {
+export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const [state, dispatch] = useReducer(dashboardReducer, initialDashboardState);
   const [loadState, setLoadState] = useState(adapter.initialState);
   const [adapterAnnouncement, setAdapterAnnouncement] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
   const loadRequest = useRef(0);
-  const promptTimer = useRef<number | null>(null);
   const adjustmentTimer = useRef<number | null>(null);
+  const copilotAbort = useRef<AbortController | null>(null);
+  const copilotRequest = useRef(0);
+  const generationAbort = useRef<AbortController | null>(null);
+  const generationInput = useRef(new Map<string, { prompt: string; durationMinutes: number; idempotencyKey: string }>());
+  const generationRequest = useRef(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const returnFocusKey = useRef<string | null>(null);
   const focusFrame = useRef<number | null>(null);
-  const overlayWasOpen = useRef(false);
+  const suppressRouteFocusRestore = useRef(false);
+  const dialogWasOpen = useRef(false);
+  const previousRoutes = useRef<AthleteRoute[]>([]);
+  const activeWorkflow = selectActiveAthleteState(state);
   const currentVersion = selectCurrentVersion(state);
   const published = selectIsPublished(state);
-  const overlayOpen = Boolean(state.screen || state.dialog);
+  const dialogOpen = Boolean(state.dialog);
+  const currentRoute = selectCurrentRoute(state);
+  const workspace = loadState.status === "ready" ? loadState.data.workspace : null;
+  const activeMember = workspace && state.activeMemberId ? workspace.memberViews[state.activeMemberId] ?? null : null;
+  const projectedMember = useMemo(() => {
+    const projection = activeWorkflow?.runtimeWorkout;
+    if (!activeMember || !projection) return activeMember;
+    return {
+      ...activeMember,
+      workoutTitle: projection.title,
+      workoutSections: projection.workoutSections,
+      exclusions: projection.exclusions,
+      decisionPaths: projection.decisionPaths,
+    };
+  }, [activeMember, activeWorkflow?.runtimeWorkout]);
 
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
@@ -79,20 +109,28 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
     }
   }, [adapter]);
 
-  const captureReturnFocus = () => {
-    if (!(document.activeElement instanceof HTMLElement)) return;
+  function captureReturnFocus(fallback: string): string;
+  function captureReturnFocus(fallback?: null): string | null;
+  function captureReturnFocus(fallback: string | null = null) {
+    if (!(document.activeElement instanceof HTMLElement)) return fallback;
     returnFocus.current = document.activeElement;
-    returnFocusKey.current = document.activeElement.closest<HTMLElement>("[data-focus-key]")?.dataset.focusKey ?? null;
-  };
+    const focusKey = document.activeElement.closest<HTMLElement>("[data-focus-key]")?.dataset.focusKey ?? fallback;
+    returnFocusKey.current = focusKey;
+    return focusKey;
+  }
 
-  const openScreen = (screen: Exclude<DashboardScreen, "decision-path">, detailId?: string) => {
-    captureReturnFocus();
-    dispatch({ type: "open-screen", screen, detailId });
+  const openScreen = (screen: NestedScreen, detailId?: string) => {
+    const focusKey = captureReturnFocus(`${screen}-trigger`);
+    if (screen === "insight") {
+      dispatch({ type: "push-route", route: { id: "insight", detailId: detailId ?? "adherence", focusKey } });
+      return;
+    }
+    dispatch({ type: "push-route", route: { id: screen, focusKey } });
   };
 
   const openDecisionPath = (decisionId: DashboardDecisionId) => {
-    captureReturnFocus();
-    dispatch({ type: "open-screen", screen: "decision-path", decisionId });
+    const focusKey = captureReturnFocus(`decision-${decisionId}`);
+    dispatch({ type: "push-route", route: { id: "decision-path", decisionId, focusKey } });
   };
 
   const openDialog = (action: DashboardAction) => {
@@ -100,30 +138,144 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
     dispatch(action);
   };
 
+  const clearOperationTimers = () => {
+    if (adjustmentTimer.current !== null) window.clearTimeout(adjustmentTimer.current);
+    adjustmentTimer.current = null;
+  };
+
+  const stopCopilot = () => {
+    copilotAbort.current?.abort();
+    copilotAbort.current = null;
+  };
+
+  const stopGeneration = () => {
+    generationAbort.current?.abort();
+    generationAbort.current = null;
+  };
+
+  const selectAthlete = (memberId: string) => {
+    clearOperationTimers();
+    stopCopilot();
+    stopGeneration();
+    dispatch({ type: "select-athlete", memberId, focusKey: captureReturnFocus(`today-row-athlete-${memberId}`) });
+  };
+
+  const selectDestination = (destination: DashboardDestination) => {
+    clearOperationTimers();
+    stopCopilot();
+    stopGeneration();
+    suppressRouteFocusRestore.current = true;
+    dispatch({ type: "select-destination", destination });
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-destination-heading="${destination}"]`)?.focus();
+    });
+  };
+
+  const popRoute = () => {
+    clearOperationTimers();
+    stopCopilot();
+    dispatch({ type: "pop-route" });
+  };
+
   const requestAdjustment = () => {
-    if (adjustmentTimer.current !== null || state.pendingAdjustment) return;
+    if (adjustmentTimer.current !== null || activeWorkflow?.pendingAdjustment) return;
+    const memberId = state.activeMemberId;
     dispatch({ type: "request-adjustment" });
     adjustmentTimer.current = window.setTimeout(() => {
       const actor = loadState.status === "ready" ? loadState.data.coach.name : "Coach";
-      dispatch({ type: "complete-adjustment", actor });
+      dispatch({ type: "complete-adjustment", actor, memberId });
       adjustmentTimer.current = null;
     }, 500);
   };
 
+  const submitCopilot = useCallback((input: CopilotQuestionInput, promptLabel: string, options: {
+    continuation?: SignedCopilotContinuation;
+  } = {}) => {
+    const capability = adapter.capabilities.copilot;
+    const memberId = state.activeMemberId;
+    const workflow = memberId ? state.athleteStates[memberId] : null;
+    if (!capability?.available || !memberId || !workflow || copilotAbort.current || workflow.copilot.pending || !capability.supportsMember(memberId)) return;
+    const requestId = `copilot:${memberId}:${Date.now()}:${++copilotRequest.current}`;
+    const controller = new AbortController();
+    copilotAbort.current = controller;
+    const request = { requestId, memberId, promptLabel, input, ...(options.continuation ? { continuation: options.continuation } : {}) };
+    dispatch({ type: "request-copilot", request });
+    void capability.client.request({
+      ...request,
+      requestedFor: state.selectedDate,
+      signal: controller.signal,
+    }).then((outcome) => {
+      dispatch({ type: "complete-copilot", memberId, requestId, outcome });
+    }).finally(() => {
+      if (copilotAbort.current === controller) copilotAbort.current = null;
+    });
+  }, [adapter, state.activeMemberId, state.athleteStates, state.selectedDate]);
+
   const ask = (promptId: QuickPromptId) => {
-    if (state.pendingPrompt) return;
-    dispatch({ type: "request-prompt", promptId });
-    promptTimer.current = window.setTimeout(() => {
-      dispatch({ type: "complete-prompt", promptId });
-      promptTimer.current = null;
-    }, 500);
+    const prompt = prompts.find((item) => item.id === promptId);
+    const apiPrompt = ({ brief: "morning-brief", adherence: "adherence", sleep: "sleep", change: "changes-since-last-week", churn: "churn-risk" } as const)[promptId];
+    submitCopilot(
+      { kind: "quick-prompt", promptId: apiPrompt },
+      prompt?.label ?? promptId,
+      activeWorkflow?.copilot.lastReadyAnswer ? { continuation: activeWorkflow.copilot.lastReadyAnswer.continuation } : {},
+    );
+  };
+
+  const generateWorkout = (prompt: string, durationMinutes: number) => {
+    const capability = adapter.capabilities.workoutGeneration;
+    const memberId = state.activeMemberId;
+    if (!capability?.available || !memberId) return;
+    stopGeneration();
+    const previous = generationInput.current.get(memberId);
+    const sameRequest = previous?.prompt === prompt && previous.durationMinutes === durationMinutes;
+    const idempotencyKey = sameRequest
+      ? previous.idempotencyKey
+      : `dashboard:${memberId}:${Date.now()}:${generationRequest.current + 1}`;
+    generationInput.current.set(memberId, { prompt, durationMinutes, idempotencyKey });
+    const requestId = `dashboard-request:${++generationRequest.current}`;
+    const controller = new AbortController();
+    generationAbort.current = controller;
+    dispatch({ type: "request-workout-generation", requestId });
+    void capability.runtime.generate(
+      { memberId, prompt, durationMinutes, idempotencyKey, signal: controller.signal },
+      (update) => {
+        if (update.status === "completed") {
+          dispatch({ type: "complete-workout-generation", memberId, requestId, projection: update.projection });
+          return;
+        }
+        dispatch({
+          type: "update-workout-generation",
+          memberId,
+          requestId,
+          status: update.status,
+          message: update.message,
+          ...("runId" in update && update.runId ? { runId: update.runId } : {}),
+        });
+      },
+    ).finally(() => {
+      if (generationAbort.current === controller) generationAbort.current = null;
+    });
+  };
+
+  const retryWorkoutGeneration = () => {
+    const memberId = state.activeMemberId;
+    const input = memberId ? generationInput.current.get(memberId) : undefined;
+    if (input) generateWorkout(input.prompt, input.durationMinutes);
   };
 
   useEffect(() => () => {
-    if (promptTimer.current !== null) window.clearTimeout(promptTimer.current);
     if (adjustmentTimer.current !== null) window.clearTimeout(adjustmentTimer.current);
     if (focusFrame.current !== null) window.cancelAnimationFrame(focusFrame.current);
+    generationAbort.current?.abort();
+    copilotAbort.current?.abort();
   }, []);
+
+  useEffect(() => {
+    const capability = adapter.capabilities.copilot;
+    if (!capability?.available || currentRoute?.id !== "brief" || !state.activeMemberId || !activeWorkflow) return;
+    if (!capability.supportsMember(state.activeMemberId) || activeWorkflow.copilot.pending || activeWorkflow.copilot.answers.length > 0 || activeWorkflow.copilot.outcome) return;
+    submitCopilot({ kind: "quick-prompt", promptId: "morning-brief" }, "Morning brief");
+  }, [activeWorkflow, adapter.capabilities.copilot, currentRoute?.id, state.activeMemberId, submitCopilot]);
 
   useEffect(() => {
     let active = true;
@@ -137,6 +289,10 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
   }, [load]);
 
   useEffect(() => {
+    if (workspace) dispatch({ type: "initialize-date", date: workspace.coachDayDate });
+  }, [workspace]);
+
+  useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
     const update = () => setIsDesktop(query.matches);
     update();
@@ -145,11 +301,28 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
   }, []);
 
   useLayoutEffect(() => {
-    if (overlayOpen && !overlayWasOpen.current && document.activeElement instanceof HTMLElement) {
+    const previous = previousRoutes.current;
+    if (state.routeStack.length < previous.length && suppressRouteFocusRestore.current) {
+      suppressRouteFocusRestore.current = false;
+    } else if (state.routeStack.length < previous.length) {
+      const focusKey = previous.at(-1)?.focusKey;
+      if (focusKey) {
+        if (focusFrame.current !== null) window.cancelAnimationFrame(focusFrame.current);
+        focusFrame.current = window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(focusKey)}"]`)?.focus();
+          focusFrame.current = null;
+        });
+      }
+    }
+    previousRoutes.current = state.routeStack;
+  }, [state.routeStack]);
+
+  useLayoutEffect(() => {
+    if (dialogOpen && !dialogWasOpen.current && document.activeElement instanceof HTMLElement) {
       returnFocus.current ??= document.activeElement;
       returnFocusKey.current ??= document.activeElement.closest<HTMLElement>("[data-focus-key]")?.dataset.focusKey ?? null;
     }
-    if (!overlayOpen && overlayWasOpen.current) {
+    if (!dialogOpen && dialogWasOpen.current) {
       if (focusFrame.current !== null) window.cancelAnimationFrame(focusFrame.current);
       focusFrame.current = window.requestAnimationFrame(() => {
         const original = returnFocus.current;
@@ -163,8 +336,8 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
         returnFocusKey.current = null;
       });
     }
-    overlayWasOpen.current = overlayOpen;
-  }, [overlayOpen]);
+    dialogWasOpen.current = dialogOpen;
+  }, [dialogOpen]);
 
   if (loadState.status !== "ready") {
     return (
@@ -187,207 +360,434 @@ export function CoachDashboard({ adapter = fixtureDashboardAdapter }: { adapter?
     );
   }
 
+  const dashboardContent = state.destination === "coach"
+    ? <CoachScreen workspace={loadState.data.workspace} />
+    : activeMember && activeWorkflow && currentRoute
+      ? (
+        <AthleteRouteScreen
+          route={currentRoute}
+          workflow={activeWorkflow}
+          selectedDate={state.selectedDate}
+          dispatch={dispatch}
+          onBack={popRoute}
+          currentVersion={currentVersion}
+          published={published}
+          ask={ask}
+          submitCopilot={submitCopilot}
+          openScreen={openScreen}
+          openDecisionPath={openDecisionPath}
+          openDialog={openDialog}
+          workoutGenerationAvailable={adapter.capabilities.workoutGeneration?.available === true}
+          generateWorkout={generateWorkout}
+          retryWorkoutGeneration={retryWorkoutGeneration}
+          copilotAvailable={adapter.capabilities.copilot?.available === true && adapter.capabilities.copilot.supportsMember(state.activeMemberId!)}
+        />
+      )
+      : <CoachDayWorkspace workspace={loadState.data.workspace} state={state} dispatch={dispatch} onSelectAthlete={selectAthlete} />;
+
   return (
-    <DashboardViewModelContext.Provider value={loadState.data}>
+    <DashboardViewModelContext.Provider value={projectedMember}>
       <main className={styles.desk}>
         <div className={styles.app} data-testid="coach-dashboard">
           {isDesktop ? (
-          <div className={styles.desktopLayout} data-testid="desktop-dashboard">
-            <aside role="region" className={`${styles.desktopRail} ${styles.contextRail}`} aria-label="Today and member context">
-              <MemberHeader onOpenProfile={() => openScreen("profile")} />
-              <DesktopContextRail state={state} dispatch={dispatch} adapter={adapter} reload={load} setAnnouncement={setAdapterAnnouncement} />
-            </aside>
-            <section className={`${styles.desktopRail} ${styles.workflowRail}`} aria-label="Active workflow">
-              {state.tab === "today" ? (
-                <TodayScreen state={state} currentVersion={currentVersion} published={published} dispatch={dispatch} ask={ask} openScreen={openScreen} />
-              ) : (
-                <WorkoutScreen currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} />
-              )}
-            </section>
-            <aside className={`${styles.desktopRail} ${styles.detailRail}`} aria-label="Copilot and history details">
-              {state.screen ? (
-                <DetailScreen state={state} dispatch={dispatch} currentVersion={currentVersion} published={published} />
-              ) : state.tab === "history" ? (
-                <HistoryScreen state={state} />
-              ) : (
-                <CopilotScreen state={state} dispatch={dispatch} ask={ask} openScreen={openScreen} />
-              )}
-            </aside>
-          </div>
+            <div className={styles.desktopLayout} data-testid="desktop-dashboard">
+              <div className={styles.desktopNavRow}>
+                <DashboardNavigation state={state} onSelect={selectDestination} disabled={dialogOpen} />
+                <div className={styles.desktopNavMeta}>AXON COACH WORKSPACE · LOCAL DEMO</div>
+              </div>
+              <div className={styles.desktopMain}>
+                <section className={styles.desktopContent} aria-label="Coach dashboard content">{dashboardContent}</section>
+              </div>
+            </div>
           ) : (
-          <div className={styles.mobileLayout}>
-            {state.screen ? (
-              <DetailScreen state={state} dispatch={dispatch} currentVersion={currentVersion} published={published} />
-            ) : (
-              <>
-                <MemberHeader onOpenProfile={() => openScreen("profile")} />
-                {state.tab === "today" && (
-                  <TodayScreen state={state} currentVersion={currentVersion} published={published} dispatch={dispatch} ask={ask} openScreen={openScreen} />
-                )}
-                {state.tab === "workout" && (
-                  <WorkoutScreen currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} />
-                )}
-                {state.tab === "copilot" && (
-                  <CopilotScreen state={state} dispatch={dispatch} ask={ask} openScreen={openScreen} />
-                )}
-                {state.tab === "history" && <HistoryScreen state={state} />}
-                <DashboardNavigation state={state} dispatch={dispatch} />
-              </>
-            )}
-          </div>
+            <div className={styles.mobileLayout}>
+              {dashboardContent}
+              <DashboardNavigation state={state} onSelect={selectDestination} variant="mobile" disabled={dialogOpen} />
+            </div>
           )}
           <div className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">
             {state.announcement} {adapterAnnouncement}
           </div>
-          {state.dialog && <DashboardDialog state={state} dispatch={dispatch} onRequestAdjustment={requestAdjustment} />}
+          {state.dialog && activeWorkflow && <DashboardDialog state={state} workflow={activeWorkflow} dispatch={dispatch} onRequestAdjustment={requestAdjustment} />}
         </div>
       </main>
     </DashboardViewModelContext.Provider>
   );
 }
 
-function DashboardNavigation({ state, dispatch }: { state: DashboardState; dispatch: React.Dispatch<DashboardAction> }) {
-  return <nav className={styles.tabs} aria-label="Dashboard sections">
-    {tabs.map((tab) => (
-      <button
-        key={tab.id}
-        className={`${styles.tab} ${state.tab === tab.id ? styles.tabActive : ""}`}
-        type="button"
-        aria-current={state.tab === tab.id ? "page" : undefined}
-        onClick={() => dispatch({ type: "select-tab", tab: tab.id })}
-      >
-        {tab.label}
-      </button>
-    ))}
-  </nav>;
+const coachDateFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+const coachWeekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
+const coachMonthDayFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const sessionTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatCoachDate(value: string) {
+  return coachDateFormatter.format(new Date(`${value}T00:00:00Z`));
 }
 
-function DesktopContextRail({ state, dispatch, adapter, reload, setAnnouncement }: {
+function formatMemberDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  return {
+    weekday: coachWeekdayFormatter.format(date).toUpperCase(),
+    monthDay: coachMonthDayFormatter.format(date).toUpperCase(),
+  };
+}
+
+function formatSessionTime(value: string, timeZone: string) {
+  let formatter = sessionTimeFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone,
+      timeZoneName: "short",
+    });
+    sessionTimeFormatters.set(timeZone, formatter);
+  }
+  return formatter.format(new Date(value));
+}
+
+function weekAround(value: string) {
+  const anchor = new Date(`${value}T00:00:00Z`);
+  const day = anchor.getUTCDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(anchor);
+    date.setUTCDate(anchor.getUTCDate() + mondayOffset + index);
+    return date.toISOString().slice(0, 10);
+  });
+}
+
+function CoachDayWorkspace({ workspace, state, dispatch, onSelectAthlete }: {
+  workspace: CoachDashboardWorkspace;
   state: DashboardState;
   dispatch: React.Dispatch<DashboardAction>;
-  adapter: DashboardAdapter;
-  reload: () => Promise<void>;
-  setAnnouncement: (message: string) => void;
+  onSelectAthlete: (memberId: string) => void;
 }) {
-  const fixture = useDashboardViewModel();
-  const capability = adapter.capabilities.startNewDraft;
-  const [isStartingDraft, setIsStartingDraft] = useState(false);
-  const startingDraft = useRef(false);
-  const startNewDraft = async () => {
-    if (!capability.available || startingDraft.current) return;
-    startingDraft.current = true;
-    setIsStartingDraft(true);
-    setAnnouncement("Starting a new draft…");
-    try {
-      const result = await capability.startNewDraft({ memberId: fixture.member.id, requestedBy: fixture.coach.name });
-      await reload();
-      setAnnouncement(`New draft ${result.draftId} started.`);
-    } catch {
-      setAnnouncement("A new draft could not be started.");
-    } finally {
-      startingDraft.current = false;
-      setIsStartingDraft(false);
+  const selectedDate = state.selectedDate || workspace.coachDayDate;
+  const projection = useMemo(
+    () => buildTodayProjection(workspace, selectedDate),
+    [selectedDate, workspace],
+  );
+  const week = useMemo(() => weekAround(selectedDate), [selectedDate]);
+  const sessionCountByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const session of workspace.sessions) {
+      const date = sessionDateKey(session.startsAt, workspace.timezone);
+      counts.set(date, (counts.get(date) ?? 0) + 1);
     }
-  };
+    return counts;
+  }, [workspace.sessions, workspace.timezone]);
+  const athletesById = useMemo(
+    () => new Map(workspace.athletes.map((athlete) => [athlete.id, athlete])),
+    [workspace.athletes],
+  );
+  const firstScheduledAthlete = projection.scheduledAthletes[0]?.athlete;
+  const firstScheduledMemberView = firstScheduledAthlete ? workspace.memberViews[firstScheduledAthlete.id] ?? null : null;
 
-  return <div className={`${styles.scroll} ${styles.contextStack}`}>
-    <DashboardNavigation state={state} dispatch={dispatch} />
-    <div className={styles.sectionLabel}>TODAY AT A GLANCE</div>
-    <div className={styles.metrics}>
-      <div className={styles.metric}><strong>{fixture.metrics.adherence}</strong><div className={styles.micro}>ADHERENCE</div></div>
-      <div className={styles.metric}><strong>{fixture.metrics.sleep}</strong><div className={styles.micro}>SLEEP AVG</div></div>
-      <div className={styles.metric}><strong>{fixture.metrics.restingHeartRate}</strong><div className={styles.micro}>RESTING HR</div></div>
-    </div>
-    <div className={styles.card}>
-      <div className={styles.micro}>CELEBRATE</div>
-      <div className={styles.bodyStrong}>{fixture.morningBrief.celebrationTitle}</div>
-      <div className={styles.bodyCopy}>{fixture.morningBrief.celebration}</div>
-    </div>
-    <div className={styles.card}>
-      <div className={styles.micro}>WATCH</div>
-      <div className={styles.bodyStrong}>{fixture.morningBrief.riskTitle}</div>
-      <div className={styles.bodyCopy}>{fixture.morningBrief.risk}</div>
-    </div>
-    {capability.available ? (
-      <button className={styles.primaryButton} type="button" disabled={isStartingDraft} aria-busy={isStartingDraft} onClick={() => void startNewDraft()}>{isStartingDraft ? "Starting new draft…" : "Start new draft"}</button>
-    ) : (
-      <div className={styles.capabilityNote} aria-label="New draft unavailable">{capability.reason}</div>
-    )}
-  </div>;
+  return (
+    <section className={styles.coachDay} data-testid="coach-day-workspace" aria-label="Today overview">
+      {firstScheduledMemberView && <TodayProfileItem member={firstScheduledMemberView.member} selectedDate={selectedDate} onOpen={() => onSelectAthlete(firstScheduledMemberView.member.id)} />}
+      <header className={styles.coachDayHeader}>
+        <div>
+          <div className={styles.micro}>TODAY · COACH DAY OVERVIEW</div>
+          <h1 className={styles.coachDayTitle} data-destination-heading="today" tabIndex={-1}>Good morning, {workspace.coach.name}</h1>
+          <p className={styles.coachDayIntro}>Choose a day, then open an athlete’s morning brief.</p>
+        </div>
+        <div className={styles.coachDayHeaderMark} aria-hidden="true">AXON / 01</div>
+      </header>
+
+      <section className={styles.weekStrip} data-testid="today-calendar" aria-labelledby="coach-day-week-title">
+        <div className={styles.weekStripHeader}>
+          <div>
+            <div className={styles.micro}>CALENDAR</div>
+            <h2 id="coach-day-week-title" className={styles.coachDaySectionTitle}>{formatCoachDate(selectedDate)}</h2>
+          </div>
+          <span className={styles.weekStripNote}>Read-only calendar</span>
+        </div>
+        <div className={styles.weekDays} role="group" aria-label="Choose a day to view sessions">
+          {week.map((day) => {
+            const daySessionCount = sessionCountByDate.get(day) ?? 0;
+            const active = day === selectedDate;
+            return (
+              <button
+                className={`${styles.weekDay} ${active ? styles.weekDayActive : ""}`}
+                data-testid={`week-day-${day}`}
+                key={day}
+                type="button"
+                aria-pressed={active}
+                aria-label={`Show sessions for ${formatCoachDate(day)}${daySessionCount ? `, ${daySessionCount} scheduled` : ", no sessions scheduled"}`}
+                onClick={() => dispatch({ type: "select-date", date: day })}
+              >
+                <span>{coachWeekdayFormatter.format(new Date(`${day}T00:00:00Z`))}</span>
+                <strong>{Number(day.slice(8, 10))}</strong>
+                <i className={daySessionCount ? styles.weekDayDot : ""} aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className={styles.rosterPanel} data-testid="today-athlete-row" aria-labelledby="today-athletes-title">
+        <div className={styles.coachDaySectionHeader}>
+          <div><div className={styles.micro}>TODAY’S ATHLETES</div><h2 id="today-athletes-title" className={styles.coachDaySectionTitle}>Scheduled today</h2></div>
+          <span className={styles.coachDayCount}>{projection.scheduledAthletes.length}</span>
+        </div>
+        {projection.scheduledAthletes.length ? (
+          <div className={`${styles.rosterList} ${styles.scheduledAthleteRow}`}>
+            {projection.scheduledAthletes.map(({ athlete, firstSession }) => (
+              <button className={styles.athleteCard} data-focus-key={`today-row-athlete-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
+                <span className={styles.athleteAvatar} aria-hidden="true">{athlete.initials}</span>
+                <span className={styles.athleteCardBody}><strong>{athlete.name}</strong><span>{athlete.suggestedWorkoutTitle} · {formatSessionTime(firstSession.startsAt, workspace.timezone)} · {firstSession.durationMinutes} min</span></span>
+                <span className={styles.sessionArrow} aria-hidden="true">→</span>
+              </button>
+            ))}
+          </div>
+        ) : <div className={styles.agendaEmpty} data-testid="athletes-empty"><strong>No athletes scheduled</strong><span>See all athletes remains available below.</span></div>}
+      </section>
+
+      <section className={styles.agendaPanel} data-testid="today-schedule" aria-labelledby="coach-day-agenda-title">
+        <div className={styles.coachDaySectionHeader}>
+          <div><div className={styles.micro}>SCHEDULE</div><h2 id="coach-day-agenda-title" className={styles.coachDaySectionTitle}>Suggested workouts</h2></div>
+          <span className={styles.coachDayCount}>{projection.sessions.length} {projection.sessions.length === 1 ? "session" : "sessions"}</span>
+        </div>
+        {projection.sessions.length ? <div className={styles.agendaList}>{projection.sessions.map((session) => {
+          const athlete = athletesById.get(session.athleteId);
+          if (!athlete) return null;
+          const sessionTime = formatSessionTime(session.startsAt, workspace.timezone);
+          return <button className={styles.sessionCard} data-focus-key={`today-session-${session.id}`} data-testid={`session-${session.id}`} key={session.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief, ${session.label}, ${sessionTime}`}>
+            <span className={styles.sessionTime}>{sessionTime}</span>
+            <span className={styles.sessionCardBody}><strong>{athlete.name} · {athlete.suggestedWorkoutTitle}</strong><span>{session.label} · {session.durationMinutes} min</span></span>
+            <span className={styles.sessionArrow} aria-hidden="true">→</span>
+          </button>;
+        })}</div> : <div className={styles.agendaEmpty} data-testid="agenda-empty"><strong>No sessions scheduled</strong><span>There are no upcoming sessions on {formatCoachDate(selectedDate)}.</span></div>}
+      </section>
+
+      <section className={styles.rosterPanel} aria-label="All athletes">
+        <button className={styles.secondaryButton} type="button" aria-expanded={state.todayView.allAthletesExpanded} aria-controls="all-athletes-list" onClick={() => dispatch({ type: "set-all-athletes-expanded", expanded: !state.todayView.allAthletesExpanded })}>
+          {state.todayView.allAthletesExpanded ? "Hide all athletes" : "See all athletes"}
+        </button>
+        {state.todayView.allAthletesExpanded && <div id="all-athletes-list" className={styles.rosterList}>
+          {workspace.athletes.map((athlete) => <button className={styles.athleteCard} data-focus-key={`today-all-athlete-${athlete.id}`} data-testid={`athlete-card-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
+            <span className={styles.athleteAvatar} aria-hidden="true">{athlete.initials}</span>
+            <span className={styles.athleteCardBody}><strong>{athlete.name}</strong><span>{athlete.suggestedWorkoutTitle}</span></span>
+            <span className={styles.athleteAdherence}>{athlete.adherence}<small>adherence</small></span>
+          </button>)}
+        </div>}
+      </section>
+    </section>
+  );
 }
 
-function MemberHeader({ onOpenProfile }: { onOpenProfile: () => void }) {
+function TodayProfileItem({ member, selectedDate, onOpen }: {
+  member: CoachDashboardMemberViewModel["member"];
+  selectedDate: string;
+  onOpen: () => void;
+}) {
+  const displayDate = formatMemberDate(selectedDate);
+  return (
+    <button className={styles.todayProfileItem} data-testid="today-profile-item" data-focus-key={`today-profile-${member.id}`} type="button" onClick={onOpen} aria-label={`Open ${member.name} morning brief`}>
+      <span className={styles.todayProfileBack} aria-hidden="true">←</span>
+      <span className={styles.avatar} aria-hidden="true">{member.initials}</span>
+      <span className={styles.todayProfileIdentity}>
+        <span className={styles.memberName}>{member.name}</span>
+        <span className={styles.micro}>{member.tier} · {member.trainingDaysPerWeek} days/wk</span>
+      </span>
+      <span className={styles.date} aria-hidden="true">{displayDate.weekday}<br />{displayDate.monthDay}</span>
+    </button>
+  );
+}
+
+function CoachScreen({ workspace }: { workspace: CoachDashboardWorkspace }) {
+  return <section className={`${styles.coachDay} ${styles.stack}`} aria-label="Coach">
+    <div><div className={styles.micro}>COACH · READ-ONLY WORKSPACE</div><h1 className={styles.coachDayTitle} data-destination-heading="coach" tabIndex={-1}>{workspace.coach.name}</h1><p className={styles.coachDayIntro}>Workspace identity and regional settings.</p></div>
+    <div className={styles.card}><div className={styles.micro}>COACH IDENTITY</div><div className={styles.bodyStrong}>{workspace.coach.name}</div></div>
+    <div className={styles.card}><div className={styles.micro}>WORKSPACE TIMEZONE</div><div className={styles.bodyStrong}>{workspace.timezone}</div><div className={styles.bodyCopy}>Used to group sessions into coach-local calendar days.</div></div>
+    <div className={styles.subtle}>These settings are read-only in this dashboard.</div>
+  </section>;
+}
+
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable }: {
+  route: AthleteRoute;
+  workflow: AthleteWorkflowState;
+  selectedDate: string;
+  dispatch: React.Dispatch<DashboardAction>;
+  onBack: () => void;
+  currentVersion: WorkoutVersion;
+  published: boolean;
+  ask: (id: QuickPromptId) => void;
+  submitCopilot: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
+  openScreen: (screen: NestedScreen, detailId?: string) => void;
+  openDecisionPath: (decisionId: DashboardDecisionId) => void;
+  openDialog: (action: DashboardAction) => void;
+  workoutGenerationAvailable: boolean;
+  generateWorkout: (prompt: string, durationMinutes: number) => void;
+  retryWorkoutGeneration: () => void;
+  copilotAvailable: boolean;
+}) {
+  if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
+  if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
+  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
+  if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen /></>;
+  if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} /></>;
+  if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} />;
+  if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
+  if (route.id === "insight") return <InsightScreen detailId={route.detailId} state={workflow} onBack={onBack} />;
+  if (route.id === "approve") return <ApproveScreen currentVersion={currentVersion} published={published} dispatch={dispatch} onBack={onBack} />;
+  if (route.id === "workout-rationale") return <WorkoutRationaleScreen onBack={onBack} openDecisionPath={openDecisionPath} />;
+  return null;
+}
+
+function VoiceModeScreen() {
   const fixture = useDashboardViewModel();
   return (
+    <section className={styles.voiceScreen} aria-label="Voice mode">
+      <div className={styles.voiceHero}><span className={styles.signalOrb} aria-hidden="true"><span className={styles.signalOrbCore}>◉</span></span></div>
+      <div className={`${styles.voiceLog} ${styles.stack}`} role="status">
+        <div className={styles.micro}>VOICE COPILOT · UNAVAILABLE</div>
+        <h2 className={styles.heroTitle}>Continue in text Copilot</h2>
+        <p className={styles.bodyCopy}>Speech transport is not implemented for {fixture.member.name}. No fixture or graph-backed voice answer will be generated.</p>
+      </div>
+    </section>
+  );
+}
+
+function DashboardNavigation({ state, onSelect, variant = "desktop", disabled = false }: {
+  state: DashboardState;
+  onSelect: (destination: DashboardDestination) => void;
+  variant?: "mobile" | "desktop";
+  disabled?: boolean;
+}) {
+  const navRef = useRef<HTMLElement>(null);
+  const [pill, setPill] = useState({ left: 0, width: 0, ready: false });
+  const activeDestination = state.destination;
+
+  useLayoutEffect(() => {
+    if (variant === "mobile") return;
+    const nav = navRef.current;
+    if (!nav) return;
+
+    const syncPill = () => {
+      const active = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!active) return;
+      const left = active.offsetLeft;
+      const width = active.offsetWidth;
+      setPill((previous) => previous.ready && previous.left === left && previous.width === width
+        ? previous
+        : { left, width, ready: true });
+    };
+
+    syncPill();
+    const observer = new ResizeObserver(syncPill);
+    observer.observe(nav);
+    window.addEventListener("resize", syncPill);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncPill);
+    };
+  }, [activeDestination, variant]);
+
+  return (
+    <nav ref={navRef} className={`${styles.tabs} ${variant === "mobile" ? styles.mobileTabs : ""}`} aria-label="Dashboard sections">
+      {variant === "desktop" && (
+        <div
+          className={`${styles.tabPill} ${pill.ready ? styles.tabPillReady : ""}`}
+          style={{ transform: `translateX(${pill.left}px)`, width: pill.width }}
+          aria-hidden="true"
+        />
+      )}
+      {destinations.map((destination) => (
+        <button
+          key={destination.id}
+          className={`${styles.tab} ${activeDestination === destination.id ? styles.tabActive : ""}`}
+          type="button"
+          disabled={disabled}
+          aria-current={activeDestination === destination.id ? "page" : undefined}
+          onClick={() => onSelect(destination.id)}
+        >
+          {destination.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function MemberHeader({ selectedDate, onBack }: { selectedDate: string; onBack: () => void }) {
+  const fixture = useDashboardViewModel();
+  const displayDate = formatMemberDate(selectedDate);
+  return (
     <header className={styles.memberHeader}>
-      <button className={styles.memberButton} type="button" data-focus-key="member-profile" onClick={onOpenProfile} aria-label={`Open ${fixture.member.name} profile`}>
+      <button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button>
+      <div className={styles.memberButton}>
         <span className={styles.avatar} aria-hidden="true">{fixture.member.initials}</span>
         <span>
-          <span className={styles.memberName}>{fixture.member.name} <span aria-hidden="true">›</span></span>
+          <span className={styles.memberName}>{fixture.member.name}</span>
           <span className={styles.micro}>{fixture.member.tier} · {fixture.member.trainingDaysPerWeek} days/wk</span>
         </span>
-      </button>
-      <div className={styles.date}>{fixture.asOfDate.weekday}<br />{fixture.asOfDate.monthDay}</div>
+      </div>
+      <div className={styles.date} data-testid="member-brief-date">{displayDate.weekday}<br />{displayDate.monthDay}</div>
     </header>
   );
 }
 
 function TodayScreen({
+  selectedDate,
   state,
   currentVersion,
   published,
-  dispatch,
   ask,
   openScreen,
+  copilotAvailable,
 }: {
-  state: DashboardState;
+  selectedDate: string;
+  state: AthleteWorkflowState;
   currentVersion: WorkoutVersion;
   published: boolean;
-  dispatch: React.Dispatch<DashboardAction>;
   ask: (id: QuickPromptId) => void;
-  openScreen: (screen: Exclude<DashboardScreen, "decision-path">, detailId?: string) => void;
+  openScreen: (screen: NestedScreen, detailId?: string) => void;
+  copilotAvailable: boolean;
 }) {
   const fixture = useDashboardViewModel();
+  const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? null;
+  const briefPending = state.copilot.pending?.input.kind === "quick-prompt" && state.copilot.pending.input.promptId === "morning-brief";
+  const briefOutcome = state.copilot.outcome;
   return (
-    <section className={`${styles.scroll} ${styles.stack}`} aria-label="Today">
-      <button className={styles.heroCard} type="button" onClick={() => dispatch({ type: "select-tab", tab: "workout" })} style={{ textAlign: "left", cursor: "pointer" }}>
-        <div className={styles.micro}>{published ? "PUBLISHED ✓" : "TODAY’S DRAFT · READY"}</div>
+    <section className={`${styles.scroll} ${styles.stack} ${styles.todayScreen}`} aria-label="Today">
+      <button className={styles.heroCard} type="button" data-focus-key="brief-workout" onClick={() => openScreen("workout")} style={{ textAlign: "left", cursor: "pointer" }}>
+        <div className={styles.micro}>{published ? "PUBLISHED ✓" : `DRAFT FOR ${formatCoachDate(selectedDate).toUpperCase()} · READY`}</div>
         <h1 className={styles.heroTitle}>{published ? "Local publication recorded" : `${currentVersion.durationMinutes}-min ${fixture.workoutTitle}`}</h1>
         <div className={styles.subtle}>{published ? `Exact approved v${currentVersion.number} · history retained` : `3 constraint decisions · warm-up to cool-down sized to ${currentVersion.durationMinutes} min`}</div>
         <span className={styles.heroAction}>{published ? "View published workout →" : "Review & approve →"}</span>
       </button>
 
-      {state.pins.map((id) => (
-        <button key={id} className={styles.card} type="button" data-focus-key={`insight-${id}`} onClick={() => openScreen("insight", id)} style={{ textAlign: "left", cursor: "pointer" }}>
-          <div className={styles.micro}>PINNED · COPILOT</div>
-          <div className={styles.bodyStrong}>{fixture.copilotCards[id].title} →</div>
+      <div className={styles.sectionLabel}>MORNING BRIEF TOOLS</div>
+      <div className={styles.rosterList}>
+        <button className={styles.athleteCard} type="button" data-focus-key="brief-copilot" onClick={() => openScreen("copilot")}>
+          <span className={styles.athleteAvatar} aria-hidden="true">AI</span><span className={styles.athleteCardBody}><strong>Copilot context</strong><span>{copilotAvailable ? briefAnswer ? "Graph-grounded context ready" : "Loading graph-grounded context" : "Member context unavailable"}</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
         </button>
-      ))}
+        <button className={styles.athleteCard} type="button" data-focus-key="brief-voice" onClick={() => openScreen("voice")}>
+          <span className={styles.athleteAvatar} aria-hidden="true">◉</span><span className={styles.athleteCardBody}><strong>Talk through today</strong><span>Voice is unavailable; continue in text Copilot</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
+        </button>
+        <button className={styles.athleteCard} type="button" data-focus-key="brief-profile" onClick={() => openScreen("profile")}>
+          <span className={styles.athleteAvatar} aria-hidden="true">{fixture.member.initials}</span><span className={styles.athleteCardBody}><strong>Athlete profile</strong><span>Injury, goals, preferences, and equipment</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
+        </button>
+        <button className={styles.athleteCard} type="button" data-focus-key="brief-history" onClick={() => openScreen("history")}>
+          <span className={styles.athleteAvatar} aria-hidden="true">↻</span><span className={styles.athleteCardBody}><strong>History</strong><span>Workout versions, publications, and sessions</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
+        </button>
+      </div>
+
+      {state.copilot.pins.map((pin) => <article key={pin.pinId} className={styles.card} data-answer-id={pin.answerId}>
+        <div className={styles.micro}>PINNED · COPILOT · {pin.contextRevisionId}</div>
+        {pin.renderedSnapshot.section.clauses.map((clause) => <div className={styles.bodyStrong} key={clause.clauseId}>{clause.text}</div>)}
+      </article>)}
 
       <div className={styles.sectionLabel}>MORNING BRIEF</div>
-      <div className={styles.card}>
-        <div className={styles.briefRow}>
-          <span className={styles.inkIcon}>✓</span>
-          <div><div className={styles.bodyStrong}>{fixture.morningBrief.celebrationTitle}</div><div className={styles.bodyCopy}>{fixture.morningBrief.celebrationSummary}</div></div>
-        </div>
-      </div>
-      <div className={styles.card}>
-        <div className={styles.briefRow}>
-          <span className={styles.inkIcon}>!</span>
-          <div><div className={styles.bodyStrong}>{fixture.morningBrief.riskTitle}</div><div className={styles.bodyCopy}>{fixture.morningBrief.riskSummary}</div></div>
-        </div>
-        <div className={styles.sparkBars} role="img" aria-label="Adherence declined from 100 to 50 percent">
-          {[90, 90, 66, 44].map((height, index) => <span key={index} style={{ height: `${height}%`, opacity: index === 3 ? 1 : 0.18 }} />)}
-        </div>
-        <button className={styles.secondaryButton} type="button" onClick={() => { dispatch({ type: "select-tab", tab: "copilot" }); ask("churn"); }}>Ask Copilot about churn →</button>
-      </div>
-      <div className={styles.card}>
-        <div className={styles.micro}>PENDING · 2</div>
-        <div className={styles.pendingRows}>
-          <div><div className={styles.bodyStrong}>Reply to {fixture.member.name}’s check-in</div><div className={styles.bodyCopy}>“{fixture.morningBrief.memberMessage}” · {fixture.morningBrief.memberMessageDate}</div></div>
-          <div><div className={styles.bodyStrong}>Review churn signals</div><div className={styles.bodyCopy}>flagged by assistant · this morning</div></div>
-        </div>
-      </div>
+      {!copilotAvailable ? <CopilotUnavailable memberName={fixture.member.name} /> : briefPending && !briefAnswer ? <div className={styles.card}><SignalKicker working>Loading morning brief…</SignalKicker><div className={styles.bodyCopy}>Retrieving one revision-pinned answer packet.</div></div> : briefAnswer ? <CopilotAnswerCard answer={briefAnswer} compact /> : briefOutcome && briefOutcome.status !== "ready" ? <CopilotOutcomeNotice outcome={briefOutcome} /> : <div className={styles.card}><div className={styles.bodyStrong}>Morning brief not loaded.</div><div className={styles.bodyCopy}>Open Copilot to retry the graph-backed brief.</div></div>}
+      {copilotAvailable && <button className={styles.secondaryButton} type="button" data-focus-key="brief-copilot-churn" disabled={state.copilot.pending !== null} onClick={() => { openScreen("copilot"); ask("churn"); }}>Ask Copilot about risk →</button>}
       <div className={styles.metrics}>
         {[['adherence', fixture.metrics.adherence, 'ADHERENCE WK'], ['sleep', fixture.metrics.sleep, 'SLEEP AVG 7D'], ['heart', fixture.metrics.restingHeartRate, 'RESTING HR']].map(([id, value, label]) => (
           <div className={styles.metric} key={id}><strong>{value}</strong><div className={styles.micro}>{label}</div></div>
@@ -397,14 +797,23 @@ function TodayScreen({
   );
 }
 
-function WorkoutScreen({ currentVersion, published, openScreen, openDecisionPath, openDialog }: {
+function WorkoutScreen({ workflow, currentVersion, published, openScreen, openDecisionPath, openDialog, onBack, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration }: {
+  workflow: AthleteWorkflowState;
   currentVersion: WorkoutVersion;
   published: boolean;
-  openScreen: (screen: Exclude<DashboardScreen, "decision-path">, detailId?: string) => void;
+  openScreen: (screen: NestedScreen, detailId?: string) => void;
   openDecisionPath: (decisionId: DashboardDecisionId) => void;
   openDialog: (action: DashboardAction) => void;
+  onBack?: () => void;
+  workoutGenerationAvailable: boolean;
+  generateWorkout: (prompt: string, durationMinutes: number) => void;
+  retryWorkoutGeneration: () => void;
 }) {
   const fixture = useDashboardViewModel();
+  const [generationPrompt, setGenerationPrompt] = useState("");
+  const [generationDuration, setGenerationDuration] = useState(currentVersion.durationMinutes);
+  const generationPromptRef = useRef<HTMLTextAreaElement>(null);
+  const runtimeBusy = ["submitting", "queued", "running"].includes(workflow.runtimeGeneration.status);
   const sections = fixture.workoutSections.map((section) => ({
     ...section,
     items: section.items.filter((item) => !(item.id === "bench-press" && currentVersion.durationMinutes <= 40)),
@@ -426,18 +835,54 @@ function WorkoutScreen({ currentVersion, published, openScreen, openDecisionPath
 
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="Workout">
+      {onBack && <ScreenHeader title={fixture.workoutTitle} kicker={published ? "PUBLISHED WORKOUT" : "TODAY’S WORKOUT"} onBack={onBack} />}
       <div className={styles.workoutTopline}>
         <div><div className={styles.micro}>{published ? "PUBLISHED WORKOUT" : "TODAY’S WORKOUT"}</div><h1 className={styles.heroTitle}>{currentVersion.durationMinutes}-min {fixture.workoutTitle}</h1></div>
         <span className={styles.versionPill}>v{currentVersion.number}</span>
       </div>
       <div className={styles.subtle}>{sections.reduce((count, section) => count + section.items.length, 0)} exercises · {currentVersion.intensity} intensity · source-backed</div>
+      {workoutGenerationAvailable && (
+        <form className={styles.runtimeForm} aria-label="Generate workout" onSubmit={(event) => {
+          event.preventDefault();
+          const prompt = generationPrompt.trim();
+          if (prompt) generateWorkout(prompt, generationDuration);
+        }}>
+          <label className={styles.runtimeField}>
+            <span className={styles.bodyStrong}>Workout request</span>
+            <textarea ref={generationPromptRef} className={styles.textarea} value={generationPrompt} disabled={runtimeBusy} onChange={(event) => setGenerationPrompt(event.target.value)} placeholder="Describe today’s workout…" required />
+          </label>
+          <label className={styles.runtimeField}>
+            <span className={styles.bodyStrong}>Duration · {generationDuration} min</span>
+            <input className={styles.range} aria-label="Generated workout duration" type="range" min="30" max="60" step="5" value={generationDuration} disabled={runtimeBusy} onChange={(event) => setGenerationDuration(Number(event.target.value))} />
+          </label>
+          <button className={styles.primaryButton} type="submit" disabled={runtimeBusy || !generationPrompt.trim()} aria-busy={runtimeBusy}>{runtimeBusy ? "Generating…" : "Generate workout"}</button>
+        </form>
+      )}
+      {workflow.runtimeGeneration.status !== "idle" && (
+        <div className={styles.runtimeStatus} data-runtime-status={workflow.runtimeGeneration.status}>
+          <div className={styles.micro}>WORKOUT RUNTIME · {workflow.runtimeGeneration.status.replaceAll("-", " ").toUpperCase()}</div>
+          <div className={styles.bodyStrong}>{workflow.runtimeGeneration.message}</div>
+          {["awaiting-clarification", "no-safe-result", "failed", "canceled", "disconnected"].includes(workflow.runtimeGeneration.status) && (
+            <button className={styles.secondaryButton} type="button" onClick={() => {
+              if (workflow.runtimeGeneration.status === "awaiting-clarification" || workflow.runtimeGeneration.status === "no-safe-result") {
+                generationPromptRef.current?.focus();
+              } else {
+                retryWorkoutGeneration();
+              }
+            }}>
+              {workflow.runtimeGeneration.status === "awaiting-clarification" ? "Clarify request" : workflow.runtimeGeneration.status === "no-safe-result" ? "Revise request" : workflow.runtimeGeneration.status === "disconnected" ? "Reconnect" : "Try again"}
+            </button>
+          )}
+        </div>
+      )}
+      <button className={styles.secondaryButton} type="button" data-focus-key="workout-rationale" onClick={() => openScreen("workout-rationale")}>Why this workout?</button>
 
       {sections.map((section) => (
         <div className={styles.workoutGroup} key={section.title}>
           <div className={styles.sectionLabel}>{section.title}</div>
           {section.items.map((item) => (
             <details className={styles.exercise} key={item.id}>
-              <summary><span className={styles.exerciseName}>{item.name}</span><span className={styles.exerciseDose}>{item.dose}</span></summary>
+              <summary><span className={styles.exerciseName}>{item.name}</span><span className={styles.exerciseDose}>{item.dose}{item.rest ? ` · ${item.rest}` : ""}</span></summary>
               <div className={styles.exerciseDetail}>
                 <div className={styles.bodyCopy}>{item.why}</div>
                 <div className={styles.source}>{item.provenance}</div>
@@ -474,49 +919,155 @@ function WorkoutScreen({ currentVersion, published, openScreen, openDecisionPath
   );
 }
 
-function CopilotScreen({ state, dispatch, ask, openScreen }: {
-  state: DashboardState;
+function CopilotScreen({ state, dispatch, ask, submit, openScreen, copilotAvailable }: {
+  state: AthleteWorkflowState;
   dispatch: React.Dispatch<DashboardAction>;
   ask: (id: QuickPromptId) => void;
-  openScreen: (screen: Exclude<DashboardScreen, "decision-path">, detailId?: string) => void;
+  submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
+  openScreen: (screen: NestedScreen, detailId?: string) => void;
+  copilotAvailable: boolean;
 }) {
   const fixture = useDashboardViewModel();
+  const [question, setQuestion] = useState("");
+  const pending = state.copilot.pending;
+  const continuation = state.copilot.lastReadyAnswer?.continuation;
+  const lastRequest = state.copilot.lastRequest;
+  const retry = () => lastRequest && submit(lastRequest.input, lastRequest.promptLabel, lastRequest.continuation ? { continuation: lastRequest.continuation } : {});
+  const refresh = () => lastRequest && submit(lastRequest.input, `${lastRequest.promptLabel} refresh`);
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="Copilot">
-      <div><div className={styles.micro}>COPILOT · FIXTURE DEMO</div><h1 className={styles.heroTitle}>Member context, ready to act on</h1></div>
+      <div><div className={styles.micro}>COPILOT · GRAPH-GROUNDED</div><h1 className={styles.heroTitle}>Member context, ready to inspect</h1></div>
+      <button
+        className={styles.copilotVoiceCard}
+        data-focus-key="copilot-voice"
+        type="button"
+        onClick={() => openScreen("voice")}
+        aria-label="Open voice mode"
+      >
+        <span className={`${styles.signalOrb} ${styles.copilotSignalOrb}`} aria-hidden="true">
+          <span className={styles.signalOrbCore}>◉</span>
+        </span>
+        <span className={styles.copilotVoiceCopy}>
+          <span className={styles.micro}>VOICE COPILOT</span>
+          <span className={styles.copilotVoiceTitle}>Talk through {fixture.member.name}&apos;s signal</span>
+          <span className={styles.subtle}>Voice transport is unavailable. Continue with the same text workflow.</span>
+          <span className={styles.copilotVoiceAction}>Open voice mode →</span>
+        </span>
+      </button>
       <div className={styles.promptRow} aria-label="Copilot quick prompts">
-        {prompts.map((prompt) => <button className={styles.pillButton} type="button" key={prompt.id} onClick={() => ask(prompt.id)}>{prompt.label}</button>)}
+        {prompts.map((prompt) => <button className={styles.pillButton} disabled={!copilotAvailable || Boolean(pending)} type="button" key={prompt.id} onClick={() => ask(prompt.id)}>{prompt.label}</button>)}
       </div>
-      {state.pendingPrompt && <div className={styles.card}><SignalKicker data-testid="copilot-motion-signal" working>Retrieving member context…</SignalKicker></div>}
-      {state.feed.map((id) => {
-        const card = fixture.copilotCards[id];
-        return (
-          <article className={styles.copilotCard} key={card.id}>
-            <div className={styles.cardTop}>
-              <span className={styles.signalKicker}>{card.kicker}</span>
-              <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-pin", insightId: id })}>{state.pins.includes(id) ? "PINNED ✓" : "PIN TO TODAY"}</button>
-            </div>
-            <div className={styles.copilotTitle}>{card.title}</div>
-            {card.headline && <div className={styles.subtle}>{card.headline}</div>}
-            {card.bars && <BarChart label={card.kicker} bars={card.bars} />}
-            {card.rows?.map((row) => <div className={styles.dataRow} key={row.label}><span className={styles.dataLabel}>{row.label}</span><span>{row.value}</span></div>)}
-            <div className={styles.sources}>{card.sources.map((source) => <span className={styles.sourceChip} key={source}>{source}</span>)}</div>
-            {card.detail && <button className={styles.secondaryButton} type="button" data-focus-key={`insight-${id}`} onClick={() => openScreen("insight", id)}>Recent vs trend vs stable →</button>}
-          </article>
-        );
+      {!copilotAvailable && <CopilotUnavailable memberName={fixture.member.name} />}
+      {pending && <div className={styles.card} aria-busy="true"><SignalKicker data-testid="copilot-motion-signal" working>Retrieving {pending.promptLabel}…</SignalKicker></div>}
+      {state.copilot.answers.map((answer) => {
+        const section = answer.sections.find((candidate) => candidate.sectionId === "answer") ?? answer.sections[0];
+        const pinId = `${answer.answerId}:${section?.sectionId ?? "answer"}`;
+        const pinned = state.copilot.pins.some((pin) => pin.pinId === pinId);
+        return <CopilotAnswerCard answer={answer} key={answer.answerId} actions={section ? <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-copilot-pin", pin: createCopilotPin({ pinId, answer, sectionId: section.sectionId, createdAt: new Date().toISOString() }) })}>{pinned ? "PINNED ✓" : "PIN TO TODAY"}</button> : null} />;
       })}
-      <div className={styles.deferredInput} aria-disabled="true"><span>Ask about {fixture.member.name}…</span><span className={styles.micro}>FREE TEXT DEFERRED · USE PROMPTS</span></div>
+      {state.copilot.outcome && state.copilot.outcome.status !== "ready" && state.copilot.outcome.status !== "cancelled" && <CopilotOutcomeNotice outcome={state.copilot.outcome} />}
+      {state.copilot.outcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={retry}>Retry</button>}
+      {state.copilot.outcome?.controls.refresh && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={refresh}>Refresh active revision</button>}
+      {copilotAvailable && <form className={styles.copilotComposer} onSubmit={(event) => {
+        event.preventDefault();
+        const value = question.trim();
+        if (!value) return;
+        submit({ kind: "free-text", question: value }, value, continuation ? { continuation } : {});
+        setQuestion("");
+      }}>
+        <label className={styles.srOnly} htmlFor="copilot-question">Ask about {fixture.member.name}</label>
+        <textarea id="copilot-question" className={styles.textarea} value={question} disabled={Boolean(pending)} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder={`Ask about ${fixture.member.name}…`} />
+        <button className={styles.primaryButton} type="submit" disabled={Boolean(pending) || !question.trim()}>Ask Copilot</button>
+      </form>}
     </section>
   );
 }
 
-function BarChart({ label, bars }: { label: string; bars: { label: string; value: number; displayValue: string }[] }) {
-  const max = Math.max(...bars.map((bar) => bar.value));
-  const summary = `${label[0].toUpperCase()}${label.slice(1).toLowerCase()} chart: ${bars.map((bar) => `${bar.label} ${bar.displayValue}`).join(", ")}`;
-  return <div className={styles.barChart} role="img" aria-label={summary}>{bars.map((bar, index) => <div aria-hidden="true" className={styles.barColumn} key={`${bar.label}-${index}`}><div className={styles.barFill} style={{ height: `${Math.max(8, (bar.value / max) * 100)}%` }} /><div className={styles.barLabel}>{bar.label}</div></div>)}</div>;
+function CopilotUnavailable({ memberName }: { memberName: string }) {
+  return <div className={styles.capabilityNote} role="status"><strong>Member context unavailable</strong><span>Graph-backed Copilot is not available for {memberName}. Roster and workout information remain visible.</span></div>;
 }
 
-function HistoryScreen({ state }: { state: DashboardState }) {
+function CopilotOutcomeNotice({ outcome }: { outcome: NonNullable<AthleteWorkflowState["copilot"]["outcome"]> }) {
+  const labels = {
+    empty: "No supported evidence",
+    "insufficient-history": "Insufficient history",
+    stale: "Saved revision unavailable",
+    "continuation-expired": "Continuation expired",
+    denied: "Member context unavailable",
+    invalid: "Question not accepted",
+    unavailable: "Graph unavailable",
+    "model-error": "Copilot model unavailable",
+    unsupported: "Question unsupported",
+    cancelled: "Request cancelled",
+    ready: "Answer ready",
+  } as const;
+  const message = "message" in outcome ? outcome.message : "The request was cancelled.";
+  return <div className={styles.capabilityNote} role="status" data-copilot-status={outcome.status}><strong>{labels[outcome.status]}</strong><span>{message}</span></div>;
+}
+
+function CopilotAnswerCard({ answer, compact = false, actions = null }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>; compact?: boolean; actions?: React.ReactNode }) {
+  const freshness = answer.briefFreshness
+    ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
+    : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
+  return <article className={styles.copilotCard} data-answer-id={answer.answerId} data-revision-id={answer.contextRevisionId}>
+    <div className={styles.cardTop}><span className={styles.signalKicker}>{answer.intentId.replaceAll("-", " ").toUpperCase()} · {freshness}</span>{actions}</div>
+    {answer.sections.map((section) => <section className={styles.answerSection} key={section.sectionId} aria-label={section.sectionId.replaceAll("-", " ")}><div className={styles.dataLabel}>{section.sectionId.replaceAll("-", " ").toUpperCase()}</div>{section.clauses.map((clause) => <p className={section.sectionId === "answer" ? styles.copilotTitle : styles.bodyCopy} key={clause.clauseId}>{clause.text}</p>)}</section>)}
+    {answer.churn && <CopilotChurnAssessment answer={answer} />}
+    {!compact && answer.chart && <PacketChart chart={answer.chart} />}
+    <div className={styles.sources}>{answer.citations.map((citation) => <span className={styles.sourceChip} key={citation.citationId}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""}</span>)}</div>
+    <div className={styles.micro}>REVISION · {answer.contextRevisionId}</div>
+  </article>;
+}
+
+function CopilotChurnAssessment({ answer }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]> }) {
+  const churn = answer.churn!;
+  const evidenceReferences = (evidenceIds: readonly string[]) => {
+    const labels = evidenceIds.map((evidenceId) => {
+      const citation = answer.citations.find((candidate) => candidate.evidenceId === evidenceId);
+      if (citation) return citation.label;
+      const atom = answer.evidence.atoms.find((candidate) => candidate.evidenceId === evidenceId);
+      return atom ? `${atom.evidenceKind} · ${evidenceId}` : evidenceId;
+    });
+    return labels.length > 0 ? `Evidence · ${[...new Set(labels)].join(" · ")}` : "No evidence references in this packet";
+  };
+
+  return <div className={styles.churnAssessment}>
+    <section className={styles.churnBlock} aria-label="Deterministic derived churn">
+      <div className={styles.dataLabel}>DETERMINISTIC DERIVED CHURN</div>
+      <div className={styles.bodyStrong}>Level · {churn.derived.level}</div>
+      <div className={styles.micro}>METHOD · {churn.derived.methodVersion}</div>
+      <div className={styles.bodyCopy}>Supported reasons from the deterministic packet result:</div>
+      {churn.derived.reasons.length > 0 ? <ul className={styles.churnList}>
+        {churn.derived.reasons.map((reason, index) => <li key={`${reason.code}:${index}`}><span className={styles.bodyStrong}>{reason.code}</span><span className={styles.micro}>{evidenceReferences(reason.evidenceIds)}</span></li>)}
+      </ul> : <p className={styles.bodyCopy}>No supported derived reasons in this packet.</p>}
+    </section>
+
+    <section className={styles.churnBlock} aria-label="Source-provided churn assessment">
+      <div className={styles.dataLabel}>SOURCE-PROVIDED CHURN ASSESSMENT</div>
+      {churn.source ? <>
+        <div className={styles.bodyStrong}>Level · {churn.source.level}</div>
+        {churn.source.reasons.length > 0 ? <ul className={styles.churnList}>
+          {churn.source.reasons.map((reason, index) => <li key={`${reason.text}:${index}`}><span className={styles.bodyStrong}>{reason.text}</span><span className={styles.micro}>{reason.basisStatus === "supported" ? "SUPPORTED SOURCE REASON" : "UNSUPPORTED SOURCE REASON"} · {evidenceReferences(reason.evidenceIds)}</span></li>)}
+        </ul> : <p className={styles.bodyCopy}>No source-provided reasons in this packet.</p>}
+      </> : <p className={styles.bodyCopy}>No source-provided churn assessment in this packet.</p>}
+    </section>
+
+    {churn.derived.excludedSourceReasons.length > 0 && <section className={`${styles.churnBlock} ${styles.churnExcluded}`} aria-label="Excluded unsupported-source churn reasons">
+      <div className={styles.dataLabel}>EXCLUDED SOURCE REASONS · NOT DERIVED FACTS</div>
+      <p className={styles.bodyCopy}>The packet marks these reasons as unsupported-source, so they were not used in the derived assessment.</p>
+      <ul className={styles.churnList}>
+        {churn.derived.excludedSourceReasons.map((reason, index) => <li key={`${reason.code}:${index}`}><span className={styles.bodyStrong}>{reason.code}</span><span className={styles.micro}>UNSUPPORTED SOURCE · {evidenceReferences(reason.evidenceIds)}</span></li>)}
+      </ul>
+    </section>}
+  </div>;
+}
+
+function PacketChart({ chart }: { chart: NonNullable<NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>["chart"]> }) {
+  const max = Math.max(1, ...chart.points.map((point) => Math.abs(point.value)));
+  return <div className={styles.chartWrap}><div className={styles.barChart} role="img" aria-label={chart.textSummary}>{chart.points.map((point) => <div aria-hidden="true" className={styles.barColumn} key={point.pointId}><div className={styles.barFill} data-chart-value={point.value} style={{ height: point.value === 0 ? "0%" : `${Math.max(8, (Math.abs(point.value) / max) * 100)}%` }} /><div className={styles.barLabel}>{point.label}<br />{point.value} {chart.unit}</div></div>)}</div><p className={styles.chartSummary}>{chart.textSummary}</p></div>;
+}
+
+function HistoryScreen({ state }: { state: AthleteWorkflowState }) {
   const fixture = useDashboardViewModel();
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="History">
@@ -541,41 +1092,45 @@ function ScreenHeader({ title, kicker, onBack }: { title: string; kicker: string
   return <header className={styles.screenHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button><div><h1 className={styles.screenTitle}>{title}</h1><div className={styles.micro}>{kicker}</div></div></header>;
 }
 
-function DetailScreen({ state, dispatch, currentVersion, published }: {
-  state: DashboardState;
-  dispatch: React.Dispatch<DashboardAction>;
-  currentVersion: WorkoutVersion;
-  published: boolean;
+function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory }: {
+  onBack: () => void;
+  onOpenDecisionPath: (decisionId: DashboardDecisionId) => void;
+  onOpenHistory: () => void;
 }) {
-  const back = () => dispatch({ type: "close-screen" });
-  if (state.screen === "profile") return <ProfileScreen onBack={back} dispatch={dispatch} />;
-  if (state.screen === "decision-path") return <DecisionPathScreen state={state} onBack={back} />;
-  if (state.screen === "insight") return <InsightScreen state={state} dispatch={dispatch} onBack={back} />;
-  if (state.screen === "approve") return <ApproveScreen currentVersion={currentVersion} published={published} dispatch={dispatch} onBack={back} />;
-  return null;
-}
-
-function ProfileScreen({ onBack, dispatch }: { onBack: () => void; dispatch: React.Dispatch<DashboardAction> }) {
   const fixture = useDashboardViewModel();
   const injuryDecision = fixture.exclusions.find((item) => item.overridable);
-  return <><ScreenHeader title={fixture.member.name} kicker="MEMBER PROFILE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Profile">
+  return <><ScreenHeader title={fixture.member.name} kicker="ATHLETE PROFILE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Profile">
     <div className={`${styles.card} ${styles.profileHero}`}><span className={styles.avatar}>{fixture.member.initials}</span><div><div className={styles.heroTitle}>{fixture.member.name}</div><div className={styles.micro}>{fixture.member.age} · {fixture.member.height} CM · {fixture.member.weight} KG</div><div className={styles.micro}>{fixture.member.tier} · SINCE {fixture.member.memberSince.slice(0, 7)}</div></div></div>
+    <button className={`${styles.card} ${styles.profileHistoryLink}`} type="button" data-focus-key="profile-history" aria-label="History" onClick={onOpenHistory}><span><span className={styles.micro}>MEMBER ACTIVITY</span><span className={styles.bodyStrong}>History</span><span className={styles.bodyCopy}>Workout versions, publication events, and recent sessions</span></span><span className={styles.profileHistoryArrow} aria-hidden="true">→</span></button>
     <div className={styles.sectionLabel}>STATUS</div>
-    <div className={styles.card}><div className={styles.workoutTopline}><div className={styles.bodyStrong}>{fixture.profile.injury.displayName} — {fixture.profile.injury.region}</div><span className={styles.statusPill}>{fixture.profile.injury.status}</span></div><div className={styles.bodyCopy}>{fixture.profile.injury.severity} · since {fixture.profile.injury.sinceLabel}. {fixture.profile.injury.notes}</div><div className={styles.source}>{fixture.profile.injury.sourceLabel}</div>{injuryDecision && <button className={styles.secondaryButton} type="button" data-focus-key={`decision-${injuryDecision.decisionId}`} style={{ marginTop: 10 }} onClick={() => dispatch({ type: "open-screen", screen: "decision-path", decisionId: injuryDecision.decisionId })}>What this changes today →</button>}</div>
+    <div className={styles.card}><div className={styles.workoutTopline}><div className={styles.bodyStrong}>{fixture.profile.injury.displayName} — {fixture.profile.injury.region}</div><span className={styles.statusPill}>{fixture.profile.injury.status}</span></div><div className={styles.bodyCopy}>{fixture.profile.injury.severity} · since {fixture.profile.injury.sinceLabel}. {fixture.profile.injury.notes}</div><div className={styles.source}>{fixture.profile.injury.sourceLabel}</div>{injuryDecision && <button className={styles.secondaryButton} type="button" data-focus-key={`decision-${injuryDecision.decisionId}`} style={{ marginTop: 10 }} onClick={() => onOpenDecisionPath(injuryDecision.decisionId)}>What this changes today →</button>}</div>
     <div className={styles.sectionLabel}>GOALS</div>
     <div className={styles.card}>{fixture.profile.goals.map((goal) => <div className={styles.goalRow} key={goal.id}><span className={styles.micro}>P{goal.priority}</span><span>{goal.text}</span></div>)}</div>
     <div className={styles.sectionLabel}>PREFERENCES</div>
     <div className={styles.card}><div className={styles.bodyCopy}>{fixture.profile.preferences.preferred_session_minutes}-min sessions · {fixture.profile.preferences.training_days_per_week} days/wk · {fixture.profile.preferences.preferred_days.join(" ")}</div><div className={styles.bodyCopy}>{fixture.profile.preferences.notes}</div><div className={styles.chips}>{fixture.profile.preferences.dislikes.map((item) => <span className={styles.sourceChip} key={item}>NEVER · {item}</span>)}</div></div>
     <div className={styles.sectionLabel}>EQUIPMENT</div>
     <div className={styles.chips}>{fixture.profile.equipment.map((item) => <span className={styles.sourceChip} key={item}>{item}</span>)}</div>
+    <div className={styles.sectionLabel}>RECENT WORKOUT HISTORY</div>
+    <div className={styles.profileHistory}>
+      {fixture.history.map((workout) => (
+        <article className={styles.card} key={workout.date}>
+          <div className={styles.workoutTopline}>
+            <div className={styles.bodyStrong}>{workout.title}</div>
+            <span className={styles.statusPill}>{workout.completed ? "COMPLETED" : "MISSED"}</span>
+          </div>
+          <div className={styles.bodyCopy}>{workout.date} · {workout.completed ? `${workout.duration_min} min · RPE ${workout.rpe}` : "planned session"}</div>
+          {workout.exercises.length > 0 && <div className={styles.micro}>{workout.exercises.join(" · ")}</div>}
+        </article>
+      ))}
+    </div>
   </section></>;
 }
 
-function DecisionPathScreen({ state, onBack }: { state: DashboardState; onBack: () => void }) {
+function DecisionPathScreen({ decisionId, state, onBack }: { decisionId: DashboardDecisionId; state: AthleteWorkflowState; onBack: () => void }) {
   const fixture = useDashboardViewModel();
-  const path = state.decisionId ? fixture.decisionPaths[state.decisionId] : undefined;
+  const path = fixture.decisionPaths[decisionId];
   if (!path) return <><ScreenHeader title="Decision path unavailable" kicker="SOURCE DATA UNAVAILABLE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Decision Path"><div className={styles.card}><div className={styles.bodyStrong}>This decision path is unavailable.</div><div className={styles.bodyCopy}>The selected item does not include a matching source-backed decision identifier.</div></div></section></>;
-  const overridden = state.contentVersions.some((version) => version.kind === "override" && version.overrideDecisionId === state.decisionId);
+  const overridden = state.contentVersions.some((version) => version.kind === "override" && version.overrideDecisionId === decisionId);
   return <><ScreenHeader title="Decision path" kicker="GRAPH-TRAVERSED · SOURCE-BACKED" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Decision Path">
     <div className={styles.workoutTopline}><span className={styles.statusPill}>{path.kind}</span>{overridden && <span className={styles.versionPill}>COACH OVERRIDE · INK</span>}</div>
     {path.lanes.map((lane) => <div className={styles.lane} key={lane.name}><div className={styles.micro}>{lane.name}</div><div className={styles.bodyStrong}>{lane.text}</div><div className={styles.source}>{lane.source}</div></div>)}
@@ -584,16 +1139,19 @@ function DecisionPathScreen({ state, onBack }: { state: DashboardState; onBack: 
   </section></>;
 }
 
-function InsightScreen({ state, dispatch, onBack }: { state: DashboardState; dispatch: React.Dispatch<DashboardAction>; onBack: () => void }) {
+function InsightScreen({ detailId, state, onBack }: { detailId: string; state: AthleteWorkflowState; onBack: () => void }) {
+  const answer = state.copilot.answers.find((candidate) => candidate.answerId === detailId) ?? state.copilot.lastReadyAnswer;
+  return <><ScreenHeader title="Copilot answer" kicker="IMMUTABLE ANSWER DETAIL" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Insight">
+    {answer ? <CopilotAnswerCard answer={answer} /> : <div className={styles.capabilityNote} role="status">No graph-backed answer is available.</div>}
+  </section></>;
+}
+
+function WorkoutRationaleScreen({ onBack, openDecisionPath }: { onBack: () => void; openDecisionPath: (decisionId: DashboardDecisionId) => void }) {
   const fixture = useDashboardViewModel();
-  const id = (state.detailId ?? "adherence") as InsightId;
-  const card = fixture.copilotCards[id];
-  const detail = card.detail;
-  return <><ScreenHeader title={card.title} kicker={`${card.kicker} · INSIGHT DETAIL`} onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Insight">
-    <span className={styles.signalKicker}>COPILOT SYNTHESIS</span>
-    {detail ? <div className={styles.detailGrid}>{(["recent", "trend", "stable", "action"] as const).map((key) => <div key={key}><div className={styles.micro}>{key}</div><div className={styles.bodyCopy}>{detail[key]}</div></div>)}</div> : <div className={styles.card}>{card.rows?.map((row) => <div className={styles.dataRow} key={row.label}><span className={styles.dataLabel}>{row.label}</span><span>{row.value}</span></div>)}</div>}
-    <div className={styles.sources}>{card.sources.map((source) => <span className={styles.sourceChip} key={source}>{source}</span>)}</div>
-    <button className={styles.secondaryButton} type="button" onClick={() => dispatch({ type: "toggle-pin", insightId: id })}>{state.pins.includes(id) ? "Remove pin from Today" : "Pin to Today"}</button>
+  const items = [...fixture.workoutSections.flatMap((section) => section.items), ...fixture.exclusions];
+  return <><ScreenHeader title="Why this workout?" kicker="SOURCE-BACKED RATIONALE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Workout rationale">
+    <div className={styles.heroCard}><div className={styles.bodyStrong}>{fixture.workoutTitle}</div><div className={styles.bodyCopy}>Every reason below comes from the workout’s existing evidence and provenance.</div></div>
+    {items.map((item) => <article className={styles.card} key={item.id}><div className={styles.bodyStrong}>{item.name}</div><div className={styles.bodyCopy}>{item.why}</div><div className={styles.source}>{item.provenance}</div>{item.decisionId && <button className={styles.pillButton} type="button" data-focus-key={`rationale-decision-${item.decisionId}`} onClick={() => openDecisionPath(item.decisionId!)}>See decision path →</button>}</article>)}
   </section></>;
 }
 
@@ -609,15 +1167,16 @@ function ApproveScreen({ currentVersion, published, dispatch, onBack }: { curren
   </section></>;
 }
 
-function DashboardDialog({ state, dispatch, onRequestAdjustment }: {
+function DashboardDialog({ state, workflow, dispatch, onRequestAdjustment }: {
   state: DashboardState;
+  workflow: AthleteWorkflowState;
   dispatch: React.Dispatch<DashboardAction>;
   onRequestAdjustment: () => void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const fixture = useDashboardViewModel();
-  const overrideItem = state.overrideDecisionIdDraft
-    ? fixture.exclusions.find((item) => item.decisionId === state.overrideDecisionIdDraft)
+  const overrideItem = workflow.overrideDecisionIdDraft
+    ? fixture.exclusions.find((item) => item.decisionId === workflow.overrideDecisionIdDraft)
     : null;
 
   useEffect(() => {
@@ -629,7 +1188,7 @@ function DashboardDialog({ state, dispatch, onRequestAdjustment }: {
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!state.pendingAdjustment) dispatch({ type: "cancel-dialog" });
+      if (!workflow.pendingAdjustment) dispatch({ type: "cancel-dialog" });
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -648,15 +1207,15 @@ function DashboardDialog({ state, dispatch, onRequestAdjustment }: {
 
   if (state.dialog === "adjustment") return <div className={styles.dialogLayer} role="presentation"><section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="adjust-title" onKeyDown={onKeyDown}>
     <span className={styles.handle} /><div><div id="adjust-title" className={styles.screenTitle}>Adjust today’s workout</div><div className={styles.bodyCopy}>Guided controls create one new content version when applied.</div></div>
-    <label><span className={styles.bodyStrong}>Duration · {state.draftDuration} min</span><input className={styles.range} aria-label="Workout duration" type="range" min="30" max="60" step="5" disabled={state.pendingAdjustment} value={state.draftDuration} onChange={(event) => dispatch({ type: "set-draft-duration", duration: Number(event.target.value) })} /></label>
-    <div><div className={styles.bodyStrong} style={{ marginBottom: 8 }}>Intensity</div><div className={styles.choiceRow}>{(["Light", "Moderate", "Hard"] as const).map((intensity) => <button className={`${styles.choice} ${state.draftIntensity === intensity ? styles.choiceActive : ""}`} type="button" disabled={state.pendingAdjustment} key={intensity} onClick={() => dispatch({ type: "set-draft-intensity", intensity })}>{intensity}</button>)}</div></div>
-    <div className={styles.actionRow}><button className={styles.secondaryButton} type="button" disabled={state.pendingAdjustment} onClick={() => dispatch({ type: "cancel-dialog" })}>Cancel</button><button className={styles.primaryButton} type="button" disabled={state.pendingAdjustment} aria-busy={state.pendingAdjustment} onClick={onRequestAdjustment}>{state.pendingAdjustment ? "Applying adjustment…" : "Apply adjustment"}</button></div>
+    <label><span className={styles.bodyStrong}>Duration · {workflow.draftDuration} min</span><input className={styles.range} aria-label="Workout duration" type="range" min="30" max="60" step="5" disabled={workflow.pendingAdjustment} value={workflow.draftDuration} onChange={(event) => dispatch({ type: "set-draft-duration", duration: Number(event.target.value) })} /></label>
+    <div><div className={styles.bodyStrong} style={{ marginBottom: 8 }}>Intensity</div><div className={styles.choiceRow}>{(["Light", "Moderate", "Hard"] as const).map((intensity) => <button className={`${styles.choice} ${workflow.draftIntensity === intensity ? styles.choiceActive : ""}`} type="button" disabled={workflow.pendingAdjustment} key={intensity} onClick={() => dispatch({ type: "set-draft-intensity", intensity })}>{intensity}</button>)}</div></div>
+    <div className={styles.actionRow}><button className={styles.secondaryButton} type="button" disabled={workflow.pendingAdjustment} onClick={() => dispatch({ type: "cancel-dialog" })}>Cancel</button><button className={styles.primaryButton} type="button" disabled={workflow.pendingAdjustment} aria-busy={workflow.pendingAdjustment} onClick={onRequestAdjustment}>{workflow.pendingAdjustment ? "Applying adjustment…" : "Apply adjustment"}</button></div>
   </section></div>;
 
   return <div className={styles.dialogLayer} role="presentation"><section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="override-title" onKeyDown={onKeyDown}>
     <span className={styles.handle} /><div><div id="override-title" className={styles.screenTitle}>Override: {overrideItem?.catalogName ?? "Unavailable decision"}</div><div className={styles.bodyCopy}>Human coach ownership is recorded in ink. The graph warning remains attached.</div></div>
     {overrideItem ? <div className={styles.card}><div className={styles.bodyStrong}>! {overrideItem.reason}</div><div className={styles.bodyCopy}>Flagged for {fixture.profile.injury.displayName.toLowerCase()} ({fixture.profile.injury.region}, {fixture.profile.injury.status}).</div><span className={styles.signalKicker} style={{ marginTop: 9 }}>{fixture.profile.injury.sourceLabel}</span></div> : <div className={styles.card}><div className={styles.bodyStrong}>Override unavailable</div><div className={styles.bodyCopy}>No matching source-backed decision was provided.</div></div>}
-    <textarea className={styles.textarea} aria-label="Override reason" placeholder="Reason (required) — e.g. cleared by PT, light load only" value={state.overrideReasonDraft} onChange={(event) => dispatch({ type: "set-override-reason", reason: event.target.value })} />
-    <div className={styles.actionRow}><button className={styles.secondaryButton} type="button" onClick={() => dispatch({ type: "cancel-dialog" })}>Cancel</button><button className={styles.primaryButton} type="button" disabled={!overrideItem || state.overrideReasonDraft.trim().length < 4} onClick={() => overrideItem && dispatch({ type: "apply-override", actor: fixture.coach.name, exerciseName: overrideItem.catalogName, warning: overrideItem.reason })}>Override — keep warning</button></div>
+    <textarea className={styles.textarea} aria-label="Override reason" placeholder="Reason (required) — e.g. cleared by PT, light load only" value={workflow.overrideReasonDraft} onChange={(event) => dispatch({ type: "set-override-reason", reason: event.target.value })} />
+    <div className={styles.actionRow}><button className={styles.secondaryButton} type="button" onClick={() => dispatch({ type: "cancel-dialog" })}>Cancel</button><button className={styles.primaryButton} type="button" disabled={!overrideItem || workflow.overrideReasonDraft.trim().length < 4} onClick={() => overrideItem && dispatch({ type: "apply-override", actor: fixture.coach.name, exerciseName: overrideItem.catalogName, warning: overrideItem.reason })}>Override — keep warning</button></div>
   </section></div>;
 }

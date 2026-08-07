@@ -1,0 +1,102 @@
+{
+  "_note": "Synthetic, fictional sample member. No real person or PHI.",
+  "profile": {
+    "id": "mbr_03HX9MORGAN",
+    "name": "Morgan Lee",
+    "age": 29,
+    "sex": "female",
+    "height_cm": 168,
+    "weight_kg": 67.2,
+    "timezone": "America/Chicago",
+    "member_since": "2025-11-03",
+    "coach_id": "coach_01HXSAM",
+    "tier": "1:1 Coaching"
+  },
+  "goals": [
+    { "id": "goal_strength", "text": "Build durable full-body strength", "priority": 1, "target_date": "2026-11-01" },
+    { "id": "goal_consistency", "text": "Maintain two consistent sessions each week", "priority": 1, "target_date": "2026-09-30" },
+    { "id": "goal_sleep", "text": "Keep a consistent seven-hour sleep routine", "priority": 2, "target_date": null }
+  ],
+  "injuries": [
+    {
+      "id": "inj_shoulder_left_morgan",
+      "region": "left shoulder",
+      "joint": "shoulder",
+      "status": "monitoring",
+      "severity": "mild",
+      "since": "2026-06-25",
+      "notes": "Mild left shoulder stiffness after climbing. Cleared for controlled pressing in a comfortable range.",
+      "snomedct_hint": "Look up shoulder pain and shoulder joint structures in SNOMED CT via NCI EVS."
+    }
+  ],
+  "preferences": {
+    "preferred_session_minutes": 40,
+    "training_days_per_week": 2,
+    "preferred_days": ["Mon", "Fri"],
+    "dislikes": ["Burpees"],
+    "notes": "Prefers simple dumbbell sessions at home."
+  },
+  "equipment_available": ["Adjustable Dumbbells", "Loop Band", "Yoga Mat", "Flat Bench"],
+  "adherence": {
+    "weekly_completion_pct": [
+      { "week_of": "2026-06-16", "pct": 50 },
+      { "week_of": "2026-06-23", "pct": 100 },
+      { "week_of": "2026-06-30", "pct": 50 },
+      { "week_of": "2026-07-07", "pct": 75 }
+    ],
+    "trend": "improving"
+  },
+  "biomarkers": {
+    "resting_hr_bpm": 57,
+    "hrv_ms": 61,
+    "sleep_hours_last_7_days": [7.2, 6.9, 7.5, 7.1, 6.7, 7.8, 7.3],
+    "weight_trend_kg": [
+      { "date": "2026-06-09", "kg": 67.6 },
+      { "date": "2026-06-23", "kg": 67.4 },
+      { "date": "2026-07-07", "kg": 67.2 }
+    ]
+  },
+  "labs": {
+    "blood_panel": {
+      "date": "2026-04-30",
+      "ldl_mg_dl": 94,
+      "hdl_mg_dl": 66,
+      "triglycerides_mg_dl": 76,
+      "hba1c_pct": 4.9,
+      "vitamin_d_ng_ml": 39,
+      "ferritin_ng_ml": 48,
+      "crp_mg_l": 0.6
+    },
+    "dexa_scan": {
+      "date": "2026-03-28",
+      "body_fat_pct": 24.6,
+      "lean_mass_kg": 48.9,
+      "fat_mass_kg": 16.5,
+      "bone_density_z_score": 1.1,
+      "visceral_fat_cm2": 39
+    }
+  },
+  "workout_history": [
+    { "date": "2026-07-06", "title": "Home Full Body", "planned": true, "completed": true, "duration_min": 38, "rpe": 6, "exercises": ["Goblet Squat", "Dumbbell Row", "Dead Bug"] },
+    { "date": "2026-07-02", "title": "Upper Body Basics", "planned": true, "completed": true, "duration_min": 36, "rpe": 6, "exercises": ["Floor Press", "Dumbbell Row", "Carry"] },
+    { "date": "2026-06-29", "title": "Full Body", "planned": true, "completed": false, "duration_min": 0, "rpe": null, "exercises": [] },
+    { "date": "2026-06-26", "title": "Mobility Reset", "planned": true, "completed": true, "duration_min": 30, "rpe": 5, "exercises": ["Cow Pose", "Split Squat", "Dumbbell Row"] }
+  ],
+  "chat_history": [
+    { "ts": "2026-07-07T17:30:00-05:00", "from": "member", "text": "The home session felt manageable and my shoulder stayed comfortable." },
+    { "ts": "2026-07-07T17:45:00-05:00", "from": "coach", "text": "Great. We will keep the next session controlled and simple." },
+    { "ts": "2026-06-29T08:20:00-05:00", "from": "member", "text": "I missed Monday but can train Friday." },
+    { "ts": "2026-06-26T07:50:00-05:00", "from": "member", "text": "The dumbbell setup at home is working well." }
+  ],
+  "coach_brief": {
+    "generated_for": "2026-07-08",
+    "morning_tasks": [
+      { "type": "celebrate", "text": "Recognize Morgan for completing a simple home session with comfortable shoulder loading." },
+      { "type": "review_risk", "text": "Follow up on the missed session and keep the next plan easy to complete." }
+    ],
+    "churn_risk": {
+      "level": "moderate",
+      "reasons": ["One missed session last week", "Home-only equipment narrows exercise options", "Shoulder stiffness still needs monitoring"]
+    }
+  }
+}

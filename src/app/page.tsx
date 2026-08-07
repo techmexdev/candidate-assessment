@@ -1,5 +1,5 @@
-import { CoachDashboard } from "@/features/coach-dashboard/CoachDashboard";
+import { ConnectedCoachDashboard } from "@/features/coach-dashboard/ConnectedCoachDashboard";
 
 export default function HomePage() {
-  return <CoachDashboard />;
+  return <ConnectedCoachDashboard />;
 }

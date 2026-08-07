@@ -1,31 +1,255 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createInitialDashboardState,
   dashboardReducer,
-  initialDashboardState,
+  selectActiveAthleteState,
+  selectCurrentVersion,
   type DashboardState,
 } from "../../src/features/coach-dashboard/state";
 
+const jordanState = () => dashboardReducer(
+  createInitialDashboardState("2026-08-06"),
+  { type: "select-athlete", memberId: "mbr_jordan" },
+);
+
+const athlete = (state: DashboardState) => {
+  const result = selectActiveAthleteState(state);
+  if (!result) throw new Error("Expected an active athlete workflow");
+  return result;
+};
+
 const completeAdjustment = (state: DashboardState) => dashboardReducer(
   dashboardReducer(state, { type: "request-adjustment" }),
-  { type: "complete-adjustment", actor: "Coach Sam" },
+  { type: "complete-adjustment", actor: "Coach Sam", memberId: state.activeMemberId },
 );
 
 describe("coach dashboard state", () => {
+  it("keeps runtime generation isolated to the active athlete and ignores stale member completion", () => {
+    const requested = dashboardReducer(jordanState(), {
+      type: "request-workout-generation",
+      requestId: "request:1",
+    });
+    const avery = dashboardReducer(requested, { type: "select-athlete", memberId: "mbr_avery" });
+    const stale = dashboardReducer(avery, {
+      type: "complete-workout-generation",
+      memberId: "mbr_jordan",
+      requestId: "request:1",
+      projection: {
+        runId: "run:1",
+        workoutVersionId: "workout:1",
+        version: 1,
+        title: "Generated workout",
+        durationMinutes: 45,
+        workoutSections: [],
+        exclusions: [],
+        decisions: [],
+        decisionPaths: {},
+      },
+    });
+
+    expect(stale).toBe(avery);
+    expect(stale.athleteStates.mbr_jordan.runtimeGeneration.status).toBe("disconnected");
+    expect(athlete(stale).runtimeWorkout).toBeNull();
+  });
+
+  it("deduplicates runtime completion and preserves the last valid workout across failures", () => {
+    const requested = dashboardReducer(jordanState(), { type: "request-workout-generation", requestId: "request:1" });
+    const projection = {
+      runId: "run:1",
+      workoutVersionId: "workout:1",
+      version: 1,
+      title: "Generated workout",
+      durationMinutes: 45,
+      workoutSections: [],
+      exclusions: [],
+      decisions: [],
+      decisionPaths: {},
+    };
+    const completed = dashboardReducer(requested, { type: "complete-workout-generation", memberId: "mbr_jordan", requestId: "request:1", projection });
+    const duplicate = dashboardReducer(completed, { type: "complete-workout-generation", memberId: "mbr_jordan", requestId: "request:1", projection });
+    const failed = dashboardReducer(duplicate, { type: "update-workout-generation", memberId: "mbr_jordan", requestId: "request:1", status: "failed", message: "Generation failed. Try again." });
+
+    expect(duplicate).toBe(completed);
+    expect(athlete(failed).runtimeWorkout).toEqual(projection);
+    expect(athlete(failed).runtimeGeneration).toMatchObject({ status: "failed", message: "Generation failed. Try again." });
+  });
+  it("starts on Today with the workspace date and no active athlete", () => {
+    const state = createInitialDashboardState("2026-08-06");
+
+    expect(state).toMatchObject({
+      destination: "today",
+      selectedDate: "2026-08-06",
+      activeMemberId: null,
+      routeStack: [],
+      todayView: { allAthletesExpanded: false },
+      athleteStates: {},
+    });
+  });
+
+  it("preserves the selected date across Coach and Today", () => {
+    const selectedDate = dashboardReducer(createInitialDashboardState("2026-08-06"), {
+      type: "select-date",
+      date: "2026-08-08",
+    });
+    const coach = dashboardReducer(selectedDate, { type: "select-destination", destination: "coach" });
+    const today = dashboardReducer(coach, { type: "select-destination", destination: "today" });
+
+    expect(coach.destination).toBe("coach");
+    expect(today.selectedDate).toBe("2026-08-08");
+    expect(today.activeMemberId).toBeNull();
+  });
+
+  it("pushes and pops nested athlete routes one level at a time", () => {
+    const workout = dashboardReducer(jordanState(), { type: "push-route", route: { id: "workout", focusKey: "brief-workout" } });
+    const decision = dashboardReducer(workout, {
+      type: "push-route",
+      route: { id: "decision-path", decisionId: "split-squat", focusKey: "workout-decision-split-squat" },
+    });
+    const backToWorkout = dashboardReducer(decision, { type: "pop-route" });
+    const backToBrief = dashboardReducer(backToWorkout, { type: "pop-route" });
+
+    expect(decision.routeStack.map((route) => route.id)).toEqual(["brief", "workout", "decision-path"]);
+    expect(backToWorkout.routeStack.map((route) => route.id)).toEqual(["brief", "workout"]);
+    expect(backToBrief.routeStack.map((route) => route.id)).toEqual(["brief"]);
+  });
+
+  it("returns from the brief to the same Today place without erasing athlete work", () => {
+    const expanded = dashboardReducer(jordanState(), { type: "set-all-athletes-expanded", expanded: true });
+    const pinned = dashboardReducer(expanded, { type: "toggle-pin", insightId: "sleep" });
+    const today = dashboardReducer(pinned, { type: "pop-route" });
+
+    expect(today).toMatchObject({
+      destination: "today",
+      selectedDate: "2026-08-06",
+      activeMemberId: null,
+      routeStack: [],
+      todayView: { allAthletesExpanded: true },
+    });
+    expect(today.athleteStates.mbr_jordan.pins).toEqual(["sleep"]);
+  });
+
+  it("uses Today as a hard reset from nested routes while retaining member state", () => {
+    const nested = dashboardReducer(
+      dashboardReducer(jordanState(), { type: "toggle-pin", insightId: "sleep" }),
+      { type: "push-route", route: { id: "voice", focusKey: "brief-voice" } },
+    );
+    const today = dashboardReducer(nested, { type: "select-destination", destination: "today" });
+
+    expect(today.activeMemberId).toBeNull();
+    expect(today.routeStack).toEqual([]);
+    expect(today.todayView.allAthletesExpanded).toBe(false);
+    expect(today.athleteStates.mbr_jordan.pins).toEqual(["sleep"]);
+  });
+
+  it("restores isolated completed workflow state for each athlete", () => {
+    const adjusted = completeAdjustment(
+      dashboardReducer(
+        dashboardReducer(jordanState(), { type: "open-adjustment" }),
+        { type: "set-draft-duration", duration: 40 },
+      ),
+    );
+    const onToday = dashboardReducer(adjusted, { type: "select-destination", destination: "today" });
+    const avery = dashboardReducer(onToday, { type: "select-athlete", memberId: "mbr_avery" });
+    const jordan = dashboardReducer(
+      dashboardReducer(avery, { type: "select-destination", destination: "today" }),
+      { type: "select-athlete", memberId: "mbr_jordan" },
+    );
+
+    expect(athlete(avery).contentVersions).toHaveLength(1);
+    expect(athlete(jordan).contentVersions).toHaveLength(2);
+    expect(selectCurrentVersion(jordan).durationMinutes).toBe(40);
+  });
+
+  it("cancels pending work on athlete changes and ignores stale completions", () => {
+    const pending = dashboardReducer(jordanState(), { type: "request-prompt", promptId: "sleep" });
+    const avery = dashboardReducer(pending, { type: "select-athlete", memberId: "mbr_avery" });
+    const stale = dashboardReducer(avery, {
+      type: "complete-prompt",
+      promptId: "sleep",
+      memberId: "mbr_jordan",
+    });
+
+    expect(stale).toBe(avery);
+    expect(stale.athleteStates.mbr_jordan.pendingPrompt).toBeNull();
+    expect(athlete(stale).feed).toEqual(["brief", "adherence", "sleep", "change", "churn"]);
+  });
+
+  it("ignores a stale adjustment completion after leaving the athlete", () => {
+    const pending = dashboardReducer(
+      dashboardReducer(
+        dashboardReducer(jordanState(), { type: "open-adjustment" }),
+        { type: "set-draft-duration", duration: 40 },
+      ),
+      { type: "request-adjustment" },
+    );
+    const today = dashboardReducer(pending, { type: "select-destination", destination: "today" });
+    const stale = dashboardReducer(today, {
+      type: "complete-adjustment",
+      actor: "Coach Sam",
+      memberId: "mbr_jordan",
+    });
+
+    expect(stale).toBe(today);
+    expect(stale.athleteStates.mbr_jordan.pendingAdjustment).toBe(false);
+    expect(stale.athleteStates.mbr_jordan.contentVersions).toHaveLength(1);
+  });
+
+  it("publishes the current member version once and stays on Workout", () => {
+    const workout = dashboardReducer(jordanState(), { type: "push-route", route: { id: "workout", focusKey: "brief-workout" } });
+    const published = dashboardReducer(workout, { type: "publish-current-version", actor: "Coach Sam" });
+    const repeated = dashboardReducer(published, { type: "publish-current-version", actor: "Coach Sam" });
+
+    expect(athlete(published).publicationEvents).toEqual([
+      expect.objectContaining({ workoutVersionId: "workout-v1" }),
+    ]);
+    expect(athlete(repeated).publicationEvents).toHaveLength(1);
+    expect(published.routeStack.at(-1)?.id).toBe("workout");
+  });
+
+  it("freezes workout mutations after publication", () => {
+    const published = dashboardReducer(jordanState(), { type: "publish-current-version", actor: "Coach Sam" });
+    const adjustment = dashboardReducer(published, { type: "open-adjustment" });
+    const override = dashboardReducer(published, { type: "open-override", decisionId: "split-squat" });
+
+    expect(adjustment).toBe(published);
+    expect(override).toBe(published);
+    expect(athlete(published).contentVersions).toHaveLength(1);
+  });
+
+  it("does not start a second Copilot request while one is pending", () => {
+    const pending = dashboardReducer(jordanState(), { type: "request-prompt", promptId: "sleep" });
+    const duplicate = dashboardReducer(pending, { type: "request-prompt", promptId: "churn" });
+
+    expect(duplicate).toBe(pending);
+    expect(athlete(duplicate).pendingPrompt).toBe("sleep");
+  });
+
+  it("cancels nested pending work on Back and ignores its late completion", () => {
+    const copilot = dashboardReducer(jordanState(), { type: "push-route", route: { id: "copilot", focusKey: "brief-copilot" } });
+    const pending = dashboardReducer(copilot, { type: "request-prompt", promptId: "sleep" });
+    const brief = dashboardReducer(pending, { type: "pop-route" });
+    const stale = dashboardReducer(brief, { type: "complete-prompt", promptId: "sleep", memberId: "mbr_jordan" });
+
+    expect(athlete(brief).pendingPrompt).toBeNull();
+    expect(stale).toBe(brief);
+  });
+
   it("keeps cancelled edits out of the immutable content history", () => {
-    const opened = dashboardReducer(initialDashboardState, { type: "open-adjustment" });
+    const opened = dashboardReducer(jordanState(), { type: "open-adjustment" });
     const edited = dashboardReducer(opened, { type: "set-draft-duration", duration: 40 });
     const cancelled = dashboardReducer(edited, { type: "cancel-dialog" });
 
     expect(cancelled.dialog).toBeNull();
-    expect(cancelled.contentVersions).toHaveLength(1);
-    expect(cancelled.contentVersions[0].durationMinutes).toBe(50);
+    expect(athlete(cancelled).contentVersions).toHaveLength(1);
+    expect(athlete(cancelled).contentVersions[0].durationMinutes).toBe(50);
   });
 
-  it("creates exactly one version for an adjustment and exactly one for an override", () => {
+  it("creates one version for an adjustment and one for an override", () => {
     const adjusted = completeAdjustment(
       dashboardReducer(
-        dashboardReducer(initialDashboardState, { type: "open-adjustment" }), { type: "set-draft-duration", duration: 40 },
+        dashboardReducer(jordanState(), { type: "open-adjustment" }),
+        { type: "set-draft-duration", duration: 40 },
       ),
     );
     const overridden = dashboardReducer(
@@ -36,74 +260,11 @@ describe("coach dashboard state", () => {
       { type: "apply-override", actor: "Coach Sam", exerciseName: "Split Squat", warning: "Deep flexion" },
     );
 
-    expect(adjusted.contentVersions.map((version) => version.kind)).toEqual(["generated", "adjustment"]);
-    expect(overridden.contentVersions.map((version) => version.kind)).toEqual([
+    expect(athlete(overridden).contentVersions.map((version) => version.kind)).toEqual([
       "generated",
       "adjustment",
       "override",
     ]);
-    expect(overridden.currentVersionId).toBe("workout-v3");
-  });
-
-  it("keeps an adjustment pending until one explicit completion and blocks dismissal or duplicates", () => {
-    const editing = dashboardReducer(
-      dashboardReducer(initialDashboardState, { type: "open-adjustment" }),
-      { type: "set-draft-duration", duration: 40 },
-    );
-    const pending = dashboardReducer(editing, { type: "request-adjustment" });
-
-    expect(pending.pendingAdjustment).toBe(true);
-    expect(pending.contentVersions).toHaveLength(1);
-    expect(dashboardReducer(pending, { type: "cancel-dialog" })).toBe(pending);
-    expect(dashboardReducer(pending, { type: "request-adjustment" })).toBe(pending);
-
-    const completed = dashboardReducer(pending, { type: "complete-adjustment", actor: "Coach Lee" });
-    const repeated = dashboardReducer(completed, { type: "complete-adjustment", actor: "Coach Lee" });
-    expect(completed.pendingAdjustment).toBe(false);
-    expect(completed.contentVersions).toHaveLength(2);
-    expect(completed.contentVersions[1]).toMatchObject({ actor: "Coach Lee", durationMinutes: 40 });
-    expect(repeated).toBe(completed);
-  });
-
-  it("publishes the exact current version once and freezes later content mutations", () => {
-    const adjusted = completeAdjustment(
-      dashboardReducer(
-        dashboardReducer(initialDashboardState, { type: "open-adjustment" }), { type: "set-draft-duration", duration: 35 },
-      ),
-    );
-    const published = dashboardReducer(adjusted, { type: "publish-current-version", actor: "Coach Sam" });
-    const repeated = dashboardReducer(published, { type: "publish-current-version", actor: "Coach Sam" });
-    const attemptedMutation = completeAdjustment(dashboardReducer(published, { type: "open-adjustment" }));
-
-    expect(published.publicationEvents).toEqual([
-      expect.objectContaining({ workoutVersionId: "workout-v2" }),
-    ]);
-    expect(repeated.publicationEvents).toHaveLength(1);
-    expect(attemptedMutation.contentVersions).toEqual(published.contentVersions);
-    expect(attemptedMutation.dialog).toBeNull();
-  });
-
-  it("keeps navigation, Copilot details, and pins available after publication", () => {
-    const published = dashboardReducer(initialDashboardState, { type: "publish-current-version", actor: "Coach Sam" });
-    const onCopilot = dashboardReducer(published, { type: "select-tab", tab: "copilot" });
-    const prompted = dashboardReducer(onCopilot, { type: "request-prompt", promptId: "sleep" });
-    const pinned = dashboardReducer(prompted, { type: "toggle-pin", insightId: "sleep" });
-    const detail = dashboardReducer(pinned, { type: "open-screen", screen: "insight", detailId: "sleep" });
-
-    expect(detail.tab).toBe("copilot");
-    expect(detail.feed).toContain("sleep");
-    expect(detail.pins).toEqual(["sleep"]);
-    expect(detail.screen).toBe("insight");
-    expect(detail.detailId).toBe("sleep");
-  });
-
-  it("ignores duplicate Copilot requests while a prompt is pending", () => {
-    const pending = dashboardReducer(initialDashboardState, { type: "request-prompt", promptId: "sleep" });
-    const duplicate = dashboardReducer(pending, { type: "request-prompt", promptId: "sleep" });
-    const competing = dashboardReducer(pending, { type: "request-prompt", promptId: "churn" });
-
-    expect(duplicate).toBe(pending);
-    expect(competing).toBe(pending);
-    expect(pending.pendingPrompt).toBe("sleep");
+    expect(athlete(overridden).currentVersionId).toBe("workout-v3");
   });
 });
