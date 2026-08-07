@@ -14,6 +14,8 @@ export type WorkoutRunResource = {
   readonly requestedDurationMinutes: number;
   readonly movementGraphRevisionId: string;
   readonly memberContextRevisionId: string;
+  readonly predecessorRunId?: WorkoutRunId;
+  readonly predecessorWorkoutVersionId?: string;
   readonly clarification?: WorkoutClarificationDescriptor;
   readonly startedAt?: string;
   readonly endedAt?: string;
@@ -67,6 +69,8 @@ export function createRetrieveWorkoutRun(dependencies: {
         requestedDurationMinutes: run.requestedDurationMinutes,
         movementGraphRevisionId: run.movementGraphRevisionId,
         memberContextRevisionId: run.memberContextRevisionId,
+        ...(run.predecessorRunId ? { predecessorRunId: run.predecessorRunId } : {}),
+        ...(run.predecessorWorkoutVersionId ? { predecessorWorkoutVersionId: run.predecessorWorkoutVersionId } : {}),
         ...(run.clarification ? { clarification: run.clarification } : {}),
         ...(run.startedAt ? { startedAt: run.startedAt } : {}),
         ...(run.endedAt ? { endedAt: run.endedAt } : {}),

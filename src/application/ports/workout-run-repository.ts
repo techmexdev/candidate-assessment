@@ -17,7 +17,7 @@ export type CreateWorkoutRunResult =
 export type WorkoutRunCreationReservation = {
   readonly coachId: string;
   readonly memberId: string;
-  readonly action: "generate-workout";
+  readonly action: "generate-workout" | "adjust-workout";
   readonly idempotencyKeyDigest: string;
   readonly requestDigest: string;
   readonly runId: WorkoutRunId;
@@ -34,7 +34,7 @@ export type ReserveWorkoutRunCreationResult =
 
 export type FinalizeWorkoutRunCreationResult =
   | { readonly status: "created" | "replayed"; readonly run: WorkoutRun }
-  | { readonly status: "idempotency-conflict" | "stale-reservation" };
+  | { readonly status: "idempotency-conflict" | "stale-reservation" | "stale-predecessor" | "invalid-predecessor" };
 
 export type ClaimWorkoutRunResult =
   | { readonly status: "claimed"; readonly run: WorkoutRun; readonly fence: WorkoutRunFence }
@@ -119,11 +119,17 @@ export type ClarificationMutationResult =
 
 export type RetryWorkoutRunResult = CreateWorkoutRunResult | { readonly status: "not-retryable" | "missing" };
 
+export type CreateWorkoutAdjustmentResult = CreateWorkoutRunResult | {
+  readonly status: "stale-predecessor" | "invalid-predecessor" | "missing";
+};
+
 export interface WorkoutRunRepository {
   reserveCreation(input: WorkoutRunCreationReservation): Promise<ReserveWorkoutRunCreationResult>;
   finalizeCreation(reservation: WorkoutRunCreationReservation, run: WorkoutRun): Promise<FinalizeWorkoutRunCreationResult>;
   releaseCreation(reservation: WorkoutRunCreationReservation): Promise<void>;
   createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult>;
+  /** Atomically creates one predecessor-linked run without mutating its source. */
+  createAdjustment(run: WorkoutRun): Promise<CreateWorkoutAdjustmentResult>;
   claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult>;
   heartbeat(fence: WorkoutRunFence, now: string, expiresAt: string): Promise<FencedMutationResult>;
   saveConstraintSnapshot(fence: WorkoutRunFence, snapshot: ResolvedConstraintSnapshot): Promise<FencedMutationResult>;

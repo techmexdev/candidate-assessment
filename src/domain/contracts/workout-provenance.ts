@@ -27,6 +27,17 @@ export type WorkoutDecision = {
   readonly substitutedFromExerciseConceptId?: string;
 };
 
+/** Reviewed substitution lineage retained alongside the selected decision. */
+export type WorkoutSubstitutionProvenance = {
+  readonly originalExerciseConceptId: string;
+  readonly selectedExerciseConceptId: string;
+  readonly substitutionAssertionIds: readonly string[];
+  readonly safetyAssertionIds: readonly string[];
+  readonly safetyEvidenceIds: readonly string[];
+  readonly movementGraphRevisionId: string;
+  readonly memberContextRevisionId: string;
+};
+
 export type WorkoutProvenanceEntityKind =
   | "prompt"
   | "movement-graph-revision"
@@ -59,6 +70,7 @@ export type WorkoutProvenanceBundle = {
   readonly activity: Readonly<WorkoutProvenanceActivity>;
   readonly entities: readonly WorkoutProvenanceEntity[];
   readonly decisions: readonly WorkoutDecision[];
+  readonly substitutions?: readonly WorkoutSubstitutionProvenance[];
   readonly relations: readonly WorkoutProvenanceRelation[];
 };
 
@@ -72,6 +84,7 @@ export type CreateWorkoutProvenanceInput = {
   readonly movementGraphRevisionId: string;
   readonly memberContextRevisionId: string;
   readonly decisions: readonly WorkoutDecision[];
+  readonly substitutions?: readonly WorkoutSubstitutionProvenance[];
   readonly traceSchemaVersion: "workout-provenance/v1";
   readonly digest: string;
 };
@@ -110,6 +123,12 @@ export function createWorkoutProvenanceBundle(input: CreateWorkoutProvenanceInpu
     activity: { activityId, kind: "workout-generation" },
     entities: [...sourceEntities, { entityId: workoutVersionId, kind: "workout-version" }],
     decisions,
+    ...(input.substitutions ? { substitutions: input.substitutions.map((substitution) => ({
+      ...substitution,
+      substitutionAssertionIds: [...substitution.substitutionAssertionIds],
+      safetyAssertionIds: [...substitution.safetyAssertionIds],
+      safetyEvidenceIds: [...substitution.safetyEvidenceIds],
+    })) } : {}),
     relations: [
       ...sourceEntities.map((entity) => ({ kind: "used" as const, activityId, entityId: entity.entityId })),
       { kind: "wasGeneratedBy", entityId: workoutVersionId, activityId },
@@ -130,7 +149,8 @@ export type WorkoutProvenanceViolation = {
     | "missing-entity"
     | "missing-relation"
     | "incomplete-decision-dimensions"
-    | "inconsistent-decision-dimensions";
+    | "inconsistent-decision-dimensions"
+    | "invalid-substitution-lineage";
 };
 
 export type WorkoutProvenanceValidation =
@@ -184,6 +204,21 @@ export function validateWorkoutProvenance(bundle: WorkoutProvenanceBundle): Work
     if (!source || !workoutEntity || !bundle.relations.some((relation) => relation.kind === "wasDerivedFrom"
       && relation.entityId === workoutEntity.entityId
       && relation.sourceEntityId === source.entityId)) violations.push({ code: "missing-relation" });
+  }
+  for (const substitution of bundle.substitutions ?? []) {
+    if (!substitution.originalExerciseConceptId
+      || !substitution.selectedExerciseConceptId
+      || substitution.originalExerciseConceptId === substitution.selectedExerciseConceptId
+      || substitution.substitutionAssertionIds.length === 0
+      || substitution.safetyAssertionIds.length === 0
+      || substitution.safetyEvidenceIds.length === 0
+      || substitution.movementGraphRevisionId !== bundle.movementGraphRevisionId
+      || substitution.memberContextRevisionId !== bundle.memberContextRevisionId) {
+      violations.push({ code: "invalid-substitution-lineage" });
+    }
+    const selected = bundle.decisions.find((decision) => decision.exerciseConceptId === substitution.selectedExerciseConceptId
+      && decision.substitutedFromExerciseConceptId === substitution.originalExerciseConceptId);
+    if (!selected) violations.push({ code: "invalid-substitution-lineage" });
   }
   return violations.length === 0 ? { status: "valid" } : { status: "invalid", violations };
 }

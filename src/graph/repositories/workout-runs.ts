@@ -17,6 +17,7 @@ import type {
   WorkoutRunInputRevision,
   WorkoutRunCreationReservation,
   WorkoutRunRepository,
+  CreateWorkoutAdjustmentResult,
 } from "../../application/ports/workout-run-repository";
 import type {
   CompletedWorkoutRun,
@@ -181,7 +182,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   private readonly creationReservations = new Map<string, {
     coachId: string;
     memberId: string;
-    action: "generate-workout";
+    action: "generate-workout" | "adjust-workout";
     idempotencyKeyDigest: string;
     requestDigest: string;
     runId: WorkoutRunId;
@@ -189,6 +190,8 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     createdAt: string;
     expiresAt?: string;
   }>();
+  /** Source -> successor is kept outside the source run so historical payloads stay byte-stable. */
+  private readonly successorByPredecessor = new Map<string, WorkoutRunId>();
   private readonly cursorSecret: Buffer;
   private readonly maxEventsPerRun: number;
   private readonly now: () => string;
@@ -274,10 +277,11 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       if (!source || source.run.state !== "failed"
         || source.run.coachId !== run.coachId || source.run.memberId !== run.memberId) return { status: "stale-reservation" };
     }
-    const result = await this.createOrFind(run);
+    const result = run.predecessorRunId ? await this.createAdjustment(run) : await this.createOrFind(run);
     stored.ownerId = undefined;
     stored.expiresAt = undefined;
-    return result;
+    if (result.status === "created" || result.status === "replayed" || result.status === "idempotency-conflict") return result;
+    return { status: result.status === "missing" ? "invalid-predecessor" : result.status };
   }
 
   async releaseCreation(reservation: WorkoutRunCreationReservation): Promise<void> {
@@ -288,7 +292,11 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   }
 
   async createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult> {
-    const key = identityKey({ ...run, action: "generate-workout" });
+    return this.createStored(run, "generate-workout");
+  }
+
+  private async createStored(run: WorkoutRun, action: "generate-workout" | "adjust-workout"): Promise<CreateWorkoutRunResult> {
+    const key = identityKey({ ...run, action });
     const existingId = this.runIdByIdentity.get(key);
     if (existingId) {
       const existing = this.runs.get(existingId)!;
@@ -308,7 +316,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       this.creationReservations.set(key, {
         coachId: run.coachId,
         memberId: run.memberId,
-        action: "generate-workout",
+        action,
         idempotencyKeyDigest: run.idempotencyKeyDigest,
         requestDigest: run.requestDigest,
         runId: run.runId,
@@ -317,6 +325,26 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     }
     this.event(stored, { kind: "queued", occurredAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(), safeData: {} });
     return { status: "created", run: this.publicRun(stored) };
+  }
+
+  async createAdjustment(run: WorkoutRun): Promise<CreateWorkoutAdjustmentResult> {
+    if (!run.predecessorRunId || !run.predecessorWorkoutVersionId) return { status: "invalid-predecessor" };
+    const identity = identityKey({ ...run, action: "adjust-workout" });
+    const existingId = this.runIdByIdentity.get(identity);
+    if (existingId) {
+      const existing = this.runs.get(existingId);
+      return existing?.run.requestDigest === run.requestDigest && existing
+        ? { status: "replayed", run: this.publicRun(existing) }
+        : { status: "idempotency-conflict" };
+    }
+    const predecessor = this.runs.get(run.predecessorRunId);
+    if (!predecessor || !sameAuthorization(predecessor.run, run.coachId, run.memberId)
+      || predecessor.run.state !== "completed"
+      || predecessor.workout?.workoutVersionId !== run.predecessorWorkoutVersionId) return { status: "missing" };
+    if (this.successorByPredecessor.has(run.predecessorRunId)) return { status: "stale-predecessor" };
+    const created = await this.createStored(run, "adjust-workout");
+    if (created.status === "created" || created.status === "replayed") this.successorByPredecessor.set(run.predecessorRunId, run.runId);
+    return created;
   }
 
   async claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {

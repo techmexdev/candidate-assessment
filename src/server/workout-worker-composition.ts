@@ -20,10 +20,12 @@ import {
 import { createRetrieveMemberContext } from "../application/use-cases/retrieve-member-context";
 import { resolveMovementConcepts } from "../application/use-cases/resolve-movement-concepts";
 import { createValidateWorkoutCandidates } from "../application/use-cases/validate-workout-candidates";
+import { findMovementSubstitutes } from "../application/use-cases/find-movement-substitutes";
 import type { WorkoutRunId } from "../domain/contracts/workout";
 import type { ConceptMention, ConceptResolution } from "../domain/contracts/concept-resolution";
 import type { MovementLaterality } from "../domain/contracts/movement-safety";
 import type { WorkoutCompositionCandidate } from "../domain/policies/workout-composition";
+import { validateWorkoutAdjustment, type WorkoutAdjustment, type WorkoutClarificationField, type WorkoutClarificationFieldKey } from "../domain/contracts/workout-run";
 import { MEMBER_CONTEXT_CYPHER } from "../graph/cypher/member-context";
 import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
 import { canonicalWorkoutDigest } from "../graph/schema/workout-run-schema";
@@ -178,7 +180,12 @@ type ProtectedInputSpec = {
   readonly exclusions: readonly string[];
   readonly preferences: readonly string[];
   readonly injuryAnswers: Readonly<Record<string, InjuryAnswer>>;
+  readonly adjustment?: WorkoutAdjustment;
 };
+
+function clarificationReference(runId: string, evidenceId: string): string {
+  return `clarification:${canonicalWorkoutDigest(`${runId}:${evidenceId}`).slice("sha256:".length, "sha256:".length + 20)}`;
+}
 
 const promptStopWords = new Set(["a", "an", "and", "build", "for", "focused", "give", "make", "me", "minute", "minutes", "on", "please", "session", "the", "with", "workout"]);
 
@@ -200,10 +207,13 @@ function parseStructuredInput(value: string): Partial<ProtectedInputSpec> | unde
     const preferences = input.prefer === undefined ? undefined : strings(input.prefer);
     if ((input.intent !== undefined && !intent) || (input.exclude !== undefined && !exclusions)
       || (input.prefer !== undefined && !preferences)) return undefined;
+    const adjustmentValue = input.adjustment === undefined ? undefined : validateWorkoutAdjustment(input.adjustment);
+    if (input.adjustment !== undefined && adjustmentValue?.status !== "valid") return undefined;
     const injuryAnswers: Record<string, InjuryAnswer> = {};
-    if (input.injuries !== undefined) {
-      if (!input.injuries || typeof input.injuries !== "object" || Array.isArray(input.injuries)) return undefined;
-      for (const [evidenceId, raw] of Object.entries(input.injuries as Record<string, unknown>)) {
+    const answerPayloads = [input.injuries, input.clarification].filter((payload) => payload !== undefined);
+    for (const payload of answerPayloads) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+      for (const [evidenceId, raw] of Object.entries(payload as Record<string, unknown>)) {
         if (!evidenceId || !raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
         const fields = raw as Record<string, unknown>;
         const allowed = new Set(["conditionStatus", "recoveryStage", "severityBand", "affectedLaterality"]);
@@ -222,7 +232,13 @@ function parseStructuredInput(value: string): Partial<ProtectedInputSpec> | unde
         injuryAnswers[evidenceId] = answer;
       }
     }
-    return { ...(intent ? { intent } : {}), ...(exclusions ? { exclusions } : {}), ...(preferences ? { preferences } : {}), injuryAnswers };
+    return {
+      ...(intent ? { intent } : {}),
+      ...(exclusions ? { exclusions } : {}),
+      ...(preferences ? { preferences } : {}),
+      injuryAnswers,
+      ...(adjustmentValue?.status === "valid" ? { adjustment: adjustmentValue.value } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -248,6 +264,7 @@ function parseProtectedInput(entries: readonly string[]): ProtectedInputSpec {
   const exclusions: string[] = [];
   const preferences: string[] = [];
   const injuryAnswers: Record<string, InjuryAnswer> = {};
+  let adjustment: WorkoutAdjustment | undefined;
   for (const entry of entries) {
     const structured = parseStructuredInput(entry);
     if (structured) {
@@ -255,6 +272,7 @@ function parseProtectedInput(entries: readonly string[]): ProtectedInputSpec {
       exclusions.push(...(structured.exclusions ?? []));
       preferences.push(...(structured.preferences ?? []));
       Object.assign(injuryAnswers, structured.injuryAnswers);
+      if (structured.adjustment) adjustment = structured.adjustment;
       continue;
     }
     exclusions.push(...markedPhrases(entry, /(?:avoid|exclude|without|do not use|don't use)\s+([^,.;]+)/gi));
@@ -266,6 +284,7 @@ function parseProtectedInput(entries: readonly string[]): ProtectedInputSpec {
     exclusions: [...new Set(exclusions)].slice(0, 2),
     preferences: [...new Set(preferences)].slice(0, 2),
     injuryAnswers,
+    ...(adjustment ? { adjustment } : {}),
   };
 }
 
@@ -378,6 +397,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
     });
     if (protectedInput.status !== "ready") return { status: "failed", reason: "insufficient-safety-context" };
     const inputSpec = parseProtectedInput(protectedInput.entries);
+    const adjustment = inputSpec.adjustment;
 
     const unresolvedEquipment = constraints.data.equipment.flatMap((equipment) => {
       const ids = reviewedReferences([equipment.domainReference]);
@@ -391,7 +411,8 @@ export function createCanonicalWorkoutRuntimeDependencies(
 
     const mentions: ConceptMention[] = [
       ...inputSpec.intent.map((text) => ({ text, role: "target" as const, safetyCritical: false })),
-      ...inputSpec.exclusions.map((text) => ({ text, role: "exclusion" as const, safetyCritical: true })),
+      ...(adjustment?.prompt ? [{ text: adjustment.prompt, role: "target" as const, safetyCritical: false }] : []),
+      ...[...inputSpec.exclusions, ...(adjustment?.exclusions ?? [])].map((text) => ({ text, role: "exclusion" as const, safetyCritical: true })),
       ...inputSpec.preferences.map((text) => ({ text, role: "preference" as const, safetyCritical: false })),
     ].slice(0, 16);
     const promptResolution = mentions.length > 0
@@ -452,35 +473,58 @@ export function createCanonicalWorkoutRuntimeDependencies(
 
     const injuryApplicability: CatalogSafetyInjuryApplicability[] = [];
     const applicabilityAssertionIds: string[] = [];
-    const clarificationFields: string[] = [];
+    const clarificationFields: WorkoutClarificationField[] = [];
+    const addClarificationField = (input: {
+      readonly evidenceId: string;
+      readonly key: WorkoutClarificationFieldKey;
+      readonly label: string;
+      readonly allowedValues: readonly string[];
+    }) => {
+      const reference = clarificationReference(run.runId, input.evidenceId);
+      const id = `${reference}:${input.key}`;
+      if (clarificationFields.some((field) => field.id === id)) return;
+      const values = [...new Set(input.allowedValues.filter((value) => value.trim().length > 0))].slice(0, 32);
+      if (values.length === 0) return;
+      clarificationFields.push({
+        id,
+        key: input.key,
+        label: input.label,
+        allowedValues: values.map((value) => ({ value, label: value.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) })),
+        evidenceReference: reference,
+      });
+    };
     for (const injury of constraints.data.injuries) {
       const references = reviewedReferences(injury.domainReferences);
       const conditions = references.filter((id) => id.startsWith("condition:"));
       const anatomy = references.filter((id) => id.startsWith("joint:") || id.startsWith("body-region:"));
-      if (conditions.length !== 1) clarificationFields.push(`constraint:injury:${injury.evidenceId}:condition-reference`);
-      if (anatomy.length !== 1) clarificationFields.push(`constraint:injury:${injury.evidenceId}:anatomy-reference`);
+      if (conditions.length !== 1) addClarificationField({ evidenceId: injury.evidenceId, key: "conditionStatus", label: "Condition status", allowedValues: ["active", "recovering", "resolved"] });
+      if (anatomy.length !== 1) addClarificationField({ evidenceId: injury.evidenceId, key: "affectedLaterality", label: "Affected side", allowedValues: ["left", "right", "bilateral", "unknown"] });
       if (conditions.length !== 1 || anatomy.length !== 1) continue;
       const rules = await movement.handle.getClinicalRuleFacts({ conditionConceptId: conditions[0]!, maxResults: 32 });
       if (rules.status !== "ok") return { status: "failed", reason: "graph-unavailable" };
       if (rules.data.length === 0) {
-        clarificationFields.push(`constraint:injury:${injury.evidenceId}:condition-reference`);
+        addClarificationField({ evidenceId: injury.evidenceId, key: "conditionStatus", label: "Condition status", allowedValues: ["active", "recovering", "resolved"] });
         continue;
       }
-      const answer = inputSpec.injuryAnswers[injury.evidenceId] ?? {};
+      const answer = {
+        ...inputSpec.injuryAnswers[injury.evidenceId],
+        ...inputSpec.injuryAnswers[clarificationReference(run.runId, injury.evidenceId)],
+        ...(adjustment?.injuryApplicability ?? {}),
+      };
       const conditionStatus = answer.conditionStatus ?? injury.status.trim();
       const severityBand = answer.severityBand ?? injury.severity.trim();
       const recoveryStage = answer.recoveryStage;
       const affectedLaterality = answer.affectedLaterality;
       if (!conditionStatus || !rules.data.some((rule) => rule.applicability.conditionStatuses.includes(conditionStatus))) {
-        clarificationFields.push(`constraint:injury:${injury.evidenceId}:conditionStatus`);
+        addClarificationField({ evidenceId: injury.evidenceId, key: "conditionStatus", label: "Condition status", allowedValues: rules.data.flatMap((rule) => rule.applicability.conditionStatuses) });
       }
       if (!recoveryStage || !rules.data.some((rule) => rule.applicability.recoveryStages.includes(recoveryStage))) {
-        clarificationFields.push(`constraint:injury:${injury.evidenceId}:recoveryStage`);
+        addClarificationField({ evidenceId: injury.evidenceId, key: "recoveryStage", label: "Recovery stage", allowedValues: rules.data.flatMap((rule) => rule.applicability.recoveryStages) });
       }
       if (!severityBand || !rules.data.some((rule) => rule.applicability.severityBands.includes(severityBand))) {
-        clarificationFields.push(`constraint:injury:${injury.evidenceId}:severityBand`);
+        addClarificationField({ evidenceId: injury.evidenceId, key: "severityBand", label: "Severity", allowedValues: rules.data.flatMap((rule) => rule.applicability.severityBands) });
       }
-      if (!affectedLaterality) clarificationFields.push(`constraint:injury:${injury.evidenceId}:affectedLaterality`);
+      if (!affectedLaterality) addClarificationField({ evidenceId: injury.evidenceId, key: "affectedLaterality", label: "Affected side", allowedValues: ["left", "right", "bilateral", "unknown"] });
       const combinationVerified = Boolean(recoveryStage && affectedLaterality && rules.data.some((rule) => (
         rule.applicability.conditionStatuses.includes(conditionStatus)
         && rule.applicability.recoveryStages.includes(recoveryStage)
@@ -510,7 +554,12 @@ export function createCanonicalWorkoutRuntimeDependencies(
       applicabilityAssertionIds.push(injury.assertionId, ...rules.data.map((rule) => rule.ruleAssertionId));
     }
     if (clarificationFields.length > 0) {
-      return { status: "clarification-required", candidateConceptIds: [...new Set(clarificationFields)].sort().slice(0, 25) };
+      const fields = clarificationFields.slice(0, 25);
+      return {
+        status: "clarification-required",
+        candidateConceptIds: fields.map((field) => field.id),
+        clarification: { schemaVersion: "workout-clarification/v1", fields },
+      };
     }
     const revisionSeals = await readRevisionSeals(
       infrastructure,
@@ -559,6 +608,9 @@ export function createCanonicalWorkoutRuntimeDependencies(
       injuryApplicability,
       explicitExclusions,
       preferences: [...memberPreferences, ...promptPreferences],
+      ...(adjustment?.equipment?.availableEquipmentConceptIds
+        ? { availableEquipmentConceptIds: adjustment.equipment.availableEquipmentConceptIds }
+        : {}),
       candidateProfiles: catalog.data.map(({ exerciseConceptId }) => defaultCandidate(exerciseConceptId)),
       revisionSeals,
     };
@@ -585,6 +637,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
     authorizeGrant: scoped.authorizeGrant,
     resolveConstraints,
     evaluateCatalogSafety,
+    findSubstitutes: (request) => findMovementSubstitutes(infrastructure.movement, request),
     validateCandidates,
     composer: createAiSdkWorkoutComposer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
     now,

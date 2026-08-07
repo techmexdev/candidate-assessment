@@ -5,6 +5,7 @@ import { createRetrieveMemberContext } from "../application/use-cases/retrieve-m
 import { createReplayWorkoutRunEvents, createRetrieveWorkoutRun } from "../application/use-cases/retrieve-workout-run";
 import { createRetryWorkoutRun } from "../application/use-cases/retry-workout-run";
 import { createSubmitWorkoutRun } from "../application/use-cases/submit-workout-run";
+import { createSubmitWorkoutAdjustment } from "../application/use-cases/submit-workout-adjustment";
 import { createVerifyHistoricalWorkoutTrace } from "../application/use-cases/verify-historical-workout-trace";
 import type { WorkerAuthorizationPort } from "../application/ports/worker-authorization";
 import { createNeo4jClient } from "../graph/neo4j/client";
@@ -29,6 +30,7 @@ type WorkoutRouteSession =
 export type WorkoutRouteComposition = {
   readonly resolveSession: (request: Request) => Promise<WorkoutRouteSession>;
   readonly submit: ReturnType<typeof createSubmitWorkoutRun>;
+  readonly adjust?: ReturnType<typeof createSubmitWorkoutAdjustment>;
   readonly retrieve: ReturnType<typeof createRetrieveWorkoutRun>;
   readonly cancel: ReturnType<typeof createCancelWorkoutRun>;
   readonly replay: ReturnType<typeof createReplayWorkoutRunEvents>;
@@ -344,6 +346,15 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
       modelConfigurationId,
       policyRevision,
     }),
+    adjust: createSubmitWorkoutAdjustment({
+      repository,
+      authorization,
+      protectPrompt,
+      createId,
+      now,
+      modelConfigurationId,
+      policyRevision,
+    }),
     retrieve: createRetrieveWorkoutRun({ repository, authorization, verifyHistoricalTrace }),
     cancel: createCancelWorkoutRun({ repository, authorization, now }),
     replay: createReplayWorkoutRunEvents({ repository, authorization }),
@@ -374,6 +385,9 @@ export const configuredWorkoutRouteComposition: WorkoutRouteComposition = {
   },
   submit: async (input) => {
     try { return await composition().submit(input); } catch { return { status: "canonical-state-unavailable" }; }
+  },
+  adjust: async (input) => {
+    try { return await composition().adjust!(input); } catch { return { status: "canonical-state-unavailable" }; }
   },
   retrieve: async (input) => {
     try { return await composition().retrieve(input); } catch { return { status: "integrity-failure" }; }

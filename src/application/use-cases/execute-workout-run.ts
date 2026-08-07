@@ -1,9 +1,11 @@
 import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
 import { createWorkoutProvenanceBundle, type WorkoutDecision } from "../../domain/contracts/workout-provenance";
 import { asWorkoutVersionId, type WorkoutRunId } from "../../domain/contracts/workout";
-import type { ResolvedConstraintSnapshot, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure } from "../../domain/contracts/workout-run";
+import type { ResolvedConstraintSnapshot, WorkoutClarificationDescriptor, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure } from "../../domain/contracts/workout-run";
 import { validateWorkoutComposition } from "../../domain/policies/workout-composition";
 import type { WorkoutCompositionCandidate } from "../../domain/policies/workout-composition";
+import type { MovementSafetyContext } from "../../domain/contracts/movement-safety";
+import type { MovementSubstitutionResult } from "../../domain/policies/movement-substitution";
 import {
   canonicalWorkoutDecisionSetDigest,
   canonicalWorkoutDigest,
@@ -39,10 +41,11 @@ export type ResolveWorkoutConstraintsResult =
       readonly injuryApplicability: readonly CatalogSafetyInjuryApplicability[];
       readonly explicitExclusions: readonly CatalogSafetyResolvedMatch[];
       readonly preferences: readonly CatalogSafetyResolvedMatch[];
+      readonly availableEquipmentConceptIds?: readonly string[];
       readonly candidateProfiles: readonly WorkoutCompositionCandidate[];
       readonly revisionSeals: Readonly<WorkoutRevisionSealArtifact>;
     }
-  | { readonly status: "clarification-required"; readonly candidateConceptIds: readonly string[] }
+  | { readonly status: "clarification-required"; readonly candidateConceptIds: readonly string[]; readonly clarification?: WorkoutClarificationDescriptor }
   | { readonly status: "failed"; readonly reason: "graph-unavailable" | "insufficient-safety-context" };
 
 export type ValidateRuntimeCandidatesRequest = {
@@ -70,6 +73,14 @@ export type ExecuteWorkoutRunDependencies = {
   }) => Promise<ResolveWorkoutConstraintsResult>;
   readonly evaluateCatalogSafety: (request: EvaluateCatalogSafetyRequest) => Promise<EvaluateCatalogSafetyResult>;
   readonly validateCandidates: (request: ValidateRuntimeCandidatesRequest) => Promise<ValidateWorkoutCandidatesResult>;
+  /** Optional graph-backed resolver for equipment-ineligible requested exercises. */
+  readonly findSubstitutes?: (request: {
+    readonly exerciseConceptId: string;
+    readonly availableEquipmentConceptIds: readonly string[];
+    readonly excludedExerciseConceptIds: readonly string[];
+    readonly conditions: readonly MovementSafetyContext[];
+    readonly graphRevisionId: string;
+  }) => Promise<MovementSubstitutionResult>;
   readonly composer: WorkoutComposer;
   readonly now: () => string;
   readonly createId: (kind: "workout-version" | "decision") => string;
@@ -173,7 +184,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
       });
       if (claimWasCanceled()) return { status: "claim-lost" };
       if (resolved.status === "clarification-required") {
-        const mutation = await dependencies.repository.awaitClarification(fence, dependencies.now(), resolved.candidateConceptIds);
+        const mutation = await dependencies.repository.awaitClarification(fence, dependencies.now(), resolved.clarification ?? resolved.candidateConceptIds);
         return mutation.status === "updated" ? { status: "awaiting-clarification" } : { status: "claim-lost" };
       }
       if (resolved.status === "failed") return fail(resolved.reason, "constraints");
@@ -202,6 +213,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           injuryApplicability: resolved.injuryApplicability,
           explicitExclusions: resolved.explicitExclusions,
           preferences: resolved.preferences,
+          ...(resolved.availableEquipmentConceptIds ? { availableEquipmentConceptIds: resolved.availableEquipmentConceptIds } : {}),
         });
         if (claimWasCanceled()) return { status: "claim-lost" };
         if (evaluated.status === "denied") return fail("authorization-denied", "catalog");
@@ -222,6 +234,35 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           return fail("insufficient-safety-context", "catalog");
         }
         const catalogSafety = asCatalogSafety(evaluated);
+        const equipmentExcluded = new Set(catalogSafety.excluded
+          .filter((decision) => decision.contributions.some((contribution) => contribution.kind === "equipment"))
+          .map((decision) => decision.exerciseConceptId));
+        const requestedEquipmentExclusions = resolved.canonicalIntent.focusConceptIds
+          .filter((conceptId) => equipmentExcluded.has(conceptId));
+        const substitutionResults = new Map<string, Extract<MovementSubstitutionResult, { readonly status: "substitutes_found" }>>();
+        if (dependencies.findSubstitutes && requestedEquipmentExclusions.length > 0) {
+          const conditions: MovementSafetyContext[] = resolved.injuryApplicability.map((injury) => ({
+            conditionConceptId: injury.conditionConceptId,
+            affectedAnatomyConceptId: injury.affectedAnatomyConceptId,
+            conditionStatus: injury.conditionStatus,
+            recoveryStage: injury.recoveryStage,
+            severityBand: injury.severityBand,
+            affectedLaterality: injury.affectedLaterality,
+            loadedLaterality: "unknown",
+            sourceKey: `${injury.memberEvidenceId}\0${injury.evidenceId}`,
+            sourceEvidenceId: injury.evidenceId,
+          }));
+          for (const exerciseConceptId of requestedEquipmentExclusions) {
+            const substitutions = await dependencies.findSubstitutes({
+              exerciseConceptId,
+              availableEquipmentConceptIds: resolved.availableEquipmentConceptIds ?? [],
+              excludedExerciseConceptIds: [...new Set(catalogSafety.excluded.map((decision) => decision.exerciseConceptId))],
+              conditions,
+              graphRevisionId: run.movementGraphRevisionId,
+            });
+            if (substitutions.status === "substitutes_found") substitutionResults.set(exerciseConceptId, substitutions);
+          }
+        }
         const safeDecisions = catalogSafety.decisions.filter((decision) => decision.classification !== "excluded");
         if (safeDecisions.length === 0) return fail("proposal-invalid", "catalog");
         const safetyEnvelopeDigest = canonicalWorkoutDigest(catalogSafety);
@@ -287,9 +328,21 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         })) return fail("proposal-invalid", "validation");
 
         const selected = new Set(selectedIds);
+        const substitutionForSelected = new Map<string, {
+          readonly originalExerciseConceptId: string;
+          readonly candidate: Extract<MovementSubstitutionResult, { readonly status: "substitutes_found" }>['candidates'][number];
+        }>();
+        for (const [originalExerciseConceptId, substitution] of substitutionResults) {
+          for (const candidate of substitution.candidates) {
+            if (selected.has(candidate.exerciseConceptId)) {
+              substitutionForSelected.set(candidate.exerciseConceptId, { originalExerciseConceptId, candidate });
+              break;
+            }
+          }
+        }
         const provenanceDecisions: WorkoutDecision[] = catalogSafety.decisions.map((decision) => ({
           decisionId: dependencies.createId("decision"),
-          kind: decisionKind(decision, selected),
+          kind: substitutionForSelected.has(decision.exerciseConceptId) ? "substituted" : decisionKind(decision, selected),
           selectionDisposition: selected.has(decision.exerciseConceptId) ? "selected" : "not-selected",
           safetyClassification: decision.classification,
           exerciseConceptId: decision.exerciseConceptId,
@@ -299,6 +352,9 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           contributingPathIds: [...decision.assertionIds],
           evidenceIds: [...decision.evidenceIds],
           explanation: `${decision.classification} by canonical catalog safety policy`,
+          ...(substitutionForSelected.has(decision.exerciseConceptId)
+            ? { substitutedFromExerciseConceptId: substitutionForSelected.get(decision.exerciseConceptId)!.originalExerciseConceptId }
+            : {}),
         }));
         const workoutVersionId = asWorkoutVersionId(dependencies.createId("workout-version"));
         const provenanceBase = createWorkoutProvenanceBundle({
@@ -311,6 +367,15 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           movementGraphRevisionId: run.movementGraphRevisionId,
           memberContextRevisionId: run.memberContextRevisionId,
           decisions: provenanceDecisions,
+          substitutions: [...substitutionForSelected.values()].map(({ originalExerciseConceptId, candidate }) => ({
+            originalExerciseConceptId,
+            selectedExerciseConceptId: candidate.exerciseConceptId,
+            substitutionAssertionIds: candidate.assertionIds.filter((id) => id.includes(":substitution:") || id.includes(":sub:")),
+            safetyAssertionIds: candidate.assertionIds,
+            safetyEvidenceIds: candidate.safetyEvidenceIds ?? [],
+            movementGraphRevisionId: run.movementGraphRevisionId,
+            memberContextRevisionId: run.memberContextRevisionId,
+          })),
           traceSchemaVersion: "workout-provenance/v1",
           digest: "sha256:pending",
         });

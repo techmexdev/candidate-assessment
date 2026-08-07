@@ -167,6 +167,8 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
     const parameters = {
       ...reservation,
       retryOfRunId: run.retryOfRunId ?? null,
+      predecessorRunId: run.predecessorRunId ?? null,
+      predecessorWorkoutVersionId: run.predecessorWorkoutVersionId ?? null,
       authorizationReferenceId: run.authorizationReferenceId,
       payload: json(run),
       inputRevisionId: run.inputRevisions[0]?.inputRevisionId,
@@ -213,6 +215,8 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
       queuedEventId: `${run.runId}:event:1`,
       eventSchemaVersion: WORKOUT_RUN_EVENT_SCHEMA_VERSION,
       queuedAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(),
+      predecessorRunId: run.predecessorRunId ?? null,
+      predecessorWorkoutVersionId: run.predecessorWorkoutVersionId ?? null,
     };
     const execute = () => this.client.executeWrite(async (transaction) => {
       const found = await transaction.run(WORKOUT_RUN_CYPHER.findByIdentity, parameters);
@@ -238,6 +242,53 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
           : { status: "idempotency-conflict" };
       });
     }
+  }
+
+  async createAdjustment(run: WorkoutRun): Promise<import("../../application/ports/workout-run-repository").CreateWorkoutAdjustmentResult> {
+    if (!run.predecessorRunId || !run.predecessorWorkoutVersionId) return { status: "invalid-predecessor" };
+    const predecessor = await this.getRun(run.predecessorRunId, run.coachId, run.memberId);
+    if (!predecessor) return { status: "missing" };
+    if (predecessor.state !== "completed") return { status: "invalid-predecessor" };
+    const workout = await this.getWorkout(run.predecessorRunId, run.coachId, run.memberId);
+    if (!workout || workout.workoutVersionId !== run.predecessorWorkoutVersionId) return { status: "invalid-predecessor" };
+    const parameters = {
+      runId: run.runId,
+      coachId: run.coachId,
+      memberId: run.memberId,
+      action: "adjust-workout",
+      authorizationReferenceId: run.authorizationReferenceId,
+      idempotencyKeyDigest: run.idempotencyKeyDigest,
+      requestDigest: run.requestDigest,
+      payload: json(run),
+      inputRevisionId: run.inputRevisions[0]?.inputRevisionId,
+      inputPayload: json(run.inputRevisions[0]),
+      queuedEventId: `${run.runId}:event:1`,
+      eventSchemaVersion: WORKOUT_RUN_EVENT_SCHEMA_VERSION,
+      queuedAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(),
+      predecessorRunId: run.predecessorRunId,
+      predecessorWorkoutVersionId: run.predecessorWorkoutVersionId,
+    };
+    return this.client.executeWrite(async (transaction) => {
+      const found = await transaction.run(WORKOUT_RUN_CYPHER.findByIdentity, parameters);
+      const existingNode = node(found.records[0]);
+      if (existingNode) {
+        const existing = await hydrateRun(transaction, existingNode);
+        return existing?.requestDigest === run.requestDigest && existing
+          ? { status: "replayed" as const, run: existing }
+          : { status: "idempotency-conflict" as const };
+      }
+      const stale = await transaction.run(`
+        MATCH (source:WorkoutRun {runId: $predecessorRunId, coachId: $coachId, memberId: $memberId, state: 'completed'})
+        OPTIONAL MATCH (successor:WorkoutRun)-[:ADJUSTS_FROM]->(source)
+        RETURN source, count(successor) AS successors
+      `, parameters);
+      const staleRecord = stale.records[0];
+      if (!staleRecord || Number(staleRecord.get("successors") ?? 0) > 0) return { status: "stale-predecessor" };
+      const created = await transaction.run(WORKOUT_RUN_CYPHER.create, parameters);
+      const createdNode = node(created.records[0]);
+      const hydrated = createdNode ? await hydrateRun(transaction, createdNode) : undefined;
+      return hydrated ? { status: "created" as const, run: hydrated } : { status: "idempotency-conflict" as const };
+    });
   }
 
   async claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {

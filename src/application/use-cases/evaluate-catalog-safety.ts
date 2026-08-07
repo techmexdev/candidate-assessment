@@ -31,6 +31,7 @@ export type CatalogSafetyResolutionProof = {
 export const CATALOG_SAFETY_MAX_INJURY_APPLICABILITY = 32;
 export const CATALOG_SAFETY_MAX_EXPLICIT_EXCLUSIONS = CATALOG_SAFETY_MAX_EXERCISES;
 export const CATALOG_SAFETY_MAX_PREFERENCES = CATALOG_SAFETY_MAX_EXERCISES;
+export const CATALOG_SAFETY_MAX_EQUIPMENT = 32;
 
 export type CatalogSafetyResolutionPurpose = "injury-applicability" | "explicit-exclusion" | "preference";
 
@@ -97,6 +98,8 @@ export type EvaluateCatalogSafetyRequest = {
   readonly injuryApplicability: readonly CatalogSafetyInjuryApplicability[];
   readonly explicitExclusions: readonly CatalogSafetyResolvedMatch[];
   readonly preferences: readonly CatalogSafetyResolvedMatch[];
+  /** Optional bounded equipment set supplied by an authorized adjustment. */
+  readonly availableEquipmentConceptIds?: readonly string[];
 };
 
 type EvaluationEnvelope = {
@@ -369,7 +372,11 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
     if (!request.coachId || !request.memberId || !request.authorizationId || !request.runId
       || !Array.isArray(request.injuryApplicability)
       || !Array.isArray(request.explicitExclusions)
-      || !Array.isArray(request.preferences)) {
+      || !Array.isArray(request.preferences)
+      || (request.availableEquipmentConceptIds !== undefined
+        && (!Array.isArray(request.availableEquipmentConceptIds)
+          || request.availableEquipmentConceptIds.length > CATALOG_SAFETY_MAX_EQUIPMENT
+          || request.availableEquipmentConceptIds.some((id) => typeof id !== "string" || !id.startsWith("equipment:"))))) {
       return fail("fail_closed", "invalid-request");
     }
     let evaluationNow: string;
@@ -562,13 +569,16 @@ export function createEvaluateCatalogSafety(dependencies: EvaluateCatalogSafetyD
       });
     }
 
-    const availableEquipment = constraints.data.equipment.flatMap((equipment) => {
+    const canonicalEquipment = constraints.data.equipment.flatMap((equipment) => {
       const reference = equipment.domainReference;
       return equipment.available && reference.state === "reviewed" && reference.graph === "movement-clinical"
         && reference.stableConceptId.startsWith("equipment:")
         ? [{ equipmentConceptId: reference.stableConceptId, assertionId: equipment.assertionId, evidenceId: equipment.evidenceId }]
         : [];
     });
+    const availableEquipment = request.availableEquipmentConceptIds === undefined
+      ? canonicalEquipment
+      : canonicalEquipment.filter((equipment) => request.availableEquipmentConceptIds!.includes(equipment.equipmentConceptId));
     const policy = classifyCatalogSafety({
       ...revisions,
       authority: handle.authority,

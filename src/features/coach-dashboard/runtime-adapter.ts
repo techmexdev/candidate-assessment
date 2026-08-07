@@ -1,6 +1,7 @@
 import type { WorkoutRunResource } from "../../application/use-cases/retrieve-workout-run";
 import { workoutDecisionWasSelected, type WorkoutDecision } from "../../domain/contracts/workout-provenance";
 import type { WorkoutDose, WorkoutSectionKind } from "../../domain/contracts/workout";
+import type { WorkoutClarificationDescriptor } from "../../domain/contracts/workout-run";
 import type { DashboardDecisionId, DashboardWorkoutItem } from "./dashboard-contract";
 
 export type DashboardRuntimeWorkoutProjection = {
@@ -58,6 +59,17 @@ export type DashboardWorkoutRuntimeClient = {
     readonly resourceUrl?: string;
     readonly signal?: AbortSignal;
   }) => Promise<WorkoutRunResource>;
+  readonly answerClarification?: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly answers: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
+  }) => Promise<DashboardWorkoutClarificationResult>;
+  readonly cancel?: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<DashboardWorkoutCancelResult>;
 };
 
 export type DashboardWorkoutGenerationInput = {
@@ -71,7 +83,13 @@ export type DashboardWorkoutGenerationInput = {
 export type DashboardWorkoutRuntimeUpdate =
   | { readonly status: "submitting"; readonly message: string }
   | { readonly status: "queued" | "running"; readonly runId: string; readonly message: string }
-  | { readonly status: "awaiting-clarification"; readonly runId: string; readonly message: string }
+  | {
+      readonly status: "awaiting-clarification";
+      readonly runId: string;
+      readonly message: string;
+      readonly clarification?: WorkoutClarificationDescriptor;
+      readonly cursor?: string;
+    }
   | { readonly status: "no-safe-result" | "failed" | "canceled" | "disconnected"; readonly runId?: string; readonly message: string }
   | { readonly status: "completed"; readonly runId: string; readonly message: string; readonly projection: DashboardRuntimeWorkoutProjection };
 
@@ -83,7 +101,35 @@ export type DashboardWorkoutRuntime = {
     input: DashboardWorkoutGenerationInput,
     onUpdate: (update: DashboardWorkoutRuntimeUpdate) => void,
   ) => Promise<DashboardWorkoutRuntimeResult>;
+  readonly answerClarification: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly answers: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
+  }) => Promise<DashboardWorkoutClarificationResult>;
+  readonly resume: (
+    input: {
+      readonly runId: string;
+      readonly memberId: string;
+      readonly cursor?: string;
+      readonly signal?: AbortSignal;
+    },
+    onUpdate: (update: DashboardWorkoutRuntimeUpdate) => void,
+  ) => Promise<DashboardWorkoutRuntimeResult>;
+  readonly cancel: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<DashboardWorkoutCancelResult>;
 };
+
+export type DashboardWorkoutClarificationResult =
+  | { readonly status: "requeued"; readonly revision: number }
+  | { readonly status: "invalid-request" | "invalid-state" | "not-found" | "unavailable"; readonly resource?: WorkoutRunResource };
+
+export type DashboardWorkoutCancelResult =
+  | { readonly status: "canceled" }
+  | { readonly status: "already_completed" | "already-terminal" | "not-found" };
 
 const sectionTitle: Record<WorkoutSectionKind, string> = {
   "warm-up": "Warm-up",
@@ -212,7 +258,12 @@ function resultFromTerminalSnapshot(runId: string, snapshot: WorkoutRunResource)
     };
   }
   if (snapshot.state === "awaiting-clarification") {
-    return { status: "awaiting-clarification", runId, message: "More detail is needed before a safe workout can be generated." };
+    return {
+      status: "awaiting-clarification",
+      runId,
+      message: "More detail is needed before a safe workout can be generated.",
+      ...(snapshot.clarification ? { clarification: snapshot.clarification } : {}),
+    };
   }
   if (snapshot.state === "failed") return terminalFailure(runId, snapshot.failure ?? {});
   if (snapshot.state === "canceled") return { status: "canceled", runId, message: "Workout generation was canceled." };
@@ -225,6 +276,107 @@ export function createDashboardWorkoutRuntime(
 ): DashboardWorkoutRuntime {
   const wait = options.wait ?? (() => new Promise<void>((resolve) => setTimeout(resolve, 350)));
   const maximumReconnects = options.maximumReconnects ?? 3;
+  const watchRun = async (
+    input: { readonly runId: string; readonly memberId: string; readonly resourceUrl?: string; readonly cursor?: string; readonly signal?: AbortSignal },
+    onUpdate: (update: DashboardWorkoutRuntimeUpdate) => void,
+  ): Promise<DashboardWorkoutRuntimeResult> => {
+    const { runId, memberId, resourceUrl } = input;
+    let cursor = input.cursor;
+    let reconnects = 0;
+    const seenEvents = new Set<string>();
+    while (!input.signal?.aborted) {
+      let replay;
+      try {
+        replay = await client.replay({ runId, memberId, ...(cursor ? { cursor } : {}), ...(input.signal ? { signal: input.signal } : {}) });
+        reconnects = 0;
+      } catch {
+        reconnects += 1;
+        const disconnected = { status: "disconnected", runId, message: "Connection interrupted. Reconnecting…" } as const;
+        onUpdate(disconnected);
+        if (reconnects > maximumReconnects) return disconnected;
+        await wait();
+        continue;
+      }
+      if (replay.status === "resync_required") {
+        cursor = undefined;
+        const snapshot = await client.read({
+          runId,
+          memberId,
+          resourceUrl: replay.snapshotUrl,
+          ...(input.signal ? { signal: input.signal } : {}),
+        });
+        const terminal = resultFromTerminalSnapshot(runId, snapshot);
+        if (terminal) {
+          onUpdate(terminal);
+          return terminal;
+        }
+        await wait();
+        continue;
+      }
+      cursor = replay.cursor || cursor;
+      let sawNewEvent = false;
+      for (const event of [...replay.events].sort((left, right) => left.sequence - right.sequence)) {
+        if (seenEvents.has(event.eventId)) continue;
+        seenEvents.add(event.eventId);
+        sawNewEvent = true;
+        if (event.kind === "queued") onUpdate({ status: "queued", runId, message: "Workout generation queued." });
+        if (event.kind === "claimed" || event.kind === "heartbeat" || event.kind === "clarification-answered" || event.kind === "stage") {
+          const stage = typeof event.data.stage === "string" ? `: ${event.data.stage}` : "";
+          onUpdate({ status: "running", runId, message: `Generating workout${stage}…` });
+        }
+        if (event.kind === "awaiting-clarification") {
+          let clarification: WorkoutClarificationDescriptor | undefined;
+          try {
+            const snapshot = await client.read({ runId, memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
+            clarification = snapshot.clarification;
+          } catch {
+            // The run state is still authoritative; a later resume can load the descriptor.
+          }
+          const result = {
+            status: "awaiting-clarification",
+            runId,
+            message: "More detail is needed before a safe workout can be generated.",
+            ...(clarification ? { clarification } : {}),
+          } as const;
+          onUpdate(result);
+          return result;
+        }
+        if (event.kind === "failed") {
+          const result = terminalFailure(runId, event.data);
+          onUpdate(result);
+          return result;
+        }
+        if (event.kind === "canceled") {
+          const result = { status: "canceled", runId, message: "Workout generation was canceled." } as const;
+          onUpdate(result);
+          return result;
+        }
+        if (event.kind === "completed") {
+          try {
+            const resource = await client.read({ runId, memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
+            const projection = projectWorkoutRunResource(resource);
+            const result = { status: "completed", runId, message: "Generated workout and decision trace ready.", projection } as const;
+            onUpdate(result);
+            return result;
+          } catch {
+            const disconnected = { status: "disconnected", runId, message: "Workout completed, but the authoritative result could not be loaded. Reconnect to retry." } as const;
+            onUpdate(disconnected);
+            return disconnected;
+          }
+        }
+      }
+      if (!sawNewEvent) {
+        const snapshot = await client.read({ runId, memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
+        const terminal = resultFromTerminalSnapshot(runId, snapshot);
+        if (terminal) {
+          onUpdate(terminal);
+          return terminal;
+        }
+      }
+      await wait();
+    }
+    return { status: "disconnected", runId, message: "Workout updates stopped after leaving this member." };
+  };
   return {
     async generate(input, onUpdate) {
       onUpdate({ status: "submitting", message: "Submitting workout request…" });
@@ -232,89 +384,7 @@ export function createDashboardWorkoutRuntime(
       try {
         const submitted = await client.submit(input, input.signal);
         runId = submitted.runId;
-        const resourceUrl = submitted.resourceUrl;
-        let cursor: string | undefined;
-        let reconnects = 0;
-        const seenEvents = new Set<string>();
-        while (!input.signal?.aborted) {
-          let replay;
-          try {
-            replay = await client.replay({ runId, memberId: input.memberId, ...(cursor ? { cursor } : {}), ...(input.signal ? { signal: input.signal } : {}) });
-            reconnects = 0;
-          } catch {
-            reconnects += 1;
-            const disconnected = { status: "disconnected", runId, message: "Connection interrupted. Reconnecting…" } as const;
-            onUpdate(disconnected);
-            if (reconnects > maximumReconnects) return disconnected;
-            await wait();
-            continue;
-          }
-          if (replay.status === "resync_required") {
-            cursor = undefined;
-            const snapshot = await client.read({
-              runId,
-              memberId: input.memberId,
-              resourceUrl: replay.snapshotUrl,
-              ...(input.signal ? { signal: input.signal } : {}),
-            });
-            const terminal = resultFromTerminalSnapshot(runId, snapshot);
-            if (terminal) {
-              onUpdate(terminal);
-              return terminal;
-            }
-            await wait();
-            continue;
-          }
-          cursor = replay.cursor || cursor;
-          let sawNewEvent = false;
-          for (const event of [...replay.events].sort((left, right) => left.sequence - right.sequence)) {
-            if (seenEvents.has(event.eventId)) continue;
-            seenEvents.add(event.eventId);
-            sawNewEvent = true;
-            if (event.kind === "queued") onUpdate({ status: "queued", runId, message: "Workout generation queued." });
-            if (event.kind === "claimed" || event.kind === "heartbeat" || event.kind === "clarification-answered" || event.kind === "stage") {
-              const stage = typeof event.data.stage === "string" ? `: ${event.data.stage}` : "";
-              onUpdate({ status: "running", runId, message: `Generating workout${stage}…` });
-            }
-            if (event.kind === "awaiting-clarification") {
-              const result = { status: "awaiting-clarification", runId, message: "More detail is needed before a safe workout can be generated." } as const;
-              onUpdate(result);
-              return result;
-            }
-            if (event.kind === "failed") {
-              const result = terminalFailure(runId, event.data);
-              onUpdate(result);
-              return result;
-            }
-            if (event.kind === "canceled") {
-              const result = { status: "canceled", runId, message: "Workout generation was canceled." } as const;
-              onUpdate(result);
-              return result;
-            }
-            if (event.kind === "completed") {
-              try {
-                const resource = await client.read({ runId, memberId: input.memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
-                const projection = projectWorkoutRunResource(resource);
-                const result = { status: "completed", runId, message: "Generated workout and decision trace ready.", projection } as const;
-                onUpdate(result);
-                return result;
-              } catch {
-                const disconnected = { status: "disconnected", runId, message: "Workout completed, but the authoritative result could not be loaded. Reconnect to retry." } as const;
-                onUpdate(disconnected);
-                return disconnected;
-              }
-            }
-          }
-          if (!sawNewEvent) {
-            const snapshot = await client.read({ runId, memberId: input.memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
-            const terminal = resultFromTerminalSnapshot(runId, snapshot);
-            if (terminal) {
-              onUpdate(terminal);
-              return terminal;
-            }
-          }
-          await wait();
-        }
+        return await watchRun({ runId, memberId: input.memberId, ...(submitted.resourceUrl ? { resourceUrl: submitted.resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) }, onUpdate);
       } catch {
         const result = runId
           ? { status: "disconnected", runId, message: "Connection interrupted. Reconnect to continue." } as const
@@ -322,8 +392,24 @@ export function createDashboardWorkoutRuntime(
         onUpdate(result);
         return result;
       }
-      const result = { status: "disconnected", ...(runId ? { runId } : {}), message: "Workout updates stopped after leaving this member." } as const;
-      return result;
+      return { status: "disconnected", ...(runId ? { runId } : {}), message: "Workout updates stopped after leaving this member." };
+    },
+    async answerClarification(input) {
+      if (!client.answerClarification) return { status: "unavailable" };
+      return client.answerClarification(input);
+    },
+    async resume(input, onUpdate) {
+      try {
+        return await watchRun(input, onUpdate);
+      } catch {
+        const result = { status: "disconnected", runId: input.runId, message: "Connection interrupted. Reconnect to continue." } as const;
+        onUpdate(result);
+        return result;
+      }
+    },
+    async cancel(input) {
+      if (!client.cancel) return { status: "not-found" };
+      return client.cancel(input);
     },
   };
 }
@@ -396,6 +482,36 @@ export function createFetchDashboardWorkoutRuntimeClient(fetcher: typeof fetch =
       });
       if (!response.ok) throw new Error("Workout resource read failed.");
       return await response.json() as WorkoutRunResource;
+    },
+    async answerClarification(input) {
+      const response = await fetcher(`/api/workout-runs/${encodeURIComponent(input.runId)}/clarification`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ memberId: input.memberId, answers: input.answers }),
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+      const body: unknown = await response.json();
+      if (!isObject(body) || typeof body.status !== "string") return { status: "unavailable" };
+      if (response.status === 202 && body.status === "requeued" && typeof body.revision === "number") {
+        return { status: "requeued", revision: body.revision };
+      }
+      if (body.status === "invalid-request" || body.status === "invalid-state" || body.status === "not-found" || body.status === "unavailable") {
+        return { status: body.status };
+      }
+      return { status: "unavailable" };
+    },
+    async cancel(input) {
+      const response = await fetcher(`/api/workout-runs/${encodeURIComponent(input.runId)}?memberId=${encodeURIComponent(input.memberId)}`, {
+        method: "DELETE",
+        headers: { accept: "application/json" },
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+      const body: unknown = await response.json();
+      if (!isObject(body) || typeof body.status !== "string") return { status: "not-found" };
+      if (body.status === "canceled" || body.status === "already_completed" || body.status === "already-terminal" || body.status === "not-found") {
+        return { status: body.status };
+      }
+      return { status: "not-found" };
     },
   };
 }

@@ -43,6 +43,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       coachId: $coachId, memberId: $memberId, action: $action,
       idempotencyKeyDigest: $idempotencyKeyDigest
     })
+    OPTIONAL MATCH (predecessor:WorkoutRun {runId: $predecessorRunId, coachId: $coachId, memberId: $memberId, state: 'completed'})
     WHERE NOT reservation:WorkoutRun
       AND reservation.runId = $runId
       AND reservation.requestDigest = $requestDigest
@@ -50,6 +51,9 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       AND ($retryOfRunId IS NULL OR EXISTS {
         MATCH (source:WorkoutRun {runId: $retryOfRunId, coachId: $coachId, memberId: $memberId, state: 'failed'})
       })
+      AND ($predecessorRunId IS NULL OR (predecessor.workoutVersionId = $predecessorWorkoutVersionId AND NOT EXISTS {
+        MATCH (:WorkoutRun)-[:ADJUSTS_FROM]->predecessor
+      }))
     SET reservation:WorkoutRun,
       reservation.authorizationReferenceId = $authorizationReferenceId,
       reservation.state = 'queued', reservation.claimGeneration = 0,
@@ -62,6 +66,9 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       payload: $inputPayload
     })
     CREATE (reservation)-[:HAS_INPUT_REVISION]->(input)
+    FOREACH (_ IN CASE WHEN $predecessorRunId IS NULL THEN [] ELSE [1] END |
+      CREATE (reservation)-[:ADJUSTS_FROM]->(predecessor)
+    )
     CREATE (event:WorkoutRunEvent {
       runId: $runId, sequence: 1, eventId: $queuedEventId,
       schemaVersion: $eventSchemaVersion, kind: 'queued', occurredAt: $queuedAt,
@@ -97,11 +104,16 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       state: 'queued', claimGeneration: 0, lockVersion: 0, nextEventSequence: 2,
       payload: $payload, reservationCreatedAt: $queuedAt
     })
+    WITH run
+    OPTIONAL MATCH (predecessor:WorkoutRun {runId: $predecessorRunId, coachId: $coachId, memberId: $memberId, state: 'completed'})
     CREATE (input:WorkoutRunInputRevision {
       inputRevisionId: $inputRevisionId, runId: $runId, revision: 1,
       payload: $inputPayload
     })
     CREATE (run)-[:HAS_INPUT_REVISION]->(input)
+    FOREACH (_ IN CASE WHEN $predecessorRunId IS NULL THEN [] ELSE [1] END |
+      CREATE (run)-[:ADJUSTS_FROM]->(predecessor)
+    )
     CREATE (event:WorkoutRunEvent {
       runId: $runId, sequence: 1, eventId: $queuedEventId,
       schemaVersion: $eventSchemaVersion, kind: 'queued', occurredAt: $queuedAt,

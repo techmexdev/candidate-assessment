@@ -35,6 +35,7 @@ export type RankedMovementSubstitute = {
   readonly preservedIntent: string;
   readonly safetyStatus: "allowed" | "caution" | "downranked";
   readonly assertionIds: readonly string[];
+  readonly safetyEvidenceIds?: readonly string[];
 };
 
 export type MovementSubstitutionResult =
@@ -79,6 +80,7 @@ export function rankMovementSubstitutes(input: MovementSubstitutionPolicyInput):
         ...candidate.requiredEquipment.flatMap((fact) => [fact.edgeAssertionId, fact.targetAssertionId]),
         ...safety.assertionIds,
       ])].sort(),
+      safetyEvidenceIds: [...new Set(safety.contributingPaths.flatMap((path) => path.sourceEvidenceId ? [path.sourceEvidenceId] : []))].sort(),
     }];
   }).sort((left, right) => safetyPriority[left.safetyStatus] - safetyPriority[right.safetyStatus]
     || left.rank - right.rank

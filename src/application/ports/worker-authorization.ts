@@ -11,6 +11,7 @@ export type WorkoutAuthorizationStage =
   | "replay"
   | "clarification"
   | "retry"
+  | "adjustment"
   | "cancel";
 
 export type WorkerGrantAuthorization =
@@ -35,7 +36,7 @@ export interface WorkerAuthorizationPort {
     readonly sessionAuthorizationId: string;
     readonly coachId: string;
     readonly memberId: string;
-    readonly stage: Extract<WorkoutAuthorizationStage, "read" | "replay" | "clarification" | "retry" | "cancel">;
+    readonly stage: Extract<WorkoutAuthorizationStage, "read" | "replay" | "clarification" | "retry" | "adjustment" | "cancel">;
   }): Promise<WorkerGrantAuthorization>;
   createReference(input: {
     readonly coachId: string;

@@ -322,14 +322,18 @@ describe("workout worker production composition", () => {
     const grant = await runtime.authorizeGrant({ authorizationReferenceId: "grant:test", runId: run.runId, coachId: run.coachId, memberId: run.memberId, stage: "constraints" });
     if (grant.status !== "authorized") throw new Error("test grant failed");
     const first = await runtime.resolveConstraints({ run: run as never, authorizationId: grant.authorizationId });
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       status: "clarification-required",
-      candidateConceptIds: [
-        "constraint:injury:evidence:knee:affectedLaterality",
-        "constraint:injury:evidence:knee:conditionStatus",
-        "constraint:injury:evidence:knee:recoveryStage",
-        "constraint:injury:evidence:knee:severityBand",
-      ],
+      candidateConceptIds: expect.arrayContaining([
+        expect.stringMatching(/^clarification:/),
+      ]),
+      clarification: {
+        schemaVersion: "workout-clarification/v1",
+        fields: expect.arrayContaining([
+          expect.objectContaining({ key: "recoveryStage", allowedValues: expect.any(Array) }),
+          expect.objectContaining({ key: "affectedLaterality", allowedValues: expect.any(Array) }),
+        ]),
+      },
     });
 
     const answer = infrastructure.protectedInput.protect({

@@ -3,7 +3,7 @@ import type { WorkoutRun } from "../../domain/contracts/workout-run";
 import type { WorkoutAuthorizationStage, WorkerAuthorizationPort } from "../ports/worker-authorization";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 
-type InteractiveStage = Extract<WorkoutAuthorizationStage, "read" | "replay" | "clarification" | "retry" | "cancel">;
+type InteractiveStage = Extract<WorkoutAuthorizationStage, "read" | "replay" | "clarification" | "retry" | "adjustment" | "cancel">;
 
 export type WorkoutRunAccessInput = {
   readonly runId: WorkoutRunId;
