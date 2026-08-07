@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import jordan from "../../data/member-context.json";
 import type {
   AuthoritativeEvidenceAnchorProjection,
+  ConversationProjection,
   MemberContextQueryResult,
   MemberContextReadHandle,
   MemberEvidenceProjection,
+  MessageProjection,
 } from "../../src/domain/contracts/member-context-queries";
 import {
   COPILOT_INTENT_REGISTRY,
@@ -199,6 +201,154 @@ describe("Copilot bounded retrieval", () => {
     });
     expect(result).toEqual({ status: "denied", message: "Member context is unavailable." });
     expect(handle.getEvidence).toHaveBeenCalledTimes(1);
+    expect(handle.getCitations).not.toHaveBeenCalled();
+  });
+
+  it("does not start a graph read or later authorization step after cancellation", async () => {
+    const handle = fakeHandle();
+    let finishAuthorization!: (allowed: boolean) => void;
+    const firstAuthorization = new Promise<boolean>((resolve) => { finishAuthorization = resolve; });
+    const reauthorize = vi.fn(() => firstAuthorization);
+    const controller = new AbortController();
+    const pending = createMemberContextRetrieval({ reauthorize }).retrieve({
+      selection: { kind: "quick-prompt", promptId: "sleep" },
+      requestedFor: "2026-07-08",
+      handle,
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(reauthorize).toHaveBeenCalledOnce());
+    controller.abort();
+    finishAuthorization(true);
+
+    await expect(pending).resolves.toMatchObject({ status: "unavailable" });
+    expect(reauthorize).toHaveBeenCalledOnce();
+    expect(handle.getEvidence).not.toHaveBeenCalled();
+    expect(handle.getRelativeOrderSequence).not.toHaveBeenCalled();
+    expect(handle.getCitations).not.toHaveBeenCalled();
+  });
+
+  it("bounds conversation attachments to the citation recipe and keeps exact evidence parity", async () => {
+    const handle = fakeHandle();
+    const observations = [0, 1].map((sourceOrder) => ({
+      ...base,
+      evidenceId: `assertion:trend${String(sourceOrder).padStart(11, "0")}`,
+      assertionId: `assertion:trend${String(sourceOrder).padStart(11, "0")}`,
+      semanticId: `adherence:${sourceOrder}`,
+      kind: "observation" as const,
+      classification: "observation" as const,
+      temporal: { precision: "date" as const, effectiveOn: `2026-06-0${sourceOrder + 3}` },
+      metric: "weekly-workout-completion",
+      value: 50 + sourceOrder,
+      unit: "percent",
+      sourceOrder,
+    }));
+    const messages: MessageProjection[] = Array.from({ length: 40 }, (_, messageIndex) => {
+      const messageId = `assertion:message${String(messageIndex).padStart(9, "0")}`;
+      const attachments = Array.from({ length: 5 }, (_, attachmentIndex) => {
+        const evidenceId = `assertion:attach${String(messageIndex * 5 + attachmentIndex).padStart(10, "0")}`;
+        return {
+          ...base,
+          evidenceId,
+          assertionId: evidenceId,
+          semanticId: `attachment:${messageIndex}:${attachmentIndex}`,
+          kind: "media-attachment" as const,
+          classification: "source-statement" as const,
+          temporal: { precision: "exact-timestamp" as const, effectiveAt: "2026-06-04T12:00:00.000Z" },
+          mediaType: "image",
+          caption: `Attachment ${messageIndex}-${attachmentIndex}`,
+          sourceOrder: attachmentIndex,
+          assetStatus: "metadata-only" as const,
+          analysisStatus: "not-analyzed" as const,
+        };
+      });
+      return {
+        ...base,
+        evidenceId: messageId,
+        assertionId: messageId,
+        semanticId: `message:${messageIndex}`,
+        kind: "message" as const,
+        classification: "source-statement" as const,
+        temporal: { precision: "exact-timestamp" as const, effectiveAt: "2026-06-04T12:00:00.000Z" },
+        senderRole: "member" as const,
+        text: `Message ${messageIndex}`,
+        attachmentEvidenceIds: attachments.map((attachment) => attachment.evidenceId),
+        attachments,
+      };
+    });
+    vi.mocked(handle.getEvidence)
+      .mockResolvedValueOnce(ready([{
+        ...base,
+        kind: "member-profile",
+        timezone: "America/Los_Angeles",
+      }], [base.evidenceId]))
+      .mockResolvedValueOnce({ status: "empty", ...scope, evidenceIds: [], message: "none" });
+    vi.mocked(handle.getLongitudinalSeries).mockResolvedValueOnce(ready(
+      observations,
+      observations.map((item) => item.evidenceId),
+    ));
+    vi.mocked(handle.getConversation).mockResolvedValueOnce(ready<ConversationProjection>({
+      conversationEvidenceId: "assertion:conversation0000",
+      messages,
+    }, messages.flatMap((message) => [message.evidenceId, ...message.attachmentEvidenceIds])));
+
+    const result = await createMemberContextRetrieval({ reauthorize: async () => true }).retrieve({
+      selection: { kind: "quick-prompt", promptId: "churn-risk" },
+      requestedFor: "2026-07-08",
+      handle,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error(`expected ready, got ${result.status}`);
+    const citationStep = COPILOT_INTENT_REGISTRY["churn-risk"].steps.at(-1);
+    if (citationStep?.operation !== "citations") throw new Error("expected final citation step");
+    const citationLimit = citationStep.limit;
+    expect(result.evidence).toHaveLength(citationLimit);
+    expect(result.citations.map((citation) => citation.evidenceId).sort())
+      .toEqual(result.evidence.map((atom) => atom.evidenceId).sort());
+    expect(result.sources.conversations.flatMap((conversation) => conversation.messages)
+      .flatMap((message) => message.attachments)).toHaveLength(57);
+  });
+
+  it("reports a non-retryable invalid plan result when material evidence alone exceeds the citation budget", async () => {
+    const handle = fakeHandle();
+    const messages: MessageProjection[] = Array.from({ length: 100 }, (_, index) => {
+      const evidenceId = `assertion:message${String(index).padStart(9, "0")}`;
+      return {
+        ...base,
+        evidenceId,
+        assertionId: evidenceId,
+        semanticId: `message:${index}`,
+        kind: "message",
+        classification: "source-statement",
+        temporal: { precision: "exact-timestamp", effectiveAt: "2026-06-04T12:00:00.000Z" },
+        senderRole: "member",
+        text: `Message ${index}`,
+        attachmentEvidenceIds: [],
+        attachments: [],
+      };
+    });
+    vi.mocked(handle.getEvidence)
+      .mockResolvedValueOnce(ready([{
+        ...base,
+        kind: "member-profile",
+        timezone: "America/Los_Angeles",
+      }], [base.evidenceId]))
+      .mockResolvedValueOnce({ status: "empty", ...scope, evidenceIds: [], message: "none" });
+    vi.mocked(handle.getLongitudinalSeries).mockResolvedValueOnce(ready([], []));
+    vi.mocked(handle.getConversation).mockResolvedValueOnce(ready<ConversationProjection>({
+      conversationEvidenceId: "assertion:conversation0000",
+      messages,
+    }, messages.map((message) => message.evidenceId)));
+
+    await expect(createMemberContextRetrieval({ reauthorize: async () => true }).retrieve({
+      selection: { kind: "quick-prompt", promptId: "churn-risk" },
+      requestedFor: "2026-07-08",
+      handle,
+    })).resolves.toEqual({
+      status: "invalid",
+      message: "Retrieval evidence exceeds the citation budget.",
+    });
     expect(handle.getCitations).not.toHaveBeenCalled();
   });
 

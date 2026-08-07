@@ -81,6 +81,7 @@ export type MemberContextRetrievalRequest = {
   readonly selection: CopilotIntentSelection;
   readonly requestedFor: string;
   readonly handle: MemberContextReadHandle;
+  readonly signal?: AbortSignal;
 };
 
 function isClientDate(value: string): boolean {
@@ -102,6 +103,7 @@ function deepFreeze<Value>(value: Value): Readonly<Value> {
 export function createMemberContextRetrieval(dependencies: MemberContextRetrievalDependencies) {
   return Object.freeze({
     async retrieve(request: Readonly<MemberContextRetrievalRequest>): Promise<CopilotRetrievalResult> {
+      if (request.signal?.aborted) return { status: "unavailable", message: genericUnavailable };
       const resolution = resolveCopilotIntent(request.selection);
       if (resolution.status !== "resolved") return resolution;
       if (!isClientDate(request.requestedFor)) return { status: "invalid", message: "Requested day is invalid." };
@@ -120,8 +122,11 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
       let evidenceAsOf: string | undefined;
       let citations: CopilotCitation[] = [];
       let readCount = 0;
+      const evidenceLimit = resolution.recipe.steps.find((step) => step.operation === "citations")?.limit;
+      if (evidenceLimit === undefined) return { status: "invalid", message: "Retrieval plan has no citation budget." };
 
       const run = async <T>(step: CopilotRetrievalStep, operation: () => Promise<MemberContextQueryResult<T>>) => {
+        if (request.signal?.aborted) return { status: "aborted" } as const;
         if (readCount >= resolution.recipe.readBudget) return { status: "invalid-budget" } as const;
         const allowed = await dependencies.reauthorize({
           coachId: handle.coachId,
@@ -129,9 +134,11 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
           contextRevisionId: handle.contextRevisionId,
           stepId: step.stepId,
         });
+        if (request.signal?.aborted) return { status: "aborted" } as const;
         if (!allowed) return { status: "revoked" } as const;
         readCount += 1;
         const result = await operation();
+        if (request.signal?.aborted) return { status: "aborted" } as const;
         if (!sameScope(handle, result)) return { status: "scope-mismatch" } as const;
         return { status: "result", result } as const;
       };
@@ -144,6 +151,7 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
             evidenceKinds: step.evidenceKinds,
             limit: step.limit,
             timeoutMs: resolution.recipe.timeoutMs,
+            ...(request.signal ? { signal: request.signal } : {}),
           }));
         } else if (step.operation === "longitudinal-series") {
           if (!timezone || !evidenceAsOf) {
@@ -157,6 +165,7 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
             minimumPoints: step.minimumPoints,
             limit: step.limit,
             timeoutMs: resolution.recipe.timeoutMs,
+            ...(request.signal ? { signal: request.signal } : {}),
           }));
         } else if (step.operation === "relative-sequence") {
           invoked = handle.getRelativeOrderSequence
@@ -165,11 +174,13 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
               minimumPoints: step.minimumPoints,
               limit: step.limit,
               timeoutMs: resolution.recipe.timeoutMs,
+              ...(request.signal ? { signal: request.signal } : {}),
             }))
             : await run(step, () => handle.getEvidence({
               domains: [step.domain],
               limit: step.limit,
               timeoutMs: resolution.recipe.timeoutMs,
+              ...(request.signal ? { signal: request.signal } : {}),
             }));
         } else if (step.operation === "conversation") {
           if (!timezone || !evidenceAsOf) {
@@ -181,22 +192,32 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
             window: calculateCalendarWindow({ evidenceAsOf: calendarEvidenceAsOf, timezone: calendarTimezone, lookbackDays: step.lookbackDays }),
             limit: step.limit,
             timeoutMs: resolution.recipe.timeoutMs,
+            ...(request.signal ? { signal: request.signal } : {}),
           }));
         } else if (step.operation === "coach-brief") {
-          invoked = await run(step, () => handle.getCoachBrief({ limit: step.limit, timeoutMs: resolution.recipe.timeoutMs }));
+          invoked = await run(step, () => handle.getCoachBrief({
+            limit: step.limit,
+            timeoutMs: resolution.recipe.timeoutMs,
+            ...(request.signal ? { signal: request.signal } : {}),
+          }));
         } else {
           const items = distinctEvidence(evidence);
           const ids = items.map((item) => item.evidenceId);
-          if (ids.length === 0 || ids.length > step.limit) {
+          if (ids.length > step.limit) {
+            return { status: "invalid", message: "Retrieval evidence exceeds the citation budget." };
+          }
+          if (ids.length === 0) {
             return { status: "unavailable", message: genericUnavailable };
           }
           invoked = await run(step, () => handle.getCitations({
             evidenceIds: ids,
             limit: step.limit,
             timeoutMs: resolution.recipe.timeoutMs,
+            ...(request.signal ? { signal: request.signal } : {}),
           }));
         }
 
+        if (invoked.status === "aborted") return { status: "unavailable", message: genericUnavailable };
         if (invoked.status === "revoked") return { status: "denied", message: genericUnavailable };
         if (invoked.status !== "result") return { status: "unavailable", message: genericUnavailable };
         const result = invoked.result;
@@ -246,8 +267,32 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
           evidence.push(...selected.slice(0, step.limit));
         } else if (step.operation === "conversation") {
           const data = result.data as ConversationProjection;
-          conversations.push(data);
-          evidence.push(...data.messages, ...data.messages.flatMap((message) => message.attachments));
+          const existingIds = new Set(distinctEvidence(evidence).map((item) => item.evidenceId));
+          const messageIds = new Set(data.messages.map((message) => message.evidenceId));
+          const evidenceAfterMessages = new Set([...existingIds, ...messageIds]);
+          if (evidenceAfterMessages.size > evidenceLimit) {
+            return { status: "invalid", message: "Retrieval evidence exceeds the citation budget." };
+          }
+          let remainingAttachments = evidenceLimit - evidenceAfterMessages.size;
+          const retainedAttachmentIds = new Set<string>();
+          const boundedMessages = data.messages.map((message): MessageProjection => {
+            const attachments = message.attachments.filter((attachment) => {
+              if (existingIds.has(attachment.evidenceId) || messageIds.has(attachment.evidenceId) || retainedAttachmentIds.has(attachment.evidenceId)) {
+                return true;
+              }
+              if (remainingAttachments === 0) return false;
+              remainingAttachments -= 1;
+              retainedAttachmentIds.add(attachment.evidenceId);
+              return true;
+            });
+            return {
+              ...message,
+              attachmentEvidenceIds: attachments.map((attachment) => attachment.evidenceId),
+              attachments,
+            };
+          });
+          conversations.push({ ...data, messages: boundedMessages });
+          evidence.push(...boundedMessages, ...boundedMessages.flatMap((message) => message.attachments));
         } else if (step.operation === "coach-brief") {
           const data = result.data as CoachBriefProjection;
           brief = data;
@@ -259,6 +304,10 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
             if (!item) throw new Error("Citation escaped the bounded retrieval evidence set.");
             return normalizeCitation(scope, citation, item);
           });
+          const citedIds = new Set(citations.map((citation) => citation.evidenceId));
+          if (citedIds.size !== byId.size || [...byId.keys()].some((id) => !citedIds.has(id))) {
+            return { status: "invalid", message: "Retrieval citations do not match the bounded evidence set." };
+          }
         }
       }
 

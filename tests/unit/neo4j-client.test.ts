@@ -79,6 +79,30 @@ describe("Neo4j client transaction timeouts", () => {
     expect(driverMocks.executeWrite).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000 });
   });
 
+  it("rejects an aborted transaction and closes its session", async () => {
+    let settle!: (value: unknown) => void;
+    driverMocks.executeRead.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
+    const client = createNeo4jClient({ environment: "test" });
+    const controller = new AbortController();
+    const pending = client.executeRead(async () => "read", { signal: controller.signal });
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(driverMocks.sessionClose).toHaveBeenCalledOnce();
+    settle("late result");
+  });
+
+  it("does not open a session for an already aborted transaction", async () => {
+    const client = createNeo4jClient({ environment: "test" });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.executeRead(async () => "read", { signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(driverMocks.session).not.toHaveBeenCalled();
+  });
+
   it("passes validated driver timeout overrides to the driver", () => {
     const driverTimeouts = {
       connectionMs: 50,

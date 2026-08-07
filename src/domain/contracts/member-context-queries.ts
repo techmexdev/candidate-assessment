@@ -39,6 +39,7 @@ export type BoundedMemberContextQuery = {
   readonly limit: number;
   readonly timeoutMs: number;
   readonly cursor?: string;
+  readonly signal?: AbortSignal;
 };
 
 export type SummaryQuery = BoundedMemberContextQuery;

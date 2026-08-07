@@ -168,6 +168,7 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
         selection,
         requestedFor: request.requestedFor,
         handle: request.memberContext,
+        signal,
       }), signal);
       if (retrievalStage.status === "aborted") {
         return cancelled()

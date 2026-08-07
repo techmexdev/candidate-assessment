@@ -199,7 +199,9 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
       operation: (handle: MemberContextReadHandle) => Promise<MemberContextQueryResult<T>>,
     ): Promise<MemberContextQueryResult<T>> => {
       try {
+        query.signal?.throwIfAborted();
         const preflight = await operation(delegate);
+        query.signal?.throwIfAborted();
         if (preflight.status === "invalid") return preflight;
         const currentSeal = await this.client.executeRead(
           async (transaction) => {
@@ -210,7 +212,7 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
             });
             return sealMetadata(result.records[0]);
           },
-          { timeoutMs: query.timeoutMs },
+          { timeoutMs: query.timeoutMs, ...(query.signal ? { signal: query.signal } : {}) },
         );
         if (!sameSeal(currentSeal, seal)) return unavailable();
         return preflight;

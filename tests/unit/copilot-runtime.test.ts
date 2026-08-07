@@ -271,6 +271,43 @@ describe("bounded Copilot runtime", () => {
     expect(retrieve).not.toHaveBeenCalled();
   });
 
+  it("passes the combined cancellation signal into retrieval", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const retrieve = vi.fn(async (retrievalRequest: Readonly<MemberContextRetrievalRequest>) => {
+      observedSignal = retrievalRequest.signal;
+      await new Promise<void>((resolve) => retrievalRequest.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      return { status: "unavailable" as const, message: "aborted" };
+    });
+    const { runtime } = runtimeHarness({ retrieve });
+    const controller = new AbortController();
+    const answer = runtime.answer(request({ kind: "quick-prompt", promptId: "adherence" }), { signal: controller.signal });
+
+    await vi.waitFor(() => expect(observedSignal).toBeInstanceOf(AbortSignal));
+    controller.abort();
+
+    await expect(answer).resolves.toEqual({ status: "cancelled", requestId: "request:1" });
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
+  it("keeps internal retrieval deadlines distinct from caller cancellation", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const retrieve = vi.fn(async (retrievalRequest: Readonly<MemberContextRetrievalRequest>) => {
+      observedSignal = retrievalRequest.signal;
+      await new Promise<void>((resolve) => retrievalRequest.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      return { status: "unavailable" as const, message: "aborted" };
+    });
+    const { runtime } = runtimeHarness({ retrieve, deadlineMs: 5 });
+
+    await expect(runtime.answer(request({ kind: "quick-prompt", promptId: "adherence" }))).resolves.toEqual({
+      status: "unavailable",
+      requestId: "request:1",
+      code: "graph-timeout",
+      retryable: true,
+      message: "Member context retrieval timed out.",
+    });
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
   it("reauthorizes and opens the continuation's sealed revision; a request without it opens active", async () => {
     const runtime = { answer: vi.fn(async (value: CopilotRuntimeRequest) => ({ status: "cancelled" as const, requestId: value.requestId })) };
     const openActive = vi.fn(async () => ({ status: "ready" as const, handle }));

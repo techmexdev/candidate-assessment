@@ -116,6 +116,28 @@ describe.sequential("Neo4j member context persistence", () => {
       .toThrow(/refuse destructive setup against non-local Neo4j host/);
   });
 
+  it("cancels an in-flight direct Bolt read and remains usable", async () => {
+    const controller = new AbortController();
+    let started!: () => void;
+    let release!: () => void;
+    const queryStarted = new Promise<void>((resolve) => { started = resolve; });
+    const holdTransaction = new Promise<void>((resolve) => { release = resolve; });
+    const pending = client.executeRead(async (transaction) => {
+      await transaction.run("RETURN 1 AS ready");
+      started();
+      await holdTransaction;
+      return "late result";
+    }, { timeoutMs: 1_000, signal: controller.signal });
+
+    await queryStarted;
+    controller.abort();
+    release();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await expect(client.executeRead(async (transaction) => transaction.run("RETURN 1 AS ready")))
+      .resolves.toMatchObject({ records: expect.any(Array) });
+  });
+
   it("resets Member Context data without deleting Movement namespace data", async () => {
     await client.executeWrite(async (transaction) => {
       await transaction.run(`

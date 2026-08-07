@@ -47,7 +47,7 @@ export type Neo4jQueryResult = { readonly records: readonly Neo4jRecord[] };
 export type Neo4jTransaction = {
   readonly run: (query: string, parameters?: Readonly<Record<string, unknown>>) => Promise<Neo4jQueryResult>;
 };
-export type Neo4jExecutionOptions = { readonly timeoutMs?: number };
+export type Neo4jExecutionOptions = { readonly timeoutMs?: number; readonly signal?: AbortSignal };
 export type Neo4jClient = {
   readonly executeRead: <T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) => Promise<T>;
   readonly executeWrite: <T>(work: (transaction: Neo4jTransaction) => Promise<T>, options?: Neo4jExecutionOptions) => Promise<T>;
@@ -113,19 +113,31 @@ class DriverNeo4jClient implements Neo4jClient {
     options: Neo4jExecutionOptions = {},
   ) {
     const timeout = resolveTransactionTimeout(options.timeoutMs);
+    options.signal?.throwIfAborted();
     const session = this.driver.session({
       database: this.database,
       defaultAccessMode: mode === "read" ? neo4j.session.READ : neo4j.session.WRITE,
       bookmarkManager: this.bookmarks,
     });
+    let aborted = false;
+    let rejectAborted!: (reason?: unknown) => void;
+    const abortedExecution = new Promise<never>((_resolve, reject) => { rejectAborted = reject; });
+    const abort = () => {
+      aborted = true;
+      rejectAborted(options.signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
+      void session.close().catch(() => undefined);
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     try {
       const callback = (transaction: ManagedTransaction) => work(transaction as unknown as Neo4jTransaction);
       const transactionConfig = { timeout };
-      return mode === "read"
-        ? await session.executeRead(callback, transactionConfig)
-        : await session.executeWrite(callback, transactionConfig);
+      const execution = mode === "read"
+        ? session.executeRead(callback, transactionConfig)
+        : session.executeWrite(callback, transactionConfig);
+      return options.signal ? await Promise.race([execution, abortedExecution]) : await execution;
     } finally {
-      await session.close();
+      options.signal?.removeEventListener("abort", abort);
+      if (!aborted) await session.close();
     }
   }
 
