@@ -34,7 +34,10 @@ export type CopilotRuntimeDependencies = {
   readonly continuationTtlMs?: number;
 };
 
-type StageResult<Value> = { readonly status: "ready"; readonly value: Value } | { readonly status: "aborted" };
+type StageResult<Value> =
+  | { readonly status: "ready"; readonly value: Value }
+  | { readonly status: "aborted" }
+  | { readonly status: "failed" };
 
 async function waitForStage<Value>(promise: Promise<Value>, signal: AbortSignal): Promise<StageResult<Value>> {
   if (signal.aborted) return { status: "aborted" };
@@ -48,7 +51,7 @@ async function waitForStage<Value>(promise: Promise<Value>, signal: AbortSignal)
     };
     const onAbort = () => finish({ status: "aborted" });
     signal.addEventListener("abort", onAbort, { once: true });
-    promise.then((value) => finish({ status: "ready", value }), () => finish({ status: "ready", value: undefined as Value }));
+    promise.then((value) => finish({ status: "ready", value }), () => finish({ status: "failed" }));
   });
 }
 
@@ -138,13 +141,16 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
               ? { status: "cancelled", requestId: request.requestId }
               : { status: "model-error", requestId: request.requestId, code: "provider-timeout", retryable: true, message: "Copilot intent selection timed out." };
           }
+          if (modelStage.status === "failed") {
+            return { status: "model-error", requestId: request.requestId, code: "provider-unavailable", retryable: true, message: "Copilot intent selection is temporarily unavailable." };
+          }
           const modelResult = modelStage.value;
-          if (!modelResult || modelResult.status === "failed") {
-            const timedOut = modelResult?.reason === "timeout";
+          if (modelResult.status === "failed") {
+            const timedOut = modelResult.reason === "timeout";
             return {
               status: "model-error",
               requestId: request.requestId,
-              code: timedOut ? "provider-timeout" : modelResult?.reason === "invalid-structured-output" ? "malformed-selection" : "provider-unavailable",
+              code: timedOut ? "provider-timeout" : modelResult.reason === "invalid-structured-output" ? "malformed-selection" : "provider-unavailable",
               retryable: true,
               message: timedOut ? "Copilot intent selection timed out." : "Copilot intent selection is temporarily unavailable.",
             };
@@ -166,8 +172,10 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
           ? { status: "cancelled", requestId: request.requestId }
           : { status: "unavailable", requestId: request.requestId, code: "graph-timeout", retryable: true, message: "Member context retrieval timed out." };
       }
+      if (retrievalStage.status === "failed") {
+        return { status: "unavailable", requestId: request.requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
+      }
       const retrieved = retrievalStage.value;
-      if (!retrieved) return { status: "unavailable", requestId: request.requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
       if (retrieved.status !== "ready") return mapRetrievalFailure(request.requestId, retrieved);
       if (signal.aborted) return cancelled()
         ? { status: "cancelled", requestId: request.requestId }
@@ -245,6 +253,9 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
       };
       const continuationStage = await waitForStage(dependencies.signContinuation(claims), signal);
       if (continuationStage.status === "aborted") return { status: "cancelled", requestId: request.requestId };
+      if (continuationStage.status === "failed") {
+        return { status: "model-error", requestId: request.requestId, code: "grounding-rejected", retryable: true, message: "Copilot answer failed grounding validation." };
+      }
       const packet: CopilotAnswerPacket = {
         schemaVersion: "copilot-answer/v1",
         requestId: request.requestId,

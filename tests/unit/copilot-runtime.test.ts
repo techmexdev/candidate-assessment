@@ -113,6 +113,26 @@ describe("bounded Copilot runtime", () => {
     });
   });
 
+  it("maps rejected stage promises to their existing fail-closed outcomes", async () => {
+    const rejectedModel = runtimeHarness({ model: { select: vi.fn(async () => { throw new Error("provider failed"); }) } }).runtime;
+    await expect(rejectedModel.answer(request({ kind: "free-text", question: "How is consistency trending?" }))).resolves.toMatchObject({
+      status: "model-error",
+      code: "provider-unavailable",
+    });
+
+    const rejectedRetrieval = runtimeHarness({ retrieve: vi.fn(async () => { throw new Error("graph failed"); }) }).runtime;
+    await expect(rejectedRetrieval.answer(request({ kind: "quick-prompt", promptId: "adherence" }))).resolves.toMatchObject({
+      status: "unavailable",
+      code: "graph-unavailable",
+    });
+
+    const rejectedSignature = runtimeHarness({ signContinuation: vi.fn(async () => { throw new Error("signing failed"); }) }).runtime;
+    await expect(rejectedSignature.answer(request({ kind: "quick-prompt", promptId: "adherence" }))).resolves.toMatchObject({
+      status: "model-error",
+      code: "grounding-rejected",
+    });
+  });
+
   it("returns cancelled and ignores a model result that settles after abort", async () => {
     let settle!: (value: Awaited<ReturnType<CopilotModel["select"]>>) => void;
     const pending = new Promise<Awaited<ReturnType<CopilotModel["select"]>>>((resolve) => { settle = resolve; });
@@ -175,5 +195,40 @@ describe("bounded Copilot runtime", () => {
     expect(result).toMatchObject({ status: "continuation-expired" });
     expect(openRevision).not.toHaveBeenCalled();
     expect(runtime.answer).not.toHaveBeenCalled();
+  });
+
+  it("maps rejected continuation verification and member-context opens to their existing fallbacks", async () => {
+    const runtime = { answer: vi.fn() };
+    const continuation = {
+      schemaVersion: "signed-copilot-continuation/v1" as const,
+      algorithm: "hmac-sha256" as const,
+      claims: { schemaVersion: "copilot-continuation-claims/v1" as const, coachId: "coach_casey", memberId: scope.memberId, contextRevisionId: scope.contextRevisionId, answerId: "answer:prior", intentId: "adherence" as const, selectedEvidenceIds: [], issuedAt: "2026-08-07T09:00:00.000Z", expiresAt: "2026-08-07T11:00:00.000Z" },
+      signature: "signed",
+    };
+    const verificationFailure = createAnswerCopilotQuestion({
+      memberContext: { openActive: vi.fn(), openRevision: vi.fn() },
+      authorizeMemberContext: vi.fn(async () => true),
+      runtime,
+      verifyContinuation: vi.fn(async () => { throw new Error("verification failed"); }),
+      now: () => now,
+    });
+    await expect(verificationFailure({
+      coachId: "coach_casey",
+      authorizationId: "grant:1",
+      request: { schemaVersion: "copilot-request/v1", requestId: "request:1", memberId: scope.memberId, requestedFor: "2026-07-08", input: { kind: "quick-prompt", promptId: "adherence" }, continuation },
+    })).resolves.toMatchObject({ status: "continuation-expired" });
+
+    const openFailure = createAnswerCopilotQuestion({
+      memberContext: { openActive: vi.fn(async () => { throw new Error("open failed"); }), openRevision: vi.fn() },
+      authorizeMemberContext: vi.fn(async () => true),
+      runtime,
+      verifyContinuation: vi.fn(),
+      now: () => now,
+    });
+    await expect(openFailure({
+      coachId: "coach_casey",
+      authorizationId: "grant:1",
+      request: { schemaVersion: "copilot-request/v1", requestId: "request:1", memberId: scope.memberId, requestedFor: "2026-07-08", input: { kind: "quick-prompt", promptId: "adherence" } },
+    })).resolves.toMatchObject({ status: "unavailable", code: "graph-unavailable" });
   });
 });

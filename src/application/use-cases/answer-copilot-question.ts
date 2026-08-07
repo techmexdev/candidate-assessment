@@ -24,7 +24,10 @@ export type AnswerCopilotQuestionDependencies = MemberContextReadBoundary & {
   readonly deadlineMs?: number;
 };
 
-type AwaitedStage<Value> = { readonly status: "ready"; readonly value: Value } | { readonly status: "aborted" };
+type AwaitedStage<Value> =
+  | { readonly status: "ready"; readonly value: Value }
+  | { readonly status: "aborted" }
+  | { readonly status: "failed" };
 
 async function waitFor<Value>(promise: PromiseLike<Value> | Value, signal: AbortSignal): Promise<AwaitedStage<Value>> {
   if (signal.aborted) return { status: "aborted" };
@@ -40,7 +43,7 @@ async function waitFor<Value>(promise: PromiseLike<Value> | Value, signal: Abort
     signal.addEventListener("abort", abort, { once: true });
     Promise.resolve(promise).then(
       (value) => finish({ status: "ready", value }),
-      () => finish({ status: "ready", value: null as Value }),
+      () => finish({ status: "failed" }),
     );
   });
 }
@@ -92,13 +95,14 @@ export function createAnswerCopilotQuestion(dependencies: AnswerCopilotQuestionD
       authorizationId: input.authorizationId,
     }), signal);
     if (authorized.status === "aborted") return timedOutOrCancelled(requestId, cancelled());
+    if (authorized.status === "failed") return { status: "denied", requestId, message: "Member context is unavailable." };
     if (!authorized.value) return { status: "denied", requestId, message: "Member context is unavailable." };
 
     let continuationClaims: Readonly<CopilotContinuationClaims> | undefined;
     if (input.request.continuation) {
       const verified = await waitFor(dependencies.verifyContinuation(input.request.continuation), signal);
       if (verified.status === "aborted") return timedOutOrCancelled(requestId, cancelled());
-      if (!verified.value || !validContinuationBinding(verified.value, input, now())) {
+      if (verified.status === "failed" || !verified.value || !validContinuationBinding(verified.value, input, now())) {
         return { status: "continuation-expired", requestId, message: "The saved Copilot context is no longer valid. Refresh deliberately to start from the active revision." };
       }
       continuationClaims = verified.value;
@@ -111,7 +115,7 @@ export function createAnswerCopilotQuestion(dependencies: AnswerCopilotQuestionD
       ...(continuationClaims ? { contextRevisionId: continuationClaims.contextRevisionId } : {}),
     }), signal);
     if (opened.status === "aborted") return timedOutOrCancelled(requestId, cancelled());
-    if (!opened.value) return { status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
+    if (opened.status === "failed") return { status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
     if (opened.value.status === "denied") return { status: "denied", requestId, message: "Member context is unavailable." };
     if (opened.value.status === "empty") return { status: "empty", requestId, message: "Member context is not available." };
     if (opened.value.status === "stale") return { status: "stale", requestId, requestedRevisionId: opened.value.requestedRevisionId, activeRevisionId: opened.value.activeRevisionId, message: "The saved Copilot revision is no longer available." };
@@ -125,7 +129,7 @@ export function createAnswerCopilotQuestion(dependencies: AnswerCopilotQuestionD
         timeoutMs: 1_000,
       }), signal);
       if (priorEvidence.status === "aborted") return timedOutOrCancelled(requestId, cancelled());
-      if (!priorEvidence.value
+      if (priorEvidence.status === "failed"
         || priorEvidence.value.status !== "ready"
         || priorEvidence.value.contextRevisionId !== continuationClaims.contextRevisionId
         || priorEvidence.value.evidenceIds.length !== continuationClaims.selectedEvidenceIds.length

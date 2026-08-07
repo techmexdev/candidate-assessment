@@ -3,6 +3,7 @@ import type {
   CopilotEvidenceAtom,
   CopilotScopeEnvelope,
 } from "../../domain/contracts/copilot";
+import { sameScope } from "../../domain/contracts/copilot";
 import type {
   ChurnAssessmentEvidenceProjection,
   ChurnReasonEvidenceProjection,
@@ -86,15 +87,6 @@ function isClientDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00.000Z`));
 }
 
-function matchingScope<T>(
-  handle: MemberContextReadHandle,
-  result: MemberContextQueryResult<T>,
-): boolean {
-  return result.memberId === handle.memberId
-    && result.contextRevisionId === handle.contextRevisionId
-    && result.authority === handle.authority;
-}
-
 function distinctEvidence(values: readonly (MemberEvidenceProjection | MessageProjection)[]) {
   return [...new Map(values.map((value) => [value.evidenceId, value])).values()];
 }
@@ -140,7 +132,7 @@ export function createMemberContextRetrieval(dependencies: MemberContextRetrieva
         if (!allowed) return { status: "revoked" } as const;
         readCount += 1;
         const result = await operation();
-        if (!matchingScope(handle, result)) return { status: "scope-mismatch" } as const;
+        if (!sameScope(handle, result)) return { status: "scope-mismatch" } as const;
         return { status: "result", result } as const;
       };
 

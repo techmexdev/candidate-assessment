@@ -275,7 +275,7 @@ function requireNonEmpty(value: string, label: string): void {
   if (!value.trim()) throw new Error(`${label} must not be empty`);
 }
 
-function sameScope(left: CopilotScopeEnvelope, right: CopilotScopeEnvelope): boolean {
+export function sameScope(left: CopilotScopeEnvelope, right: CopilotScopeEnvelope): boolean {
   return left.memberId === right.memberId
     && left.contextRevisionId === right.contextRevisionId
     && left.authority === right.authority;

@@ -34,7 +34,7 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function boundedId(value: unknown, maximum = 200): value is string {
+export function boundedId(value: unknown, maximum = 200): value is string {
   return typeof value === "string"
     && value.length > 0
     && value.length <= maximum

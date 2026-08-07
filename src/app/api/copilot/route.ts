@@ -1,13 +1,13 @@
 import type { AnswerCopilotQuestionRequest } from "../../../application/use-cases/answer-copilot-question";
 import {
-  COPILOT_QUICK_PROMPT_IDS,
   type CopilotOutcome,
+  type CopilotQuestionInput,
   type CopilotRequest,
 } from "../../../domain/contracts/copilot";
-import { COPILOT_MAX_QUESTION_LENGTH } from "../../../domain/policies/copilot-retrieval-plan";
+import { COPILOT_MAX_QUESTION_LENGTH, isCopilotQuickPromptId } from "../../../domain/policies/copilot-retrieval-plan";
 import { configuredCopilotComposition } from "../../../server/copilot/composition";
 import type { MockCoachSession } from "../../../server/auth/mock-coach-session";
-import { isSyntacticallyValidCopilotContinuation } from "../../../server/copilot/continuation-token";
+import { boundedId, isSyntacticallyValidCopilotContinuation } from "../../../server/copilot/continuation-token";
 
 export const COPILOT_MAX_BODY_BYTES = 16_384;
 export const COPILOT_TOTAL_DEADLINE_MS = 5_000;
@@ -47,14 +47,6 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
     && Object.keys(value).every((key) => allowed.has(key));
 }
 
-function boundedId(value: unknown): value is string {
-  return typeof value === "string"
-    && value.length > 0
-    && value.length <= 200
-    && value.trim() === value
-    && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
 function clientDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -70,19 +62,30 @@ function decodeRequest(value: unknown): CopilotRequest | null {
     || !clientDate(value.requestedFor)
     || !record(value.input)) return null;
 
+  let input: CopilotQuestionInput;
   if (value.input.kind === "quick-prompt") {
     if (!exactKeys(value.input, ["kind", "promptId"])
-      || !COPILOT_QUICK_PROMPT_IDS.includes(value.input.promptId as never)) return null;
+      || typeof value.input.promptId !== "string"
+      || !isCopilotQuickPromptId(value.input.promptId)) return null;
+    input = { kind: "quick-prompt", promptId: value.input.promptId };
   } else if (value.input.kind === "free-text") {
     if (!exactKeys(value.input, ["kind", "question"])
       || typeof value.input.question !== "string"
       || value.input.question.trim().length === 0
       || value.input.question.length > COPILOT_MAX_QUESTION_LENGTH) return null;
+    input = { kind: "free-text", question: value.input.question };
   } else return null;
 
   if (Object.hasOwn(value, "continuation")
     && !isSyntacticallyValidCopilotContinuation(value.continuation)) return null;
-  return value as CopilotRequest;
+  return {
+    schemaVersion: "copilot-request/v1",
+    requestId: value.requestId,
+    memberId: value.memberId,
+    requestedFor: value.requestedFor,
+    input,
+    ...(isSyntacticallyValidCopilotContinuation(value.continuation) ? { continuation: value.continuation } : {}),
+  };
 }
 
 async function readBoundedJson(request: Request): Promise<{ status: "ready"; value: unknown } | { status: "invalid" | "too-large" }> {
@@ -90,13 +93,38 @@ async function readBoundedJson(request: Request): Promise<{ status: "ready"; val
   if (declared !== null) {
     const bytes = Number(declared);
     if (!Number.isSafeInteger(bytes) || bytes < 0) return { status: "invalid" };
-    if (bytes > COPILOT_MAX_BODY_BYTES) return { status: "too-large" };
+    if (bytes > COPILOT_MAX_BODY_BYTES) {
+      await request.body?.cancel().catch(() => undefined);
+      return { status: "too-large" };
+    }
   }
+  const reader = request.body?.getReader();
+  if (!reader) return { status: "invalid" };
   try {
-    const text = await request.text();
-    if (Buffer.byteLength(text, "utf8") > COPILOT_MAX_BODY_BYTES) return { status: "too-large" };
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (byteLength + value.byteLength > COPILOT_MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return { status: "too-large" };
+      }
+      chunks.push(value);
+      byteLength += value.byteLength;
+    }
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const text = new TextDecoder().decode(bytes);
     return { status: "ready", value: JSON.parse(text) as unknown };
-  } catch { return { status: "invalid" }; }
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return { status: "invalid" };
+  }
 }
 
 const deniedPayload = Object.freeze({

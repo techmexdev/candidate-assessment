@@ -101,6 +101,60 @@ describe("Copilot route", () => {
     expect(answer).not.toHaveBeenCalled();
   });
 
+  it("cancels an incrementally streamed body as soon as it crosses the byte limit", async () => {
+    const cancel = vi.fn();
+    let chunk = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        chunk += 1;
+        if (chunk === 1) controller.enqueue(new Uint8Array(16_000));
+        else controller.enqueue(new Uint8Array(500));
+      },
+      cancel,
+    });
+    const streamed = new Request("https://axon.test/api/copilot", {
+      method: "POST",
+      body,
+      headers: { origin: "https://axon.test", "content-type": "application/json" },
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const resolveSession = vi.fn(async () => session);
+    const answer = vi.fn(async () => outcome("empty"));
+    const response = await createCopilotPostHandler({ resolveSession, answer })(streamed);
+
+    expect(response.status).toBe(413);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(resolveSession).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid JSON split across byte-stream chunks", async () => {
+    const encoded = new TextEncoder().encode(JSON.stringify({
+      ...validBody,
+      input: { kind: "free-text", question: "How is sleep trending? 💤" },
+    }));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded.slice(0, encoded.length - 2));
+        controller.enqueue(encoded.slice(encoded.length - 2));
+        controller.close();
+      },
+    });
+    const streamed = new Request("https://axon.test/api/copilot", {
+      method: "POST",
+      body,
+      headers: { origin: "https://axon.test", "content-type": "application/json" },
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const answer = vi.fn(async () => outcome("empty"));
+    const response = await createCopilotPostHandler({ resolveSession: async () => session, answer })(streamed);
+
+    expect(response.status).toBe(200);
+    expect(answer).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ input: { kind: "free-text", question: "How is sleep trending? 💤" } }),
+    }), expect.anything());
+  });
+
   it("uses one non-enumerating denial for missing sessions, guessed members, and wrong grants", async () => {
     const deniedAnswer = vi.fn(async () => outcome("denied"));
     const wrongGrant = createCopilotPostHandler({ resolveSession: async () => session, answer: deniedAnswer });

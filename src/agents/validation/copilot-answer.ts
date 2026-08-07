@@ -1,4 +1,4 @@
-import type { CopilotAnswerPacket, CopilotEvidenceAtom } from "../../domain/contracts/copilot";
+import { sameScope, type CopilotAnswerPacket } from "../../domain/contracts/copilot";
 import type { CopilotIntentRecipe } from "../../domain/policies/copilot-retrieval-plan";
 
 export type CopilotAnswerValidationResult =
@@ -13,12 +13,6 @@ export type CopilotAnswerValidationResult =
         | "chart-invalid"
         | "quote-not-exact";
     };
-
-function sameScope(packet: CopilotAnswerPacket, atom: CopilotEvidenceAtom): boolean {
-  return packet.memberId === atom.memberId
-    && packet.contextRevisionId === atom.contextRevisionId
-    && packet.authority === atom.authority;
-}
 
 function allowedKinds(recipe: CopilotIntentRecipe, sectionId: string) {
   if (sectionId === "next-action" || sectionId === "limitation") return recipe.evidenceKinds;

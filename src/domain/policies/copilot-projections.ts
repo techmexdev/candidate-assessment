@@ -7,6 +7,7 @@ import type {
   CopilotFactEvidenceAtom,
   CopilotScopeEnvelope,
 } from "../contracts/copilot";
+import { sameScope } from "../contracts/copilot";
 import type {
   CitationProjection,
   MemberEvidenceProjection,
@@ -170,9 +171,7 @@ export function createCopilotChart(input: Readonly<{
   const precision = first.temporal.precision;
   const evidenceIds = new Set<string>();
   for (const atom of input.atoms) {
-    if (atom.memberId !== input.scope.memberId
-      || atom.contextRevisionId !== input.scope.contextRevisionId
-      || atom.authority !== input.scope.authority
+    if (!sameScope(atom, input.scope)
       || atom.unit !== first.unit
       || atom.temporal.precision !== precision
       || typeof atom.value !== "number"

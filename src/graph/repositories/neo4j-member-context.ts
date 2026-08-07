@@ -196,7 +196,7 @@ class Neo4jMemberContextReadProvider implements MemberContextReadProvider {
           || !validateMemberContextGraph(snapshot).valid) {
           return unavailable();
         }
-        return operation(createMemberContextReadHandle(snapshot, coachId, "canonical", this.cursorSecret));
+        return preflight;
       } catch {
         return unavailable();
       }
