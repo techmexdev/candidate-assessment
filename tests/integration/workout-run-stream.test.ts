@@ -282,13 +282,18 @@ describe("workout run submission, worker, and replay integration", () => {
     const claim = await dependencies.repository.claim(created.runId, "worker:one", NOW, "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim missing");
     await dependencies.repository.awaitClarification(claim.fence, NOW, ["joint:knee"]);
+    const protectClarification = vi.fn(async () => ({ status: "stored" as const, protectedPromptSnapshotId: "prompt:clarification" }));
     const answer = createAnswerWorkoutClarification({
       repository: dependencies.repository, authorization: dependencies.authorization,
-      protectPrompt: async () => ({ status: "stored" as const, protectedPromptSnapshotId: "prompt:clarification" }),
+      protectPrompt: protectClarification,
       createId: () => "input:clarification", now: () => NOW,
     });
     await expect(answer({ runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", answer: "Use the patellofemoral restriction" }))
       .resolves.toEqual({ status: "requeued", revision: 2 });
+    expect(protectClarification).toHaveBeenCalledWith(expect.objectContaining({
+      previousProtectedPromptSnapshotId: "prompt:protected",
+      prompt: "Use the patellofemoral restriction",
+    }));
     const clarified = await dependencies.repository.getRun(created.runId, "coach:one", "member:one");
     expect(clarified?.inputRevisions).toHaveLength(2);
     expect(JSON.stringify(clarified)).not.toContain("Use the patellofemoral restriction");

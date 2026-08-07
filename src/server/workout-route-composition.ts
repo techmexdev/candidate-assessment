@@ -20,6 +20,7 @@ import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
 import { MEMBER_CONTEXT_QUERY_MAXIMA } from "../graph/repositories/member-context";
 import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../graph/schema/movement-schema";
 import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-run";
+import { createProtectedWorkoutInputVault } from "./workout-protected-input";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -195,6 +196,7 @@ export type WorkoutServerInfrastructure = {
   readonly authorization: WorkerAuthorizationPort;
   readonly movement: MovementGraphReadProvider;
   readonly memberContext: MemberContextReadProvider;
+  readonly protectedInput: ReturnType<typeof createProtectedWorkoutInputVault>;
 };
 
 /** Shared server-only infrastructure used by both HTTP routes and the detached worker. */
@@ -210,6 +212,7 @@ export function createConfiguredWorkoutServerInfrastructure(
     ...(configuredEnvironment.NEO4J_PASSWORD ? { password: configuredEnvironment.NEO4J_PASSWORD } : {}),
     ...(configuredEnvironment.NEO4J_DATABASE ? { database: configuredEnvironment.NEO4J_DATABASE } : {}),
   });
+  const protectedInput = createProtectedWorkoutInputVault(secret);
   return Object.freeze({
     environment,
     secret,
@@ -218,11 +221,12 @@ export function createConfiguredWorkoutServerInfrastructure(
     authorization: createWorkoutGrantAuthorization(secret),
     movement: createNeo4jMovementGraphReadProvider(client),
     memberContext: createNeo4jMemberContextReadProvider(client),
+    protectedInput,
   });
 }
 
 export function createConfiguredWorkoutRouteComposition(): WorkoutRouteComposition {
-  const { environment, secret, client, repository, authorization, movement, memberContext } = createConfiguredWorkoutServerInfrastructure(process.env);
+  const { environment, secret, client, repository, authorization, movement, memberContext, protectedInput } = createConfiguredWorkoutServerInfrastructure(process.env);
   const retrieveMemberContext = createRetrieveMemberContext({
     memberContext,
     authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
@@ -234,12 +238,13 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
   const createId = (kind: string) => `${kind}:${randomUUID()}`;
   const modelConfigurationId = process.env.WORKOUT_MODEL_CONFIGURATION_ID?.trim() || "workout-composer:v1";
   const policyRevision = process.env.WORKOUT_POLICY_REVISION?.trim() || "workout-composition/v1";
-  const protectPrompt = async (input: { readonly coachId: string; readonly memberId: string; readonly runId: string; readonly prompt: string; readonly provisioningKey?: string }) => ({
-    status: "stored" as const,
-    protectedPromptSnapshotId: `protected-prompt:${createHmac("sha256", secret)
-      .update(JSON.stringify([input.coachId, input.memberId, input.runId, input.provisioningKey ?? "clarification", input.prompt]))
-      .digest("base64url")}`,
-  });
+  const protectPrompt = async (input: {
+    readonly coachId: string;
+    readonly memberId: string;
+    readonly runId: string;
+    readonly prompt: string;
+    readonly previousProtectedPromptSnapshotId?: string;
+  }) => protectedInput.protect(input);
   const verifyHistoricalTrace = createVerifyHistoricalWorkoutTrace({
     async readCanonicalTraceEvidence(input) {
       const uniqueAssertions = [...new Set(input.assertionIds)].sort();

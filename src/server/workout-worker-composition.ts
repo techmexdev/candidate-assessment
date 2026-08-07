@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createGateway } from "ai";
 import { createAiSdkWorkoutComposer } from "../agents/workout/ai-sdk-composer";
 import { InMemoryCatalogSafetySessionStore } from "../application/ports/catalog-safety-sessions";
@@ -7,6 +7,10 @@ import type { WorkoutRunRepository } from "../application/ports/workout-run-repo
 import { createClaimWorkoutRun } from "../application/use-cases/claim-workout-run";
 import {
   createEvaluateCatalogSafety,
+  type CatalogSafetyInjuryApplicability,
+  type CatalogSafetyResolutionCertificateClaims,
+  type CatalogSafetyResolutionPurpose,
+  type CatalogSafetyResolvedMatch,
   type CatalogSafetyResolutionCertificateVerifier,
 } from "../application/use-cases/evaluate-catalog-safety";
 import {
@@ -14,13 +18,16 @@ import {
   type ExecuteWorkoutRunDependencies,
 } from "../application/use-cases/execute-workout-run";
 import { createRetrieveMemberContext } from "../application/use-cases/retrieve-member-context";
+import { resolveMovementConcepts } from "../application/use-cases/resolve-movement-concepts";
 import { createValidateWorkoutCandidates } from "../application/use-cases/validate-workout-candidates";
 import type { WorkoutRunId } from "../domain/contracts/workout";
-import type { WorkoutConstraintsProjection } from "../domain/contracts/member-context-queries";
+import type { ConceptMention, ConceptResolution } from "../domain/contracts/concept-resolution";
+import type { MovementLaterality } from "../domain/contracts/movement-safety";
 import type { WorkoutCompositionCandidate } from "../domain/policies/workout-composition";
 import { MEMBER_CONTEXT_CYPHER } from "../graph/cypher/member-context";
 import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
 import { canonicalWorkoutDigest } from "../graph/schema/workout-run-schema";
+import { canonicalJson } from "../graph/revisions/movement-graph";
 import { createWorkoutRunWorker, type WorkoutRunWorkerDependencies } from "../workers/workout-run-worker";
 import {
   createConfiguredWorkoutServerInfrastructure,
@@ -137,10 +144,8 @@ function createScopedGrantAuthorizer(authorization: WorkerAuthorizationPort) {
   return { authorizeGrant, authorizeMemberContext };
 }
 
-const deniedCertificates: CatalogSafetyResolutionCertificateVerifier = Object.freeze({
-  trustedIssuerId: "workout-worker:no-implicit-resolution",
-  verify: async () => ({ status: "invalid" as const }),
-});
+const CERTIFICATE_ISSUER = "workout-worker:canonical-resolution/v1";
+const CERTIFICATE_TTL_MS = 5 * 60 * 1_000;
 
 const defaultCandidate = (exerciseConceptId: string): WorkoutCompositionCandidate => ({
   exerciseConceptId,
@@ -161,24 +166,150 @@ function reviewedReferences(references: readonly { readonly state: string; reado
     && reference.graph === "movement-clinical" && reference.stableConceptId ? [reference.stableConceptId] : []);
 }
 
-/** IDs requiring an upstream verified resolution artifact before safety can run. */
-export function unresolvedWorkoutConstraintIds(
-  constraints: Pick<WorkoutConstraintsProjection, "equipment" | "injuries" | "preferences">,
-): readonly string[] {
-  return [...new Set([
-    ...constraints.injuries.flatMap((injury) => {
-      const references = reviewedReferences(injury.domainReferences);
-      return references.length > 0 ? references : [injury.evidenceId];
-    }),
-    ...constraints.equipment.flatMap((equipment) => {
-      const references = reviewedReferences([equipment.domainReference]);
-      return references.length > 0 ? references : [equipment.evidenceId];
-    }),
-    ...constraints.preferences.flatMap((preference) => {
-      const references = reviewedReferences(preference.domainReferences);
-      return references.length > 0 ? references : [preference.evidenceId];
-    }),
-  ])].sort();
+type InjuryAnswer = {
+  readonly conditionStatus?: string;
+  readonly recoveryStage?: string;
+  readonly severityBand?: string;
+  readonly affectedLaterality?: MovementLaterality;
+};
+
+type ProtectedInputSpec = {
+  readonly intent: readonly string[];
+  readonly exclusions: readonly string[];
+  readonly preferences: readonly string[];
+  readonly injuryAnswers: Readonly<Record<string, InjuryAnswer>>;
+};
+
+const promptStopWords = new Set(["a", "an", "and", "build", "for", "focused", "give", "make", "me", "minute", "minutes", "on", "please", "session", "the", "with", "workout"]);
+
+function strings(value: unknown): readonly string[] | undefined {
+  const values = typeof value === "string" ? [value] : value;
+  return Array.isArray(values) && values.every((item) => typeof item === "string" && item.trim().length > 0 && item.length <= 200)
+    ? values.map((item) => item.trim())
+    : undefined;
+}
+
+function parseStructuredInput(value: string): Partial<ProtectedInputSpec> | undefined {
+  if (!value.trim().startsWith("{")) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const input = parsed as Record<string, unknown>;
+    const intent = input.intent === undefined ? undefined : strings(input.intent);
+    const exclusions = input.exclude === undefined ? undefined : strings(input.exclude);
+    const preferences = input.prefer === undefined ? undefined : strings(input.prefer);
+    if ((input.intent !== undefined && !intent) || (input.exclude !== undefined && !exclusions)
+      || (input.prefer !== undefined && !preferences)) return undefined;
+    const injuryAnswers: Record<string, InjuryAnswer> = {};
+    if (input.injuries !== undefined) {
+      if (!input.injuries || typeof input.injuries !== "object" || Array.isArray(input.injuries)) return undefined;
+      for (const [evidenceId, raw] of Object.entries(input.injuries as Record<string, unknown>)) {
+        if (!evidenceId || !raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+        const fields = raw as Record<string, unknown>;
+        const allowed = new Set(["conditionStatus", "recoveryStage", "severityBand", "affectedLaterality"]);
+        if (Object.keys(fields).some((field) => !allowed.has(field))) return undefined;
+        const answer: InjuryAnswer = {};
+        for (const field of ["conditionStatus", "recoveryStage", "severityBand"] as const) {
+          if (fields[field] !== undefined) {
+            if (typeof fields[field] !== "string" || !fields[field].trim() || fields[field].length > 100) return undefined;
+            Object.assign(answer, { [field]: fields[field].trim() });
+          }
+        }
+        if (fields.affectedLaterality !== undefined) {
+          if (!["left", "right", "bilateral", "unknown"].includes(String(fields.affectedLaterality))) return undefined;
+          Object.assign(answer, { affectedLaterality: fields.affectedLaterality as MovementLaterality });
+        }
+        injuryAnswers[evidenceId] = answer;
+      }
+    }
+    return { ...(intent ? { intent } : {}), ...(exclusions ? { exclusions } : {}), ...(preferences ? { preferences } : {}), injuryAnswers };
+  } catch {
+    return undefined;
+  }
+}
+
+function markedPhrases(input: string, marker: RegExp): readonly string[] {
+  return [...input.matchAll(marker)].flatMap((match) => match[1]?.trim() ? [match[1].trim()] : []);
+}
+
+function intentPhrases(input: string): readonly string[] {
+  const words = input.toLocaleLowerCase().replace(/[^a-z0-9 -]/g, " ").split(/\s+/).filter((word) => word && !promptStopWords.has(word));
+  const phrases: string[] = [input.trim()];
+  for (let width = Math.min(3, words.length); width >= 1 && phrases.length < 12; width -= 1) {
+    for (let index = 0; index + width <= words.length && phrases.length < 12; index += 1) {
+      phrases.push(words.slice(index, index + width).join(" "));
+    }
+  }
+  return [...new Set(phrases.filter(Boolean))];
+}
+
+function parseProtectedInput(entries: readonly string[]): ProtectedInputSpec {
+  const intent: string[] = [];
+  const exclusions: string[] = [];
+  const preferences: string[] = [];
+  const injuryAnswers: Record<string, InjuryAnswer> = {};
+  for (const entry of entries) {
+    const structured = parseStructuredInput(entry);
+    if (structured) {
+      intent.push(...(structured.intent ?? []));
+      exclusions.push(...(structured.exclusions ?? []));
+      preferences.push(...(structured.preferences ?? []));
+      Object.assign(injuryAnswers, structured.injuryAnswers);
+      continue;
+    }
+    exclusions.push(...markedPhrases(entry, /(?:avoid|exclude|without|do not use|don't use)\s+([^,.;]+)/gi));
+    preferences.push(...markedPhrases(entry, /(?:prefer|favor|favour)\s+([^,.;]+)/gi));
+    intent.push(...intentPhrases(entry));
+  }
+  return {
+    intent: [...new Set(intent)].slice(0, 12),
+    exclusions: [...new Set(exclusions)].slice(0, 2),
+    preferences: [...new Set(preferences)].slice(0, 2),
+    injuryAnswers,
+  };
+}
+
+function createResolutionCertificateAuthority(secret: string, now: () => string) {
+  const retained = new Map<string, CatalogSafetyResolutionCertificateClaims>();
+  const issue = (purpose: CatalogSafetyResolutionPurpose, request: Omit<CatalogSafetyResolutionCertificateClaims, "certificateId" | "purpose" | "issuerId" | "policyRevision" | "issuedAt" | "expiresAt">) => {
+    const issuedAt = now();
+    const expiresAt = new Date(Date.parse(issuedAt) + CERTIFICATE_TTL_MS).toISOString();
+    const body = { purpose, ...request, issuerId: CERTIFICATE_ISSUER, policyRevision: "canonical-resolution/v1", issuedAt, expiresAt };
+    const certificateId = `resolution-certificate:${createHmac("sha256", secret).update(canonicalJson(body)).digest("base64url")}`;
+    const claims: CatalogSafetyResolutionCertificateClaims = { certificateId, ...body };
+    retained.set(certificateId, claims);
+    return { certificateId } as const;
+  };
+  const verifier: CatalogSafetyResolutionCertificateVerifier = Object.freeze({
+    trustedIssuerId: CERTIFICATE_ISSUER,
+    async verify(request) {
+      const claims = retained.get(request.certificateId);
+      return claims && canonicalJson({
+        certificateId: claims.certificateId,
+        purpose: claims.purpose,
+        runId: claims.runId,
+        movementGraphRevisionId: claims.movementGraphRevisionId,
+        payloadDigest: claims.payloadDigest,
+        ...(claims.emptyResultAttestationId ? { emptyResultAttestationId: claims.emptyResultAttestationId } : {}),
+      }) === canonicalJson(request) ? { status: "verified" as const, claims } : { status: "invalid" as const };
+    },
+  });
+  return { issue, verifier };
+}
+
+function matchPayloadDigest(input: Omit<CatalogSafetyResolvedMatch, "resolution">) {
+  return canonicalWorkoutDigest({
+    conceptId: input.conceptId,
+    conceptKind: input.conceptKind,
+    evidenceId: input.evidenceId,
+    zeroMatchAttested: input.zeroMatchAttested === true,
+    emptyResultAttestationId: input.emptyResultAttestationId ?? null,
+    rankPenalty: input.rankPenalty ?? null,
+  });
+}
+
+function injuryPayloadDigest(input: Omit<CatalogSafetyInjuryApplicability, "resolution">) {
+  return canonicalWorkoutDigest(input);
 }
 
 async function readRevisionSeals(
@@ -214,12 +345,13 @@ export function createCanonicalWorkoutRuntimeDependencies(
 ): ExecuteWorkoutRunDependencies {
   const now = () => new Date().toISOString();
   const sessions = new InMemoryCatalogSafetySessionStore();
+  const certificates = createResolutionCertificateAuthority(infrastructure.secret, now);
   const scoped = createScopedGrantAuthorizer(infrastructure.authorization);
   const retrieveMemberContext = createRetrieveMemberContext({
     memberContext: infrastructure.memberContext,
     authorizeMemberContext: scoped.authorizeMemberContext,
   });
-  const resolveConstraints: ExecuteWorkoutRunDependencies["resolveConstraints"] = async ({ run, authorizationId, persistedSnapshot }) => {
+  const resolveConstraints: ExecuteWorkoutRunDependencies["resolveConstraints"] = async ({ run, authorizationId }) => {
     const member = await retrieveMemberContext({
       coachId: run.coachId,
       memberId: run.memberId,
@@ -231,18 +363,155 @@ export function createCanonicalWorkoutRuntimeDependencies(
     if (constraints.status !== "ready" || member.handle.authority !== "canonical") {
       return { status: "failed", reason: "graph-unavailable" };
     }
-    // These inputs require separately verified resolution certificates. Until
-    // a producer exists, never silently omit or infer them from member text.
-    const candidateConceptIds = unresolvedWorkoutConstraintIds(constraints.data);
-    if (candidateConceptIds.length > 0) {
-      return { status: "clarification-required", candidateConceptIds };
-    }
     const movement = await infrastructure.movement.openRevision(run.movementGraphRevisionId);
     if (movement.status !== "ready" || movement.handle.authority !== "canonical") {
       return { status: "failed", reason: "graph-unavailable" };
     }
     const catalog = await movement.handle.getCatalogExerciseFacts({ maxResults: 100 });
     if (catalog.status !== "ok") return { status: "failed", reason: "graph-unavailable" };
+    const activeInput = run.inputRevisions.find((revision) => revision.inputRevisionId === run.activeInputRevisionId);
+    if (!activeInput) return { status: "failed", reason: "insufficient-safety-context" };
+    const protectedInput = infrastructure.protectedInput.read(activeInput.protectedPromptSnapshotId, {
+      coachId: run.coachId,
+      memberId: run.memberId,
+      runId: run.runId,
+    });
+    if (protectedInput.status !== "ready") return { status: "failed", reason: "insufficient-safety-context" };
+    const inputSpec = parseProtectedInput(protectedInput.entries);
+
+    const unresolvedEquipment = constraints.data.equipment.flatMap((equipment) => {
+      const ids = reviewedReferences([equipment.domainReference]);
+      return ids.length === 1 && ids[0]?.startsWith("equipment:")
+        ? []
+        : [`constraint:equipment:${equipment.evidenceId}:domain-reference`];
+    });
+    if (unresolvedEquipment.length > 0) {
+      return { status: "clarification-required", candidateConceptIds: unresolvedEquipment };
+    }
+
+    const mentions: ConceptMention[] = [
+      ...inputSpec.intent.map((text) => ({ text, role: "target" as const, safetyCritical: false })),
+      ...inputSpec.exclusions.map((text) => ({ text, role: "exclusion" as const, safetyCritical: true })),
+      ...inputSpec.preferences.map((text) => ({ text, role: "preference" as const, safetyCritical: false })),
+    ].slice(0, 16);
+    const promptResolution = mentions.length > 0
+      ? await resolveMovementConcepts(infrastructure.movement, { mentions, graphRevisionId: run.movementGraphRevisionId })
+      : { status: "resolved" as const, resolutions: [] };
+    const hardResolutionFailure = promptResolution.resolutions.some((resolution) => resolution.status !== "resolved"
+      && ["graph-unavailable", "non-authoritative", "invalid-input", "deprecated-mapping"].includes(resolution.reason));
+    if (hardResolutionFailure) return { status: "failed", reason: "graph-unavailable" };
+    const unresolvedExclusions = promptResolution.resolutions.filter((resolution) => {
+      if (resolution.mention.role !== "exclusion") return false;
+      return resolution.status !== "resolved"
+        || !["exercise", "movement-pattern"].includes(resolution.conceptId.split(":", 1)[0]!);
+    });
+    if (unresolvedExclusions.length > 0) {
+      return {
+        status: "clarification-required",
+        candidateConceptIds: unresolvedExclusions.flatMap((resolution) => resolution.status === "resolved"
+          ? [`constraint:exclusion:${resolution.mention.text}`]
+          : resolution.candidates.length > 0
+            ? resolution.candidates.map((candidate) => candidate.conceptId)
+            : [`constraint:exclusion:${resolution.mention.text}`]).slice(0, 25),
+      };
+    }
+
+    const resolvedPrompt: Extract<ConceptResolution, { readonly status: "resolved" }>[] = [];
+    for (const resolution of promptResolution.resolutions) {
+      if (resolution.status === "resolved") resolvedPrompt.push(resolution);
+    }
+    const focusConceptIds = [...new Set(resolvedPrompt.filter((resolution) => resolution.mention.role === "target")
+      .map((resolution) => resolution.conceptId))].sort();
+    const promptEvidenceId = activeInput.protectedPromptSnapshotId;
+    const makeMatch = (purpose: "explicit-exclusion" | "preference", conceptId: string, evidenceId: string, rankPenalty?: number): CatalogSafetyResolvedMatch => {
+      const match = {
+        conceptId: conceptId as CatalogSafetyResolvedMatch["conceptId"],
+        conceptKind: conceptId.startsWith("exercise:") ? "exercise" as const : "movement-pattern" as const,
+        evidenceId,
+        ...(rankPenalty === undefined ? {} : { rankPenalty }),
+      };
+      return {
+        ...match,
+        resolution: certificates.issue(purpose, {
+          runId: run.runId,
+          movementGraphRevisionId: run.movementGraphRevisionId,
+          payloadDigest: matchPayloadDigest(match),
+          maxDepth: 4,
+          maxResults: 100,
+        }),
+      };
+    };
+    const explicitExclusions = resolvedPrompt.filter((resolution) => resolution.mention.role === "exclusion")
+      .map((resolution) => makeMatch("explicit-exclusion", resolution.conceptId, promptEvidenceId));
+    const promptPreferences = resolvedPrompt.filter((resolution) => resolution.mention.role === "preference"
+      && (resolution.conceptId.startsWith("exercise:") || resolution.conceptId.startsWith("movement-pattern:")))
+      .map((resolution) => makeMatch("preference", resolution.conceptId, promptEvidenceId, 1));
+    const memberPreferences = constraints.data.preferences.flatMap((preference) => reviewedReferences(preference.domainReferences)
+      .filter((conceptId) => conceptId.startsWith("exercise:") || conceptId.startsWith("movement-pattern:"))
+      .map((conceptId) => makeMatch("preference", conceptId, preference.evidenceId, 1)));
+
+    const injuryApplicability: CatalogSafetyInjuryApplicability[] = [];
+    const applicabilityAssertionIds: string[] = [];
+    const clarificationFields: string[] = [];
+    for (const injury of constraints.data.injuries) {
+      const references = reviewedReferences(injury.domainReferences);
+      const conditions = references.filter((id) => id.startsWith("condition:"));
+      const anatomy = references.filter((id) => id.startsWith("joint:") || id.startsWith("body-region:"));
+      if (conditions.length !== 1) clarificationFields.push(`constraint:injury:${injury.evidenceId}:condition-reference`);
+      if (anatomy.length !== 1) clarificationFields.push(`constraint:injury:${injury.evidenceId}:anatomy-reference`);
+      if (conditions.length !== 1 || anatomy.length !== 1) continue;
+      const rules = await movement.handle.getClinicalRuleFacts({ conditionConceptId: conditions[0]!, maxResults: 32 });
+      if (rules.status !== "ok") return { status: "failed", reason: "graph-unavailable" };
+      if (rules.data.length === 0) {
+        clarificationFields.push(`constraint:injury:${injury.evidenceId}:condition-reference`);
+        continue;
+      }
+      const answer = inputSpec.injuryAnswers[injury.evidenceId] ?? {};
+      const conditionStatus = answer.conditionStatus ?? injury.status.trim();
+      const severityBand = answer.severityBand ?? injury.severity.trim();
+      const recoveryStage = answer.recoveryStage;
+      const affectedLaterality = answer.affectedLaterality;
+      if (!conditionStatus || !rules.data.some((rule) => rule.applicability.conditionStatuses.includes(conditionStatus))) {
+        clarificationFields.push(`constraint:injury:${injury.evidenceId}:conditionStatus`);
+      }
+      if (!recoveryStage || !rules.data.some((rule) => rule.applicability.recoveryStages.includes(recoveryStage))) {
+        clarificationFields.push(`constraint:injury:${injury.evidenceId}:recoveryStage`);
+      }
+      if (!severityBand || !rules.data.some((rule) => rule.applicability.severityBands.includes(severityBand))) {
+        clarificationFields.push(`constraint:injury:${injury.evidenceId}:severityBand`);
+      }
+      if (!affectedLaterality) clarificationFields.push(`constraint:injury:${injury.evidenceId}:affectedLaterality`);
+      const combinationVerified = Boolean(recoveryStage && affectedLaterality && rules.data.some((rule) => (
+        rule.applicability.conditionStatuses.includes(conditionStatus)
+        && rule.applicability.recoveryStages.includes(recoveryStage)
+        && rule.applicability.severityBands.includes(severityBand)
+      )));
+      if (!combinationVerified) continue;
+      const resolved = {
+        memberEvidenceId: injury.evidenceId,
+        conditionConceptId: conditions[0] as `condition:${string}`,
+        affectedAnatomyConceptId: anatomy[0] as `joint:${string}` | `body-region:${string}`,
+        conditionStatus,
+        recoveryStage: recoveryStage!,
+        severityBand,
+        affectedLaterality: affectedLaterality!,
+        evidenceId: injury.evidenceId,
+      };
+      injuryApplicability.push({
+        ...resolved,
+        resolution: certificates.issue("injury-applicability", {
+          runId: run.runId,
+          movementGraphRevisionId: run.movementGraphRevisionId,
+          payloadDigest: injuryPayloadDigest(resolved),
+          maxDepth: 4,
+          maxResults: 100,
+        }),
+      });
+      applicabilityAssertionIds.push(injury.assertionId, ...rules.data.map((rule) => rule.ruleAssertionId));
+    }
+    if (clarificationFields.length > 0) {
+      return { status: "clarification-required", candidateConceptIds: [...new Set(clarificationFields)].sort().slice(0, 25) };
+    }
     const revisionSeals = await readRevisionSeals(
       infrastructure,
       run.memberId,
@@ -255,33 +524,41 @@ export function createCanonicalWorkoutRuntimeDependencies(
         && domainReference.graph === "movement-clinical" && domainReference.stableConceptId ? [domainReference.stableConceptId] : []),
       ...constraints.data.preferences.flatMap((preference) => preference.domainReferences.flatMap((reference) => reference.state === "reviewed"
         && reference.graph === "movement-clinical" && reference.stableConceptId ? [reference.stableConceptId] : [])),
+      ...focusConceptIds,
+      ...explicitExclusions.map((match) => match.conceptId),
+      ...promptPreferences.map((match) => match.conceptId),
+      ...injuryApplicability.flatMap((injury) => [injury.conditionConceptId, injury.affectedAnatomyConceptId]),
     ])].sort();
     const evidenceIds = [...new Set([
       ...constraints.data.equipment.map(({ evidenceId }) => evidenceId),
       ...constraints.data.preferences.map(({ evidenceId }) => evidenceId),
+      ...constraints.data.injuries.map(({ evidenceId }) => evidenceId),
+      ...(explicitExclusions.length > 0 || promptPreferences.length > 0 ? [promptEvidenceId] : []),
     ])].sort();
     const snapshotBase = {
       schemaVersion: "resolved-constraint-snapshot/v1" as const,
       movementGraphRevisionId: run.movementGraphRevisionId,
       memberContextRevisionId: run.memberContextRevisionId,
       canonicalConstraintIds,
-      applicabilityAssertionIds: [] as readonly string[],
+      applicabilityAssertionIds: [...new Set(applicabilityAssertionIds)].sort(),
       evidenceIds,
       zeroMatchCertificates: [] as const,
-      resolverVersion: "canonical-member-context/v1",
+      resolverVersion: "canonical-protected-input/v1",
       searchPolicyVersion: "canonical-exact-reference/v1",
     };
-    const snapshot = persistedSnapshot ?? { ...snapshotBase, digest: canonicalWorkoutDigest(snapshotBase) };
+    // Recompute from the active protected input. A snapshot from an earlier
+    // clarification revision must never override the revised input.
+    const snapshot = { ...snapshotBase, digest: canonicalWorkoutDigest(snapshotBase) };
     return {
       status: "ready",
       snapshot,
       canonicalIntent: {
-        focusConceptIds: canonicalConstraintIds.filter((id) => id.startsWith("movement-pattern:")),
+        focusConceptIds,
         requestedDurationMinutes: run.requestedDurationMinutes,
       },
-      injuryApplicability: [],
-      explicitExclusions: [],
-      preferences: [],
+      injuryApplicability,
+      explicitExclusions,
+      preferences: [...memberPreferences, ...promptPreferences],
       candidateProfiles: catalog.data.map(({ exerciseConceptId }) => defaultCandidate(exerciseConceptId)),
       revisionSeals,
     };
@@ -294,7 +571,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
     tokenSource: { randomBytes },
     now,
     securityAudit: { record: () => undefined },
-    resolutionCertificates: deniedCertificates,
+    resolutionCertificates: certificates.verifier,
   });
   const validateCandidates: ExecuteWorkoutRunDependencies["validateCandidates"] = (request) => createValidateWorkoutCandidates({
     sessions,

@@ -251,7 +251,10 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     })
     CREATE (run)-[:HAS_INPUT_REVISION]->(input)
     SET run.state = 'queued', run.activeInputRevisionId = $inputRevisionId,
-      run.clarificationCandidateIds = null, run.failure = null
+      run.clarificationCandidateIds = null, run.failure = null,
+      run.constraintSnapshot = null, run.revisionSeals = null,
+      run.safetyEnvelope = null, run.modelProposal = null,
+      run.validationReceipt = null
     RETURN run
   `,
   fail: `

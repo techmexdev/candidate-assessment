@@ -16,6 +16,7 @@ export function createAnswerWorkoutClarification(dependencies: {
     readonly memberId: string;
     readonly runId: WorkoutRunId;
     readonly prompt: string;
+    readonly previousProtectedPromptSnapshotId: string;
   }) => Promise<{ readonly status: "stored"; readonly protectedPromptSnapshotId: string } | { readonly status: "failed" }>;
   readonly createId: (kind: "input-revision") => string;
   readonly now: () => string;
@@ -32,15 +33,16 @@ export function createAnswerWorkoutClarification(dependencies: {
     const run = await authorizeWorkoutRunAccess(dependencies, input, "clarification");
     if (!run) return { status: "not-found" };
     if (run.state !== "awaiting-clarification") return { status: "invalid-state" };
+    const previous = run.inputRevisions.find((revision) => revision.inputRevisionId === run.activeInputRevisionId);
+    if (!previous) return { status: "invalid-state" };
     const protectedInput = await dependencies.protectPrompt({
       coachId: run.coachId,
       memberId: run.memberId,
       runId: run.runId,
       prompt: answer,
+      previousProtectedPromptSnapshotId: previous.protectedPromptSnapshotId,
     });
     if (protectedInput.status !== "stored") return { status: "unavailable" };
-    const previous = run.inputRevisions.at(-1);
-    if (!previous) return { status: "invalid-state" };
     const revision = previous.revision + 1;
     const promptDigest = canonicalWorkoutDigest(answer);
     const mutation = await dependencies.repository.answerClarification(run.runId, run.coachId, run.memberId, {

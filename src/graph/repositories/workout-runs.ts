@@ -378,6 +378,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       state: "queued",
       inputRevisions: [...store.run.inputRevisions, revision],
       activeInputRevisionId: revision.inputRevisionId,
+      constraintSnapshot: undefined,
       claim: undefined,
       failure: undefined,
     }) as WorkoutRun;
