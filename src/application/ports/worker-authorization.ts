@@ -31,6 +31,9 @@ export interface WorkerAuthorizationPort {
     readonly memberId: string;
     readonly runId: WorkoutRunId;
     readonly sessionAuthorizationId: string;
+    /** Stable key for idempotent provisioning after a durable creation reservation. */
+    readonly provisioningKey: string;
+    readonly provisionedAt: string;
   }): Promise<WorkerGrantReferenceResult>;
   authorize(input: {
     readonly authorizationReferenceId: string;

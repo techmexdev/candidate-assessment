@@ -123,6 +123,37 @@ const constraintSnapshot = {
 };
 
 describe("in-memory workout run repository contract", () => {
+  it("atomically reserves creation identity and recovers an abandoned owner without changing run identity", async () => {
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
+    const first = {
+      coachId: "coach:one",
+      memberId: "member:one",
+      action: "generate-workout" as const,
+      idempotencyKeyDigest: "sha256:idempotency",
+      requestDigest: "sha256:request",
+      runId: RUN_ID,
+      ownerId: "owner:first",
+      createdAt: "2026-08-07T10:00:00.000Z",
+      expiresAt: "2026-08-07T10:01:00.000Z",
+    };
+    await expect(repository.reserveCreation(first)).resolves.toMatchObject({ status: "reserved", reservation: { runId: RUN_ID } });
+    await expect(repository.reserveCreation({ ...first, runId: asWorkoutRunId("workout-run:duplicate"), ownerId: "owner:second" }))
+      .resolves.toEqual({ status: "pending" });
+    await expect(repository.reserveCreation({ ...first, requestDigest: "sha256:changed", ownerId: "owner:conflict" }))
+      .resolves.toEqual({ status: "idempotency-conflict" });
+
+    await repository.releaseCreation(first);
+    const recovered = await repository.reserveCreation({ ...first, runId: asWorkoutRunId("workout-run:replacement"), ownerId: "owner:second" });
+    expect(recovered).toMatchObject({
+      status: "reserved",
+      reservation: { runId: RUN_ID, ownerId: "owner:second", createdAt: first.createdAt },
+    });
+    if (recovered.status !== "reserved") throw new Error("reservation recovery failed");
+    await expect(repository.finalizeCreation(recovered.reservation, run())).resolves.toMatchObject({ status: "created", run: { runId: RUN_ID } });
+    await expect(repository.reserveCreation({ ...first, ownerId: "owner:third" }))
+      .resolves.toMatchObject({ status: "replayed", run: { runId: RUN_ID } });
+  });
+
   it("enforces scoped idempotency and authorized reads", async () => {
     const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await expect(repository.createOrFind(run())).resolves.toMatchObject({ status: "created" });

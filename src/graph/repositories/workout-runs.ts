@@ -5,13 +5,16 @@ import type {
   ClarificationMutationResult,
   CompleteWorkoutRunInput,
   CreateWorkoutRunResult,
+  FinalizeWorkoutRunCreationResult,
   FencedMutationResult,
+  ReserveWorkoutRunCreationResult,
   RetryWorkoutRunResult,
   WorkoutCompletionArtifact,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
   WorkoutRunInputRevision,
+  WorkoutRunCreationReservation,
   WorkoutRunRepository,
 } from "../../application/ports/workout-run-repository";
 import type {
@@ -71,7 +74,8 @@ export type InMemoryWorkoutRunRepositoryOptions = {
 
 const clone = <Value>(value: Value): Value => structuredClone(value);
 const frozenClone = <Value>(value: Value): Readonly<Value> => deepFreeze(clone(value));
-const identityKey = (run: WorkoutRun) => [run.coachId, run.memberId, "generate-workout", run.idempotencyKeyDigest].join("\u0000");
+const identityKey = (input: Pick<WorkoutRunCreationReservation, "coachId" | "memberId" | "action" | "idempotencyKeyDigest">) =>
+  [input.coachId, input.memberId, input.action, input.idempotencyKeyDigest].join("\u0000");
 const sameAuthorization = (run: WorkoutRun, coachId: string, memberId: string) => run.coachId === coachId && run.memberId === memberId;
 const validDate = (value: string) => Number.isFinite(Date.parse(value));
 
@@ -152,6 +156,17 @@ function isSafeProgressEvent(event: AppendWorkoutRunEvent): boolean {
 export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   private readonly runs = new Map<string, StoredRun>();
   private readonly runIdByIdentity = new Map<string, string>();
+  private readonly creationReservations = new Map<string, {
+    coachId: string;
+    memberId: string;
+    action: "generate-workout";
+    idempotencyKeyDigest: string;
+    requestDigest: string;
+    runId: WorkoutRunId;
+    ownerId?: string;
+    createdAt: string;
+    expiresAt?: string;
+  }>();
   private readonly cursorSecret: Buffer;
   private readonly maxEventsPerRun: number;
   private readonly now: () => string;
@@ -186,8 +201,72 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
       && Date.parse(run.claim!.expiresAt) > Date.parse(now);
   }
 
+  async reserveCreation(input: WorkoutRunCreationReservation): Promise<ReserveWorkoutRunCreationResult> {
+    const key = identityKey(input);
+    const existingId = this.runIdByIdentity.get(key);
+    if (existingId) {
+      const existing = this.runs.get(existingId)!;
+      return existing.run.requestDigest === input.requestDigest
+        ? { status: "replayed", run: this.publicRun(existing) }
+        : { status: "idempotency-conflict" };
+    }
+    const reservation = this.creationReservations.get(key);
+    if (!reservation) {
+      this.creationReservations.set(key, { ...input });
+      return { status: "reserved", reservation: frozenClone(input) as WorkoutRunCreationReservation };
+    }
+    if (reservation.requestDigest !== input.requestDigest) return { status: "idempotency-conflict" };
+    const current = this.now();
+    const available = !reservation.ownerId
+      || reservation.ownerId === input.ownerId
+      || !reservation.expiresAt
+      || (validDate(current) && validDate(reservation.expiresAt) && Date.parse(reservation.expiresAt) <= Date.parse(current));
+    if (!available) return { status: "pending" };
+    reservation.ownerId = input.ownerId;
+    reservation.expiresAt = input.expiresAt;
+    return {
+      status: "reserved",
+      reservation: frozenClone({ ...reservation, ownerId: input.ownerId, expiresAt: input.expiresAt }) as WorkoutRunCreationReservation,
+    };
+  }
+
+  async finalizeCreation(
+    reservation: WorkoutRunCreationReservation,
+    run: WorkoutRun,
+  ): Promise<FinalizeWorkoutRunCreationResult> {
+    const key = identityKey(reservation);
+    const stored = this.creationReservations.get(key);
+    if (!stored || stored.ownerId !== reservation.ownerId || stored.runId !== reservation.runId
+      || stored.requestDigest !== reservation.requestDigest || run.runId !== stored.runId
+      || run.coachId !== stored.coachId || run.memberId !== stored.memberId
+      || run.idempotencyKeyDigest !== stored.idempotencyKeyDigest || run.requestDigest !== stored.requestDigest) {
+      const existingId = this.runIdByIdentity.get(key);
+      const existing = existingId ? this.runs.get(existingId) : undefined;
+      if (existing) return existing.run.requestDigest === run.requestDigest
+        ? { status: "replayed", run: this.publicRun(existing) }
+        : { status: "idempotency-conflict" };
+      return { status: "stale-reservation" };
+    }
+    if (run.retryOfRunId) {
+      const source = this.runs.get(run.retryOfRunId);
+      if (!source || source.run.state !== "failed"
+        || source.run.coachId !== run.coachId || source.run.memberId !== run.memberId) return { status: "stale-reservation" };
+    }
+    const result = await this.createOrFind(run);
+    stored.ownerId = undefined;
+    stored.expiresAt = undefined;
+    return result;
+  }
+
+  async releaseCreation(reservation: WorkoutRunCreationReservation): Promise<void> {
+    const stored = this.creationReservations.get(identityKey(reservation));
+    if (stored?.ownerId !== reservation.ownerId || stored.runId !== reservation.runId) return;
+    stored.ownerId = undefined;
+    stored.expiresAt = undefined;
+  }
+
   async createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult> {
-    const key = identityKey(run);
+    const key = identityKey({ ...run, action: "generate-workout" });
     const existingId = this.runIdByIdentity.get(key);
     if (existingId) {
       const existing = this.runs.get(existingId)!;
@@ -199,6 +278,21 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     const stored: StoredRun = { run: frozenClone(run) as WorkoutRun, events: [], nextEventSequence: 1, completionArtifacts: {} };
     this.runs.set(run.runId, stored);
     this.runIdByIdentity.set(key, run.runId);
+    const reservation = this.creationReservations.get(key);
+    if (reservation) {
+      reservation.ownerId = undefined;
+      reservation.expiresAt = undefined;
+    } else {
+      this.creationReservations.set(key, {
+        coachId: run.coachId,
+        memberId: run.memberId,
+        action: "generate-workout",
+        idempotencyKeyDigest: run.idempotencyKeyDigest,
+        requestDigest: run.requestDigest,
+        runId: run.runId,
+        createdAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(),
+      });
+    }
     this.event(stored, { kind: "queued", occurredAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(), safeData: {} });
     return { status: "created", run: this.publicRun(stored) };
   }

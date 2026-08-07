@@ -1,5 +1,86 @@
 /** Static, parameterized Decision and Run queries. No caller data is interpolated into query text. */
 export const WORKOUT_RUN_CYPHER = Object.freeze({
+  reserveCreation: `
+    MERGE (reservation:WorkoutRunReservation {
+      coachId: $coachId, memberId: $memberId, action: $action,
+      idempotencyKeyDigest: $idempotencyKeyDigest
+    })
+    ON CREATE SET reservation.runId = $runId,
+      reservation.requestDigest = $requestDigest,
+      reservation.reservationOwnerId = $ownerId,
+      reservation.reservationCreatedAt = $createdAt,
+      reservation.reservationExpiresAt = $expiresAt
+    WITH reservation
+    OPTIONAL MATCH (existing:WorkoutRun {
+      coachId: $coachId, memberId: $memberId, action: $action,
+      idempotencyKeyDigest: $idempotencyKeyDigest
+    })
+    WITH reservation, existing,
+      existing IS NULL
+        AND reservation.requestDigest = $requestDigest
+        AND (reservation.reservationOwnerId IS NULL
+          OR reservation.reservationOwnerId = $ownerId
+          OR reservation.reservationExpiresAt IS NULL
+          OR datetime(reservation.reservationExpiresAt) <= datetime()) AS canReserve
+    FOREACH (_ IN CASE WHEN canReserve THEN [1] ELSE [] END |
+      SET reservation.reservationOwnerId = $ownerId,
+        reservation.reservationExpiresAt = $expiresAt
+    )
+    RETURN CASE
+      WHEN existing IS NOT NULL AND existing.requestDigest = $requestDigest THEN 'replayed'
+      WHEN existing IS NOT NULL OR reservation.requestDigest <> $requestDigest THEN 'idempotency-conflict'
+      WHEN canReserve THEN 'reserved'
+      ELSE 'pending'
+    END AS status,
+      reservation.runId AS runId,
+      reservation.requestDigest AS requestDigest,
+      reservation.reservationCreatedAt AS createdAt,
+      reservation.reservationExpiresAt AS expiresAt,
+      existing
+  `,
+  finalizeCreation: `
+    MATCH (reservation:WorkoutRunReservation {
+      coachId: $coachId, memberId: $memberId, action: $action,
+      idempotencyKeyDigest: $idempotencyKeyDigest
+    })
+    WHERE NOT reservation:WorkoutRun
+      AND reservation.runId = $runId
+      AND reservation.requestDigest = $requestDigest
+      AND reservation.reservationOwnerId = $ownerId
+      AND ($retryOfRunId IS NULL OR EXISTS {
+        MATCH (source:WorkoutRun {runId: $retryOfRunId, coachId: $coachId, memberId: $memberId, state: 'failed'})
+      })
+    SET reservation:WorkoutRun,
+      reservation.authorizationReferenceId = $authorizationReferenceId,
+      reservation.state = 'queued', reservation.claimGeneration = 0,
+      reservation.lockVersion = 0, reservation.nextEventSequence = 2,
+      reservation.payload = $payload,
+      reservation.reservationOwnerId = null,
+      reservation.reservationExpiresAt = null
+    CREATE (input:WorkoutRunInputRevision {
+      inputRevisionId: $inputRevisionId, runId: $runId, revision: 1,
+      payload: $inputPayload
+    })
+    CREATE (reservation)-[:HAS_INPUT_REVISION]->(input)
+    CREATE (event:WorkoutRunEvent {
+      runId: $runId, sequence: 1, eventId: $queuedEventId,
+      schemaVersion: $eventSchemaVersion, kind: 'queued', occurredAt: $queuedAt,
+      safeData: '{}'
+    })
+    CREATE (reservation)-[:HAS_EVENT]->(event)
+    RETURN reservation AS run
+  `,
+  releaseCreation: `
+    MATCH (reservation:WorkoutRunReservation {
+      coachId: $coachId, memberId: $memberId, action: $action,
+      idempotencyKeyDigest: $idempotencyKeyDigest, runId: $runId,
+      requestDigest: $requestDigest, reservationOwnerId: $ownerId
+    })
+    WHERE NOT reservation:WorkoutRun
+    SET reservation.reservationOwnerId = null,
+      reservation.reservationExpiresAt = null
+    RETURN reservation
+  `,
   findByIdentity: `
     MATCH (run:WorkoutRun {
       coachId: $coachId, memberId: $memberId, action: $action,
@@ -9,12 +90,12 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     LIMIT 1
   `,
   create: `
-    CREATE (run:WorkoutRun {
+    CREATE (run:WorkoutRun:WorkoutRunReservation {
       runId: $runId, coachId: $coachId, memberId: $memberId,
       action: $action, authorizationReferenceId: $authorizationReferenceId,
       idempotencyKeyDigest: $idempotencyKeyDigest, requestDigest: $requestDigest,
       state: 'queued', claimGeneration: 0, lockVersion: 0, nextEventSequence: 2,
-      payload: $payload
+      payload: $payload, reservationCreatedAt: $queuedAt
     })
     CREATE (input:WorkoutRunInputRevision {
       inputRevisionId: $inputRevisionId, runId: $runId, revision: 1,

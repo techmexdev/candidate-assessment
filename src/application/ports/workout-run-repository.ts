@@ -14,6 +14,28 @@ export type CreateWorkoutRunResult =
   | { readonly status: "created" | "replayed"; readonly run: WorkoutRun }
   | { readonly status: "idempotency-conflict" };
 
+export type WorkoutRunCreationReservation = {
+  readonly coachId: string;
+  readonly memberId: string;
+  readonly action: "generate-workout";
+  readonly idempotencyKeyDigest: string;
+  readonly requestDigest: string;
+  readonly runId: WorkoutRunId;
+  readonly ownerId: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+};
+
+export type ReserveWorkoutRunCreationResult =
+  | { readonly status: "reserved"; readonly reservation: WorkoutRunCreationReservation }
+  | { readonly status: "pending" }
+  | { readonly status: "replayed"; readonly run: WorkoutRun }
+  | { readonly status: "idempotency-conflict" };
+
+export type FinalizeWorkoutRunCreationResult =
+  | { readonly status: "created" | "replayed"; readonly run: WorkoutRun }
+  | { readonly status: "idempotency-conflict" | "stale-reservation" };
+
 export type ClaimWorkoutRunResult =
   | { readonly status: "claimed"; readonly run: WorkoutRun; readonly fence: WorkoutRunFence }
   | { readonly status: "not-claimable" | "missing" };
@@ -84,6 +106,9 @@ export type ClarificationMutationResult =
 export type RetryWorkoutRunResult = CreateWorkoutRunResult | { readonly status: "not-retryable" | "missing" };
 
 export interface WorkoutRunRepository {
+  reserveCreation(input: WorkoutRunCreationReservation): Promise<ReserveWorkoutRunCreationResult>;
+  finalizeCreation(reservation: WorkoutRunCreationReservation, run: WorkoutRun): Promise<FinalizeWorkoutRunCreationResult>;
+  releaseCreation(reservation: WorkoutRunCreationReservation): Promise<void>;
   createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult>;
   claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult>;
   heartbeat(fence: WorkoutRunFence, now: string, expiresAt: string): Promise<FencedMutationResult>;

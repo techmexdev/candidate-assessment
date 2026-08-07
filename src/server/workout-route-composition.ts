@@ -143,7 +143,9 @@ function createGrantAuthorization(secret: string): WorkerAuthorizationPort {
   return {
     async createReference(input) {
       const session = openSessionAuthorization(secret, input.sessionAuthorizationId);
+      const provisionedAt = Date.parse(input.provisionedAt);
       if (!validId(input.coachId) || !validId(input.memberId) || !validId(input.runId)
+        || !validId(input.provisioningKey) || !Number.isFinite(provisionedAt)
         || !session || session.coachId !== input.coachId || !session.memberIds.includes(input.memberId)) return { status: "denied" };
       return {
         status: "authorized",
@@ -151,7 +153,7 @@ function createGrantAuthorization(secret: string): WorkerAuthorizationPort {
           coachId: input.coachId,
           memberId: input.memberId,
           runId: input.runId,
-          expiresAt: new Date(Math.min(Date.parse(session.expiresAt), Date.now() + lifetimeMs)).toISOString(),
+          expiresAt: new Date(Math.min(Date.parse(session.expiresAt), provisionedAt + lifetimeMs)).toISOString(),
         } satisfies GrantPayload),
       };
     },
@@ -194,10 +196,10 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
   const createId = (kind: string) => `${kind}:${randomUUID()}`;
   const modelConfigurationId = process.env.WORKOUT_MODEL_CONFIGURATION_ID?.trim() || "workout-composer:v1";
   const policyRevision = process.env.WORKOUT_POLICY_REVISION?.trim() || "workout-composition/v1";
-  const protectPrompt = async (input: { readonly coachId: string; readonly memberId: string; readonly runId: string; readonly prompt: string }) => ({
+  const protectPrompt = async (input: { readonly coachId: string; readonly memberId: string; readonly runId: string; readonly prompt: string; readonly provisioningKey?: string }) => ({
     status: "stored" as const,
     protectedPromptSnapshotId: `protected-prompt:${createHmac("sha256", secret)
-      .update(JSON.stringify([input.coachId, input.memberId, input.runId, input.prompt]))
+      .update(JSON.stringify([input.coachId, input.memberId, input.runId, input.provisioningKey ?? "clarification", input.prompt]))
       .digest("base64url")}`,
   });
 

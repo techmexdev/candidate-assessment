@@ -3,6 +3,7 @@ import { asWorkoutInputRevisionId, asWorkoutRunId, type WorkoutRunId } from "../
 import type { WorkoutRun } from "../../domain/contracts/workout-run";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
+import { reserveWorkoutRunCreation } from "./reserve-workout-run-creation";
 
 export type SubmitWorkoutRunInput = {
   readonly coachId: string;
@@ -33,11 +34,13 @@ export type SubmitWorkoutRunDependencies = {
     readonly memberId: string;
     readonly runId: WorkoutRunId;
     readonly prompt: string;
+    readonly provisioningKey: string;
   }) => Promise<{ readonly status: "stored"; readonly protectedPromptSnapshotId: string } | { readonly status: "failed" }>;
   readonly createId: (kind: "workout-run" | "input-revision") => string;
   readonly now: () => string;
   readonly modelConfigurationId: string;
   readonly policyRevision: string;
+  readonly waitForReservation?: () => Promise<void>;
 };
 
 function valid(input: SubmitWorkoutRunInput) {
@@ -68,22 +71,6 @@ export function createSubmitWorkoutRun(dependencies: SubmitWorkoutRunDependencie
       return { status: "canonical-state-unavailable" };
     }
 
-    const runId = asWorkoutRunId(dependencies.createId("workout-run"));
-    const grant = await dependencies.authorization.createReference({
-      coachId: input.coachId,
-      memberId: input.memberId,
-      runId,
-      sessionAuthorizationId: input.sessionAuthorizationId,
-    });
-    if (grant.status !== "authorized") return { status: "not-authorized" };
-    const protectedPrompt = await dependencies.protectPrompt({
-      coachId: input.coachId,
-      memberId: input.memberId,
-      runId,
-      prompt: input.prompt,
-    });
-    if (protectedPrompt.status !== "stored") return { status: "canonical-state-unavailable" };
-
     const promptDigest = canonicalWorkoutDigest(input.prompt);
     const idempotencyKeyDigest = canonicalWorkoutDigest(input.idempotencyKey);
     const requestDigest = canonicalWorkoutDigest({
@@ -97,6 +84,58 @@ export function createSubmitWorkoutRun(dependencies: SubmitWorkoutRunDependencie
       movementGraphRevisionId: pinned.movementGraphRevisionId,
       memberContextRevisionId: pinned.memberContextRevisionId,
     });
+    const proposedRunId = asWorkoutRunId(dependencies.createId("workout-run"));
+    const ownerId = proposedRunId;
+    const reserved = await reserveWorkoutRunCreation({
+      repository: dependencies.repository,
+      identity: {
+        coachId: input.coachId,
+        memberId: input.memberId,
+        action: "generate-workout",
+        idempotencyKeyDigest,
+        requestDigest,
+      },
+      proposedRunId,
+      ownerId,
+      now: dependencies.now,
+      ...(dependencies.waitForReservation ? { wait: dependencies.waitForReservation } : {}),
+    });
+    if (reserved.status === "replayed") return { status: "replayed", runId: reserved.run.runId };
+    if (reserved.status === "idempotency-conflict") return { status: "idempotency-conflict" };
+    if (reserved.status !== "reserved") return { status: "canonical-state-unavailable" };
+    const { reservation } = reserved;
+    const runId = reservation.runId;
+    const provisioningKey = `workout-run-creation:${runId}`;
+    let grant;
+    let protectedPrompt;
+    try {
+      grant = await dependencies.authorization.createReference({
+        coachId: input.coachId,
+        memberId: input.memberId,
+        runId,
+        sessionAuthorizationId: input.sessionAuthorizationId,
+        provisioningKey,
+        provisionedAt: reservation.createdAt,
+      });
+      if (grant.status !== "authorized") {
+        await dependencies.repository.releaseCreation(reservation);
+        return { status: "not-authorized" };
+      }
+      protectedPrompt = await dependencies.protectPrompt({
+        coachId: input.coachId,
+        memberId: input.memberId,
+        runId,
+        prompt: input.prompt,
+        provisioningKey,
+      });
+      if (protectedPrompt.status !== "stored") {
+        await dependencies.repository.releaseCreation(reservation);
+        return { status: "canonical-state-unavailable" };
+      }
+    } catch (error) {
+      await dependencies.repository.releaseCreation(reservation);
+      throw error;
+    }
     const createdAt = dependencies.now();
     const inputRevisionId = asWorkoutInputRevisionId(dependencies.createId("input-revision"));
     const run: WorkoutRun = {
@@ -122,9 +161,22 @@ export function createSubmitWorkoutRun(dependencies: SubmitWorkoutRunDependencie
       }],
       activeInputRevisionId: inputRevisionId,
     };
-    const result = await dependencies.repository.createOrFind(run);
-    return result.status === "idempotency-conflict"
-      ? { status: "idempotency-conflict" }
-      : { status: result.status, runId: result.run.runId };
+    const result = await dependencies.repository.finalizeCreation(reservation, run);
+    if (result.status === "created" || result.status === "replayed") return { status: result.status, runId: result.run.runId };
+    if (result.status === "idempotency-conflict") return { status: "idempotency-conflict" };
+    const recovered = await reserveWorkoutRunCreation({
+      repository: dependencies.repository,
+      identity: { coachId: input.coachId, memberId: input.memberId, action: "generate-workout", idempotencyKeyDigest, requestDigest },
+      proposedRunId,
+      ownerId,
+      now: dependencies.now,
+      ...(dependencies.waitForReservation ? { wait: dependencies.waitForReservation } : {}),
+    });
+    if (recovered.status === "replayed") return { status: "replayed", runId: recovered.run.runId };
+    if (recovered.status === "reserved" && recovered.reservation.runId === run.runId) {
+      const finalized = await dependencies.repository.finalizeCreation(recovered.reservation, run);
+      if (finalized.status === "created" || finalized.status === "replayed") return { status: finalized.status, runId: finalized.run.runId };
+    }
+    return recovered.status === "idempotency-conflict" ? { status: "idempotency-conflict" } : { status: "canonical-state-unavailable" };
   };
 }

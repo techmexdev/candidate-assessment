@@ -18,17 +18,22 @@ function createHarness(maxEventsPerRun = 100) {
     createReference: vi.fn(async ({ runId }) => ({ status: "authorized" as const, authorizationReferenceId: `grant-ref:${runId}` })),
     authorize: vi.fn(async () => ({ status: "authorized" as const, authorizationId: "scope:process-local" })),
   };
+  const pinRevisions = vi.fn(async () => ({ status: "ready" as const, movementGraphRevisionId: "movement:sealed", memberContextRevisionId: "member:sealed" }));
+  const protectPrompt = vi.fn(async (): Promise<
+    | { readonly status: "stored"; readonly protectedPromptSnapshotId: string }
+    | { readonly status: "failed" }
+  > => ({ status: "stored", protectedPromptSnapshotId: "prompt:protected" }));
   const submit = createSubmitWorkoutRun({
     repository,
     authorization,
-    pinRevisions: vi.fn(async () => ({ status: "ready" as const, movementGraphRevisionId: "movement:sealed", memberContextRevisionId: "member:sealed" })),
-    protectPrompt: vi.fn(async () => ({ status: "stored" as const, protectedPromptSnapshotId: "prompt:protected" })),
+    pinRevisions,
+    protectPrompt,
     createId: (kind) => `${kind}:${++id}`,
     now: () => NOW,
     modelConfigurationId: "model:test",
     policyRevision: "policy:v1",
   });
-  return { repository, authorization, submit };
+  return { repository, authorization, pinRevisions, protectPrompt, submit };
 }
 
 async function submitOne(testHarness: ReturnType<typeof createHarness>, overrides: Record<string, unknown> = {}) {
@@ -56,6 +61,51 @@ describe("workout run submission, worker, and replay integration", () => {
       inputRevisions: [{ protectedPromptSnapshotId: "prompt:protected" }],
     });
     expect(JSON.stringify(stored)).not.toContain("A knee-safe strength day");
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1);
+    expect(dependencies.protectPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserves scoped submission identity before provisioning side effects under concurrency", async () => {
+    const dependencies = createHarness();
+    let releasePrompt!: () => void;
+    const promptGate = new Promise<void>((resolve) => { releasePrompt = resolve; });
+    dependencies.protectPrompt.mockImplementationOnce(async () => {
+      await promptGate;
+      return { status: "stored" as const, protectedPromptSnapshotId: "prompt:protected" };
+    });
+
+    const first = submitOne(dependencies);
+    await vi.waitFor(() => expect(dependencies.protectPrompt).toHaveBeenCalledTimes(1));
+    const duplicate = submitOne(dependencies);
+    const conflict = submitOne(dependencies, { prompt: "A different workout" });
+    await Promise.resolve();
+
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1);
+    expect(dependencies.protectPrompt).toHaveBeenCalledTimes(1);
+    releasePrompt();
+    const results = await Promise.all([first, duplicate, conflict]);
+
+    expect(results.map(({ status }) => status).sort()).toEqual(["created", "idempotency-conflict", "replayed"]);
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1);
+    expect(dependencies.protectPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers abandoned submission provisioning on the reserved run identity without exposing a partial run", async () => {
+    const dependencies = createHarness();
+    dependencies.protectPrompt.mockResolvedValueOnce({ status: "failed" as const });
+
+    await expect(submitOne(dependencies)).resolves.toEqual({ status: "canonical-state-unavailable" });
+    await expect(dependencies.repository.getRun(asWorkoutRunId("workout-run:1"), "coach:one", "member:one")).resolves.toBeUndefined();
+
+    const recovered = await submitOne(dependencies);
+    expect(recovered).toEqual({ status: "created", runId: asWorkoutRunId("workout-run:1") });
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(2);
+    expect(dependencies.authorization.createReference).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      runId: "workout-run:1", provisioningKey: "workout-run-creation:workout-run:1", provisionedAt: NOW,
+    }));
+    expect(dependencies.authorization.createReference).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      runId: "workout-run:1", provisioningKey: "workout-run-creation:workout-run:1", provisionedAt: NOW,
+    }));
   });
 
   it("claims through durable authorization, heartbeats, and passes one fenced claim to execution", async () => {
@@ -137,5 +187,44 @@ describe("workout run submission, worker, and replay integration", () => {
     expect(retried).toMatchObject({ status: "created", runId: asWorkoutRunId("workout-run:retry") });
     if (!("runId" in retried)) throw new Error("retry missing");
     await expect(dependencies.repository.getRun(retried.runId, "coach:one", "member:one")).resolves.toMatchObject({ retryOfRunId: created.runId, state: "queued" });
+  });
+
+  it("reserves retry identity before provisioning a replacement grant under concurrency", async () => {
+    const dependencies = createHarness();
+    const created = await submitOne(dependencies);
+    if (!("runId" in created)) throw new Error("run missing");
+    const claim = await dependencies.repository.claim(created.runId, "worker:retry-source", NOW, "2026-08-07T10:01:00.000Z");
+    if (claim.status !== "claimed") throw new Error("claim missing");
+    await dependencies.repository.fail(claim.fence, {
+      kind: "provider-failure", stage: "composition", safeMessage: "Workout generation could not be completed.", occurredAt: NOW,
+    });
+    const retry = createRetryWorkoutRun({
+      repository: dependencies.repository,
+      authorization: dependencies.authorization,
+      createId: (() => { let value = 0; return (kind) => `${kind}:concurrent-retry:${++value}`; })(),
+      now: () => NOW,
+      modelConfigurationId: "model:test",
+      policyRevision: "policy:v1",
+    });
+    vi.mocked(dependencies.authorization.createReference).mockClear();
+    let releaseGrant!: () => void;
+    const grantGate = new Promise<void>((resolve) => { releaseGrant = resolve; });
+    vi.mocked(dependencies.authorization.createReference).mockImplementationOnce(async ({ runId }) => {
+      await grantGate;
+      return { status: "authorized" as const, authorizationReferenceId: `grant-ref:${runId}` };
+    });
+
+    const input = { runId: created.runId, coachId: "coach:one", memberId: "member:one", sessionAuthorizationId: "session:one", idempotencyKey: "retry:concurrent" };
+    const first = retry(input);
+    await vi.waitFor(() => expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1));
+    const duplicate = retry(input);
+    await Promise.resolve();
+
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1);
+    releaseGrant();
+    const results = await Promise.all([first, duplicate]);
+    expect(results.map(({ status }) => status).sort()).toEqual(["created", "replayed"]);
+    expect(dependencies.authorization.createReference).toHaveBeenCalledTimes(1);
+    expect(results[0]).toMatchObject({ runId: (results[1] as { runId?: string }).runId });
   });
 });

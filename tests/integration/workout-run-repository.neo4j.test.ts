@@ -56,6 +56,33 @@ describe("Neo4j workout run repository", () => {
   });
   afterAll(async () => { await client.close(); });
 
+  it("serializes concurrent creation reservations and finalizes only the winning identity", async () => {
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const attempts = Array.from({ length: 8 }, (_, index) => ({
+      coachId: "coach:neo4j",
+      memberId: "member:neo4j",
+      action: "generate-workout" as const,
+      idempotencyKeyDigest: "sha256:neo4j-key",
+      requestDigest: "sha256:request",
+      runId: asWorkoutRunId(`workout-run:neo4j-reservation:${index}`),
+      ownerId: `owner:${index}`,
+      createdAt,
+      expiresAt,
+    }));
+    const results = await Promise.all(attempts.map((attempt) =>
+      new Neo4jWorkoutRunRepository(client, { cursorSecret: "integration-cursor-secret" }).reserveCreation(attempt)));
+    expect(results.filter(({ status }) => status === "reserved")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "pending")).toHaveLength(7);
+    const winner = results.find((result) => result.status === "reserved");
+    if (!winner || winner.status !== "reserved") throw new Error("reservation missing");
+    const finalizedRun = queuedRun({ runId: winner.reservation.runId });
+    await expect(repository.finalizeCreation(winner.reservation, finalizedRun))
+      .resolves.toMatchObject({ status: "created", run: { runId: winner.reservation.runId } });
+    await expect(repository.reserveCreation({ ...attempts[1]!, requestDigest: "sha256:request" }))
+      .resolves.toMatchObject({ status: "replayed", run: { runId: winner.reservation.runId } });
+  });
+
   it("persists scoped idempotency, fencing, events, and atomic completion across repository instances", async () => {
     await expect(repository.createOrFind(queuedRun())).resolves.toMatchObject({ status: "created" });
     await expect(repository.createOrFind(queuedRun({ runId: asWorkoutRunId("workout-run:neo4j-replay") })))

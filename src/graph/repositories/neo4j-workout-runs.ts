@@ -6,13 +6,16 @@ import type {
   ClarificationMutationResult,
   CompleteWorkoutRunInput,
   CreateWorkoutRunResult,
+  FinalizeWorkoutRunCreationResult,
   FencedMutationResult,
+  ReserveWorkoutRunCreationResult,
   RetryWorkoutRunResult,
   WorkoutCompletionArtifact,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
   WorkoutRunInputRevision,
+  WorkoutRunCreationReservation,
   WorkoutRunRepository,
 } from "../../application/ports/workout-run-repository";
 import type {
@@ -125,6 +128,69 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
       kind: event.kind,
       occurredAt: event.occurredAt,
       safeData: json(event.safeData),
+    });
+  }
+
+  async reserveCreation(input: WorkoutRunCreationReservation): Promise<ReserveWorkoutRunCreationResult> {
+    return this.client.executeWrite(async (transaction) => {
+      const result = await transaction.run(WORKOUT_RUN_CYPHER.reserveCreation, input);
+      const record = result.records[0];
+      const status = record?.get("status");
+      if (status === "replayed") {
+        const existing = node(record, "existing");
+        const run = existing ? await hydrateRun(transaction, existing) : undefined;
+        return run ? { status: "replayed", run } : { status: "pending" };
+      }
+      if (status === "idempotency-conflict") return { status: "idempotency-conflict" };
+      if (status !== "reserved") return { status: "pending" };
+      return {
+        status: "reserved",
+        reservation: {
+          ...input,
+          runId: String(record?.get("runId")) as WorkoutRunId,
+          requestDigest: String(record?.get("requestDigest")),
+          createdAt: String(record?.get("createdAt")),
+          expiresAt: String(record?.get("expiresAt")),
+        },
+      };
+    });
+  }
+
+  async finalizeCreation(
+    reservation: WorkoutRunCreationReservation,
+    run: WorkoutRun,
+  ): Promise<FinalizeWorkoutRunCreationResult> {
+    const parameters = {
+      ...reservation,
+      retryOfRunId: run.retryOfRunId ?? null,
+      authorizationReferenceId: run.authorizationReferenceId,
+      payload: json(run),
+      inputRevisionId: run.inputRevisions[0]?.inputRevisionId,
+      inputPayload: json(run.inputRevisions[0]),
+      queuedEventId: `${run.runId}:event:1`,
+      eventSchemaVersion: WORKOUT_RUN_EVENT_SCHEMA_VERSION,
+      queuedAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(),
+    };
+    return this.client.executeWrite(async (transaction) => {
+      const result = await transaction.run(WORKOUT_RUN_CYPHER.finalizeCreation, parameters);
+      const createdNode = node(result.records[0]);
+      if (createdNode) {
+        const created = await hydrateRun(transaction, createdNode);
+        if (created) return { status: "created", run: created };
+      }
+      const found = await transaction.run(WORKOUT_RUN_CYPHER.findByIdentity, parameters);
+      const existingNode = node(found.records[0]);
+      const existing = existingNode ? await hydrateRun(transaction, existingNode) : undefined;
+      if (!existing) return { status: "stale-reservation" };
+      return existing.requestDigest === run.requestDigest
+        ? { status: "replayed", run: existing }
+        : { status: "idempotency-conflict" };
+    });
+  }
+
+  async releaseCreation(reservation: WorkoutRunCreationReservation): Promise<void> {
+    await this.client.executeWrite(async (transaction) => {
+      await transaction.run(WORKOUT_RUN_CYPHER.releaseCreation, reservation);
     });
   }
 

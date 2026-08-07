@@ -3,6 +3,7 @@ import type { WorkoutRun } from "../../domain/contracts/workout-run";
 import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
+import { reserveWorkoutRunCreation } from "./reserve-workout-run-creation";
 
 export type RetryWorkoutRunResult =
   | { readonly status: "created" | "replayed"; readonly runId: WorkoutRunId }
@@ -15,6 +16,7 @@ export function createRetryWorkoutRun(dependencies: {
   readonly now: () => string;
   readonly modelConfigurationId: string;
   readonly policyRevision: string;
+  readonly waitForReservation?: () => Promise<void>;
 }) {
   return async (input: {
     readonly runId: WorkoutRunId;
@@ -36,18 +38,8 @@ export function createRetryWorkoutRun(dependencies: {
     });
     if (access.status !== "authorized") return { status: "not-found" };
 
-    const runId = asWorkoutRunId(dependencies.createId("workout-run"));
-    const grant = await dependencies.authorization.createReference({
-      coachId: source.coachId,
-      memberId: source.memberId,
-      runId,
-      sessionAuthorizationId: input.sessionAuthorizationId,
-    });
-    if (grant.status !== "authorized") return { status: "not-found" };
     const sourceInput = source.inputRevisions.find((revision) => revision.inputRevisionId === source.activeInputRevisionId);
     if (!sourceInput) return { status: "not-retryable" };
-    const createdAt = dependencies.now();
-    const inputRevisionId = asWorkoutInputRevisionId(dependencies.createId("input-revision"));
     const idempotencyKeyDigest = canonicalWorkoutDigest(input.idempotencyKey);
     const requestDigest = canonicalWorkoutDigest({
       retryOfRunId: source.runId,
@@ -58,6 +50,41 @@ export function createRetryWorkoutRun(dependencies: {
       modelConfigurationId: dependencies.modelConfigurationId,
       policyRevision: dependencies.policyRevision,
     });
+    const proposedRunId = asWorkoutRunId(dependencies.createId("workout-run"));
+    const ownerId = proposedRunId;
+    const reserved = await reserveWorkoutRunCreation({
+      repository: dependencies.repository,
+      identity: { coachId: source.coachId, memberId: source.memberId, action: "generate-workout", idempotencyKeyDigest, requestDigest },
+      proposedRunId,
+      ownerId,
+      now: dependencies.now,
+      ...(dependencies.waitForReservation ? { wait: dependencies.waitForReservation } : {}),
+    });
+    if (reserved.status === "replayed") return { status: "replayed", runId: reserved.run.runId };
+    if (reserved.status === "idempotency-conflict") return { status: "idempotency-conflict" };
+    if (reserved.status !== "reserved") return { status: "not-retryable" };
+    const { reservation } = reserved;
+    const runId = reservation.runId;
+    let grant;
+    try {
+      grant = await dependencies.authorization.createReference({
+        coachId: source.coachId,
+        memberId: source.memberId,
+        runId,
+        sessionAuthorizationId: input.sessionAuthorizationId,
+        provisioningKey: `workout-run-creation:${runId}`,
+        provisionedAt: reservation.createdAt,
+      });
+      if (grant.status !== "authorized") {
+        await dependencies.repository.releaseCreation(reservation);
+        return { status: "not-found" };
+      }
+    } catch (error) {
+      await dependencies.repository.releaseCreation(reservation);
+      throw error;
+    }
+    const createdAt = dependencies.now();
+    const inputRevisionId = asWorkoutInputRevisionId(dependencies.createId("input-revision"));
     const retry: WorkoutRun = {
       runId,
       coachId: source.coachId,
@@ -82,8 +109,22 @@ export function createRetryWorkoutRun(dependencies: {
       activeInputRevisionId: inputRevisionId,
       retryOfRunId: source.runId,
     };
-    const result = await dependencies.repository.createRetry(source.runId, source.coachId, source.memberId, retry);
+    const result = await dependencies.repository.finalizeCreation(reservation, retry);
     if (result.status === "created" || result.status === "replayed") return { status: result.status, runId: result.run.runId };
-    return { status: result.status === "missing" ? "not-found" : result.status };
+    if (result.status === "idempotency-conflict") return { status: "idempotency-conflict" };
+    const recovered = await reserveWorkoutRunCreation({
+      repository: dependencies.repository,
+      identity: { coachId: source.coachId, memberId: source.memberId, action: "generate-workout", idempotencyKeyDigest, requestDigest },
+      proposedRunId,
+      ownerId,
+      now: dependencies.now,
+      ...(dependencies.waitForReservation ? { wait: dependencies.waitForReservation } : {}),
+    });
+    if (recovered.status === "replayed") return { status: "replayed", runId: recovered.run.runId };
+    if (recovered.status === "reserved" && recovered.reservation.runId === retry.runId) {
+      const finalized = await dependencies.repository.finalizeCreation(recovered.reservation, retry);
+      if (finalized.status === "created" || finalized.status === "replayed") return { status: finalized.status, runId: finalized.run.runId };
+    }
+    return recovered.status === "idempotency-conflict" ? { status: "idempotency-conflict" } : { status: "not-retryable" };
   };
 }

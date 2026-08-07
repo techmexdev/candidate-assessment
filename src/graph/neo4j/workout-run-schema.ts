@@ -3,6 +3,7 @@ import type { Neo4jClient } from "./client";
 export const WORKOUT_RUN_NEO4J_SCHEMA_QUERIES = Object.freeze([
   "CREATE CONSTRAINT workout_run_identity IF NOT EXISTS FOR (run:WorkoutRun) REQUIRE run.runId IS UNIQUE",
   "CREATE CONSTRAINT workout_run_idempotency IF NOT EXISTS FOR (run:WorkoutRun) REQUIRE (run.coachId, run.memberId, run.action, run.idempotencyKeyDigest) IS UNIQUE",
+  "CREATE CONSTRAINT workout_run_creation_reservation IF NOT EXISTS FOR (reservation:WorkoutRunReservation) REQUIRE (reservation.coachId, reservation.memberId, reservation.action, reservation.idempotencyKeyDigest) IS UNIQUE",
   "CREATE CONSTRAINT workout_run_input_identity IF NOT EXISTS FOR (input:WorkoutRunInputRevision) REQUIRE input.inputRevisionId IS UNIQUE",
   "CREATE CONSTRAINT workout_run_input_revision IF NOT EXISTS FOR (input:WorkoutRunInputRevision) REQUIRE (input.runId, input.revision) IS UNIQUE",
   "CREATE CONSTRAINT workout_run_event_identity IF NOT EXISTS FOR (event:WorkoutRunEvent) REQUIRE (event.runId, event.sequence) IS UNIQUE",
