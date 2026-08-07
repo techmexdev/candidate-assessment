@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { SignalKicker } from "@/ui/axon/components/agentic/SignalKicker";
 import { VersionTimeline } from "@/ui/axon/components/data/VersionTimeline";
 import { createCopilotPin, type CopilotQuestionInput, type SignedCopilotContinuation } from "../../domain/contracts/copilot";
+import type { FullGraphReadResult } from "../../domain/contracts/full-graph-view";
 import type {
   CoachDashboardMemberViewModel,
   CoachDashboardWorkspace,
@@ -28,6 +29,7 @@ import {
   type WorkoutVersion,
 } from "./state";
 import styles from "./dashboard.module.css";
+import { FullGraphExplorer } from "./FullGraphExplorer";
 
 const destinations: { id: DashboardDestination; label: string }[] = [
   { id: "today", label: "Today" },
@@ -60,12 +62,17 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   );
   const [adapterAnnouncement, setAdapterAnnouncement] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
+  const [movementGraph, setMovementGraph] = useState<FullGraphReadResult | null>(null);
+  const [movementGraphExpanded, setMovementGraphExpanded] = useState(false);
+  const [movementGraphLoading, setMovementGraphLoading] = useState(false);
   const loadRequest = useRef(0);
   const adjustmentTimer = useRef<number | null>(null);
   const copilotAbort = useRef<AbortController | null>(null);
   const copilotRequest = useRef(0);
   const generationAbort = useRef<AbortController | null>(null);
   const conversationAbort = useRef<AbortController | null>(null);
+  const fullGraphAbort = useRef<AbortController | null>(null);
+  const fullGraphRequest = useRef(0);
   const generationInput = useRef(new Map<string, { prompt: string; durationMinutes: number; idempotencyKey: string }>());
   const generationRequest = useRef(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -113,6 +120,41 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       setAdapterAnnouncement("Dashboard data could not be loaded.");
     }
   }, [adapter]);
+
+  const readMovementGraph = useCallback(async () => {
+    const capability = adapter.capabilities.fullGraph;
+    if (!capability?.available || !capability.supports({ domain: "movement-clinical" })) return;
+    fullGraphAbort.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++fullGraphRequest.current;
+    fullGraphAbort.current = controller;
+    setMovementGraphLoading(true);
+    try {
+      const result = await capability.client.read({ domain: "movement-clinical", signal: controller.signal });
+      if (controller.signal.aborted || requestId !== fullGraphRequest.current) return;
+      setMovementGraph(result);
+    } catch {
+      if (!controller.signal.aborted && requestId === fullGraphRequest.current) {
+        setMovementGraph({ status: "unavailable", domain: "movement-clinical", message: "Movement graph is unavailable." });
+      }
+    } finally {
+      if (fullGraphAbort.current === controller) {
+        fullGraphAbort.current = null;
+        setMovementGraphLoading(false);
+      }
+    }
+  }, [adapter]);
+
+  const expandMovementGraph = useCallback(() => {
+    setMovementGraphExpanded(true);
+    if (!movementGraph || movementGraph.status !== "ready") void readMovementGraph();
+  }, [movementGraph, readMovementGraph]);
+
+  const collapseMovementGraph = useCallback(() => {
+    setMovementGraphExpanded(false);
+    fullGraphAbort.current?.abort();
+    setMovementGraphLoading(false);
+  }, []);
 
   const checkSession = useCallback(async () => {
     const capability = adapter.capabilities.session;
@@ -193,6 +235,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     generationAbort.current?.abort();
     copilotAbort.current?.abort();
     conversationAbort.current?.abort();
+    fullGraphAbort.current?.abort();
     clearOperationTimers();
     try { await capability?.client.signOut(); } catch { /* local state still clears */ }
     dispatch({ type: "reset-session" });
@@ -334,6 +377,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     generationAbort.current?.abort();
     copilotAbort.current?.abort();
     conversationAbort.current?.abort();
+    fullGraphAbort.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -455,7 +499,16 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   }
 
   const dashboardContent = state.destination === "coach"
-    ? <CoachScreen workspace={loadState.data.workspace} />
+    ? <CoachScreen
+      workspace={loadState.data.workspace}
+      fullGraph={movementGraph}
+      fullGraphExpanded={movementGraphExpanded}
+      fullGraphLoading={movementGraphLoading}
+      fullGraphUnavailableReason={adapter.capabilities.fullGraph?.available === false ? adapter.capabilities.fullGraph.reason : undefined}
+      onExpandFullGraph={expandMovementGraph}
+      onCollapseFullGraph={collapseMovementGraph}
+      onRetryFullGraph={readMovementGraph}
+    />
     : activeMember && activeWorkflow && currentRoute
       ? (
         <AthleteRouteScreen
@@ -730,11 +783,34 @@ function TodayProfileItem({ member, selectedDate, onOpen }: {
   );
 }
 
-function CoachScreen({ workspace }: { workspace: CoachDashboardWorkspace }) {
+function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading, fullGraphUnavailableReason, onExpandFullGraph, onCollapseFullGraph, onRetryFullGraph }: {
+  workspace: CoachDashboardWorkspace;
+  fullGraph: FullGraphReadResult | null;
+  fullGraphExpanded: boolean;
+  fullGraphLoading: boolean;
+  fullGraphUnavailableReason?: string;
+  onExpandFullGraph: () => void;
+  onCollapseFullGraph: () => void;
+  onRetryFullGraph: () => void;
+}) {
   return <section className={`${styles.coachDay} ${styles.stack}`} aria-label="Coach">
     <div><div className={styles.micro}>COACH · READ-ONLY WORKSPACE</div><h1 className={styles.coachDayTitle} data-destination-heading="coach" tabIndex={-1}>{workspace.coach.name}</h1><p className={styles.coachDayIntro}>Workspace identity and regional settings.</p></div>
     <div className={styles.card}><div className={styles.micro}>COACH IDENTITY</div><div className={styles.bodyStrong}>{workspace.coach.name}</div></div>
     <div className={styles.card}><div className={styles.micro}>WORKSPACE TIMEZONE</div><div className={styles.bodyStrong}>{workspace.timezone}</div><div className={styles.bodyCopy}>Used to group sessions into coach-local calendar days.</div></div>
+    <FullGraphExplorer
+      domain="movement-clinical"
+      focusedLanes={[
+        { name: "FOCUS", text: "Exercises, anatomy, movement demands, and clinical rules stay in the coach’s focused explanation.", source: "MOVEMENT KNOWLEDGE GRAPH · FOCUSED VIEW" },
+        { name: "DETAIL", text: "Expand when you want to inspect every node, relationship, revision, and source assertion.", source: "READ ONLY · SOURCE / PROVENANCE DETAILS" },
+      ]}
+      fullGraph={fullGraph}
+      expanded={fullGraphExpanded}
+      loading={fullGraphLoading}
+      unavailableReason={fullGraphUnavailableReason}
+      onExpand={onExpandFullGraph}
+      onCollapse={onCollapseFullGraph}
+      onRetry={onRetryFullGraph}
+    />
     <div className={styles.subtle}>These settings are read-only in this dashboard.</div>
   </section>;
 }
