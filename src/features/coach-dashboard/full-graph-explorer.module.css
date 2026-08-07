@@ -1,0 +1,304 @@
+.explorer {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-lg);
+  background: var(--ax-surface);
+}
+
+.explorerHeader,
+.graphMeta,
+.workoutTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kicker,
+.detailKicker,
+.relationshipHeading,
+.nodeKind,
+.laneName {
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.title,
+.detailTitle {
+  margin: 4px 0 0;
+  color: var(--ax-ink-1);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.primaryButton,
+.secondaryButton,
+.relationship,
+.node {
+  cursor: pointer;
+  font: inherit;
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 36px;
+  border-radius: var(--ax-r-pill);
+  padding: 8px 13px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.primaryButton {
+  border: 1px solid var(--ax-ink-1);
+  color: var(--ax-surface);
+  background: var(--ax-ink-1);
+}
+
+.secondaryButton {
+  border: 1px solid var(--ax-line-strong);
+  color: var(--ax-ink-1);
+  background: var(--ax-surface);
+}
+
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.relationship:focus-visible,
+.node:focus-visible {
+  outline: 3px solid var(--ax-signal);
+  outline-offset: 3px;
+}
+
+.focusedView {
+  display: grid;
+  gap: 8px;
+}
+
+.focusLane {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border-left: 3px solid var(--ax-signal);
+  border-radius: var(--ax-r-md);
+  background: var(--ax-signal-faint), var(--ax-surface);
+}
+
+.laneText {
+  color: var(--ax-ink-1);
+  font-size: 14px;
+}
+
+.laneSource,
+.detailId,
+.detailList dd,
+.relationship strong {
+  color: var(--ax-ink-3);
+  font-family: var(--ax-font-mono);
+  font-size: 10px;
+}
+
+.capabilityNote,
+.loadingPanel,
+.emptyDetail {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--ax-line-strong);
+  border-radius: var(--ax-r-md);
+  color: var(--ax-ink-2);
+  font-size: 13px;
+}
+
+.loadingPanel {
+  background: var(--ax-signal-faint), var(--ax-surface);
+}
+
+.graphMeta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.graphMeta span + span::before {
+  content: "·";
+  margin-right: 10px;
+  color: var(--ax-ink-4);
+}
+
+.canvasViewport {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-height: 560px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-md);
+  background: var(--ax-bg-desk);
+}
+
+.canvas {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.edge {
+  stroke: var(--ax-line-strong);
+  stroke-width: 1.25;
+  opacity: .8;
+}
+
+.nodes {
+  position: absolute;
+  inset: 0;
+}
+
+.node {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: var(--ax-r-md);
+  padding: 9px 10px;
+  color: var(--ax-ink-1);
+  text-align: left;
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
+}
+
+.node:hover,
+.nodeSelected {
+  border-color: var(--ax-signal);
+  box-shadow: 0 0 0 2px var(--ax-signal-faint);
+}
+
+.nodeSelected {
+  background: var(--ax-signal-faint), var(--ax-surface);
+}
+
+.nodeLabel {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.relationships {
+  display: grid;
+  gap: 6px;
+  min-width: min(680px, 100%);
+  padding: 2px;
+}
+
+.relationshipHeading {
+  margin-bottom: 2px;
+}
+
+.relationship {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ax-r-sm);
+  padding: 7px 8px;
+  color: var(--ax-ink-2);
+  text-align: left;
+  background: transparent;
+}
+
+.relationship:hover,
+.relationshipSelected {
+  border-color: var(--ax-line-strong);
+  background: var(--ax-surface);
+}
+
+.relationship span {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.relationship strong {
+  color: var(--ax-signal-strong, var(--ax-ink-2));
+  text-align: center;
+}
+
+.detailPanel {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: var(--ax-r-md);
+  background: var(--ax-surface);
+}
+
+.detailId {
+  overflow-wrap: anywhere;
+}
+
+.detailList {
+  display: grid;
+  gap: 7px;
+  margin: 2px 0 0;
+}
+
+.detailList > div {
+  display: grid;
+  grid-template-columns: minmax(110px, .42fr) minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ax-line);
+}
+
+.detailList dt {
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  text-transform: uppercase;
+}
+
+.detailList dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+
+@media (max-width: 560px) {
+  .explorerHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    justify-content: flex-start;
+  }
+
+  .detailList > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}
