@@ -21,3 +21,8 @@ export type MemberContextReadBoundary = {
   readonly memberContext: MemberContextReadProvider;
   readonly authorizeMemberContext: MemberContextAccessAuthorizer;
 };
+
+/** Server-only graph dependencies for a dual-revision catalog evaluation. */
+export type CatalogSafetyGraphBoundary = MemberContextReadBoundary & {
+  readonly movement: MovementGraphReadProvider;
+};
