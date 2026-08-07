@@ -94,6 +94,14 @@ export class InMemoryMovementGraphReadProvider implements MovementGraphFullReadP
   }
 
   async readFullRevision(revisionId: string): Promise<FullGraphReadResult> {
+    if (this.activeRevisionId !== revisionId) {
+      return {
+        status: "stale",
+        domain: "movement-clinical",
+        requestedRevisionId: revisionId,
+        activeRevisionId: this.activeRevisionId ?? null,
+      };
+    }
     const snapshot = this.snapshots.get(revisionId);
     if (!snapshot) return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision is unavailable." };
     if (snapshot.nodes.length > MOVEMENT_GRAPH_LIMITS.maxNodes || snapshot.edges.length > MOVEMENT_GRAPH_LIMITS.maxEdges) {

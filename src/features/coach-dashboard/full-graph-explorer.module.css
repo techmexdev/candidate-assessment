@@ -107,7 +107,7 @@
 .detailId,
 .detailList dd,
 .relationship strong {
-  color: var(--ax-ink-3);
+  color: var(--ax-ink-2);
   font-family: var(--ax-font-mono);
   font-size: 10px;
 }
@@ -131,7 +131,7 @@
 .graphMeta {
   justify-content: flex-start;
   flex-wrap: wrap;
-  color: var(--ax-ink-3);
+  color: var(--ax-ink-2);
   font: var(--ax-type-micro);
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -276,7 +276,7 @@
 }
 
 .detailList dt {
-  color: var(--ax-ink-3);
+  color: var(--ax-ink-2);
   font: var(--ax-type-micro);
   text-transform: uppercase;
 }

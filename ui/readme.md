@@ -12,6 +12,14 @@ Built from scratch for this product (no external brand imported). Primary artifa
 
 **Ink is human. Signal is machine.** Everything a *person* does — buttons, approvals, warnings, text — is carbon ink on chalk. Everything the *graph or AI* produced — provenance, decision paths, retrieval states, suggested actions — carries the holographic **Signal** gradient. If it shimmers, a machine reasoned it; a coach can always tell at a glance which is which. Never use Signal decoratively.
 
+## Full graph inspection
+
+- Focused Movement explanations and member profiles remain the default. `Show full graph` is an optional curiosity path inside the originating surface.
+- Full graph views are read-only and show the complete bounded snapshot, total node/relationship counts, authority (`canonical` or `fixture`), and the pinned graph/context revision.
+- Selecting a node or relationship opens persistent source/provenance details. Show explicit `none · identity or lineage node` when no direct assertion exists; never infer a source from nearby data.
+- Keep the semantic relationship inventory available with the viewport. A dense canvas may scroll, but it must not silently replace the complete projection with a top-N subset.
+- `← Focused view` returns to the originating explanation or profile. Graph inspection must not mutate workouts, approvals, member context, Copilot state, or graph data.
+
 ## CONTENT FUNDAMENTALS
 
 - **Voice**: calm, professional, verb-led. The assistant reports; the coach decides. Copy never hypes ("Celebrate the knee win, watch churn", "Override — keep warning").

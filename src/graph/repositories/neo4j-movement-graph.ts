@@ -169,21 +169,31 @@ class Neo4jMovementGraphReadProvider implements MovementGraphFullReadProvider {
   async readFullRevision(revisionId: string): Promise<FullGraphReadResult> {
     try {
       const canonicalRevision = await this.client.executeRead(async (transaction): Promise<{
-        readonly seal: SealMetadata;
+        readonly activeRevisionId: string | null;
+        readonly seal?: SealMetadata;
         readonly snapshot: MovementGraphSnapshot | undefined;
       } | undefined> => {
+        const activeRevisionId = textValue((await transaction.run(MOVEMENT_CYPHER.readActiveRevision)).records[0]?.get("activeRevisionId")) ?? null;
         const result = await transaction.run(MOVEMENT_CYPHER.readSealedRevision, { revisionId });
         const record = result.records[0];
         const canonicalDigest = textValue(record?.get("canonicalDigest"));
-        if (!record || !canonicalDigest) return undefined;
+        if (!record || !canonicalDigest) return { activeRevisionId, snapshot: undefined };
         const seal = {
           canonicalDigest,
           nodeCount: Number(record.get("nodeCount")),
           edgeCount: Number(record.get("edgeCount")),
         };
-        return { seal, snapshot: await readCanonicalMovementSnapshot(transaction, revisionId) };
+        return { activeRevisionId, seal, snapshot: await readCanonicalMovementSnapshot(transaction, revisionId) };
       });
-      if (!canonicalRevision?.snapshot) return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision is unavailable." };
+      if (canonicalRevision?.activeRevisionId !== revisionId) {
+        return {
+          status: "stale",
+          domain: "movement-clinical",
+          requestedRevisionId: revisionId,
+          activeRevisionId: canonicalRevision?.activeRevisionId ?? null,
+        };
+      }
+      if (!canonicalRevision?.snapshot || !canonicalRevision.seal) return { status: "unavailable", domain: "movement-clinical", message: "Movement graph revision is unavailable." };
       const { seal, snapshot } = canonicalRevision;
       const digest = `sha256:${sha256(canonicalJson(snapshot))}`;
       if (snapshot.nodes.length !== seal.nodeCount || snapshot.edges.length !== seal.edgeCount

@@ -166,6 +166,14 @@ class Neo4jMemberContextReadProvider implements MemberContextFullReadProvider {
         const snapshot = await readCanonicalMemberContextSnapshot(transaction, claims.memberId, contextRevisionId);
         return snapshot ? { activeRevisionId, seal, snapshot } : { activeRevisionId };
       });
+      if (opened.activeRevisionId !== contextRevisionId) {
+        return {
+          status: "stale",
+          domain: "member-context",
+          requestedRevisionId: contextRevisionId,
+          activeRevisionId: opened.activeRevisionId,
+        };
+      }
       if (!("snapshot" in opened)) {
         return {
           status: "stale",

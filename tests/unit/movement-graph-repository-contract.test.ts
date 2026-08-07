@@ -278,4 +278,20 @@ describe("in-memory movement graph read contract", () => {
     const later = await provider.openActive();
     expect(later.status === "ready" && later.handle.graphRevisionId).toBe(second.graphRevisionId);
   });
+
+  it("returns stale instead of serving a non-active full revision", async () => {
+    const first = snapshot();
+    const second = structuredClone(first);
+    Object.assign(second, { graphRevisionId: "graph:sha256:full-read-alternate" });
+    second.nodes.forEach((node) => { Object.assign(node, { graphRevisionId: second.graphRevisionId }); });
+    second.edges.forEach((edge) => { Object.assign(edge, { graphRevisionId: second.graphRevisionId }); });
+    const provider = new InMemoryMovementGraphReadProvider([first, second], { activeRevisionId: second.graphRevisionId });
+
+    await expect(provider.readFullRevision(first.graphRevisionId)).resolves.toEqual({
+      status: "stale",
+      domain: "movement-clinical",
+      requestedRevisionId: first.graphRevisionId,
+      activeRevisionId: second.graphRevisionId,
+    });
+  });
 });

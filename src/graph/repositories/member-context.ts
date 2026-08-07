@@ -323,6 +323,15 @@ export class InMemoryMemberContextReadProvider implements MemberContextFullReadP
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", domain: "member-context", message: "Member context is unavailable." };
     if (!this.available) return { status: "unavailable", domain: "member-context", message: "Member context is unavailable." };
+    const activeRevisionId = this.publisher.getActiveRevisionId(claims.memberId);
+    if (activeRevisionId !== contextRevisionId) {
+      return {
+        status: "stale",
+        domain: "member-context",
+        requestedRevisionId: contextRevisionId,
+        activeRevisionId,
+      };
+    }
     return this.readFullClaimsRevision(claims, contextRevisionId, true);
   }
 

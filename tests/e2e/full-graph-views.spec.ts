@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 const movementGraph = {
@@ -103,6 +104,26 @@ test("keeps Movement focused by default and expands to the complete graph on dem
 
   await page.getByRole("button", { name: "← Focused view" }).click();
   await expect(page.getByRole("button", { name: "Show full graph" })).toBeVisible();
+});
+
+test("@a11y keeps the full Movement graph keyboard-selectable and violation-free", async ({ page }) => {
+  await page.route("**/api/movement-graph**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(movementGraph) });
+  });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Dashboard sections" }).getByRole("button", { name: "Coach" }).click();
+  await page.getByRole("button", { name: "Show full graph" }).click();
+  await expect(page.getByRole("region", { name: "Movement knowledge graph complete graph" })).toBeVisible();
+
+  const knee = page.getByRole("button", { name: "Knee, joint" });
+  await knee.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("region", { name: "Source and provenance details" })).toContainText("movement:coach-demo");
+
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
 });
 
 test("keeps the member profile focused by default and reads only the selected member graph", async ({ page }) => {
