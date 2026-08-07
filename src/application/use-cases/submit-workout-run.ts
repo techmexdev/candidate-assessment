@@ -1,4 +1,4 @@
-import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
+import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import { asWorkoutInputRevisionId, asWorkoutRunId, type WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutRun } from "../../domain/contracts/workout-run";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
@@ -39,8 +39,6 @@ export type SubmitWorkoutRunDependencies = {
   readonly modelConfigurationId: string;
   readonly policyRevision: string;
 };
-
-const digest = (value: unknown) => `sha256:${sha256(canonicalJson(value))}`;
 
 function valid(input: SubmitWorkoutRunInput) {
   return input.coachId.trim().length > 0
@@ -86,9 +84,9 @@ export function createSubmitWorkoutRun(dependencies: SubmitWorkoutRunDependencie
     });
     if (protectedPrompt.status !== "stored") return { status: "canonical-state-unavailable" };
 
-    const promptDigest = digest(input.prompt);
-    const idempotencyKeyDigest = digest(input.idempotencyKey);
-    const requestDigest = digest({
+    const promptDigest = canonicalWorkoutDigest(input.prompt);
+    const idempotencyKeyDigest = canonicalWorkoutDigest(input.idempotencyKey);
+    const requestDigest = canonicalWorkoutDigest({
       action: "generate-workout",
       coachId: input.coachId,
       memberId: input.memberId,
@@ -119,7 +117,7 @@ export function createSubmitWorkoutRun(dependencies: SubmitWorkoutRunDependencie
         revision: 1,
         protectedPromptSnapshotId: protectedPrompt.protectedPromptSnapshotId,
         promptDigest,
-        effectiveInputDigest: digest({ requestDigest, promptDigest, revision: 1 }),
+        effectiveInputDigest: canonicalWorkoutDigest({ requestDigest, promptDigest, revision: 1 }),
         createdAt,
       }],
       activeInputRevisionId: inputRevisionId,

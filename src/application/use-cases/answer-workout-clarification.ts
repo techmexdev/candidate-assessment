@@ -1,13 +1,11 @@
 import { asWorkoutInputRevisionId, type WorkoutRunId } from "../../domain/contracts/workout";
-import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
+import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 
 export type AnswerWorkoutClarificationResult =
   | { readonly status: "requeued"; readonly revision: number }
   | { readonly status: "invalid-request" | "invalid-state" | "not-found" | "unavailable" };
-
-const digest = (value: unknown) => `sha256:${sha256(canonicalJson(value))}`;
 
 export function createAnswerWorkoutClarification(dependencies: {
   readonly repository: WorkoutRunRepository;
@@ -51,13 +49,13 @@ export function createAnswerWorkoutClarification(dependencies: {
     const previous = run.inputRevisions.at(-1);
     if (!previous) return { status: "invalid-state" };
     const revision = previous.revision + 1;
-    const promptDigest = digest(answer);
+    const promptDigest = canonicalWorkoutDigest(answer);
     const mutation = await dependencies.repository.answerClarification(run.runId, run.coachId, run.memberId, {
       inputRevisionId: asWorkoutInputRevisionId(dependencies.createId("input-revision")),
       revision,
       protectedPromptSnapshotId: protectedInput.protectedPromptSnapshotId,
       promptDigest,
-      effectiveInputDigest: digest({ prior: previous.effectiveInputDigest, promptDigest, revision }),
+      effectiveInputDigest: canonicalWorkoutDigest({ prior: previous.effectiveInputDigest, promptDigest, revision }),
       createdAt: dependencies.now(),
     });
     if (mutation.status === "updated") return { status: "requeued", revision };

@@ -1,14 +1,12 @@
 import { asWorkoutInputRevisionId, asWorkoutRunId, type WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutRun } from "../../domain/contracts/workout-run";
-import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
+import { canonicalWorkoutDigest } from "../../graph/schema/workout-run-schema";
 import type { WorkoutRunRepository } from "../ports/workout-run-repository";
 import type { WorkerAuthorizationPort } from "../ports/worker-authorization";
 
 export type RetryWorkoutRunResult =
   | { readonly status: "created" | "replayed"; readonly runId: WorkoutRunId }
   | { readonly status: "invalid-request" | "not-retryable" | "not-found" | "idempotency-conflict" };
-
-const digest = (value: unknown) => `sha256:${sha256(canonicalJson(value))}`;
 
 export function createRetryWorkoutRun(dependencies: {
   readonly repository: WorkoutRunRepository;
@@ -50,8 +48,8 @@ export function createRetryWorkoutRun(dependencies: {
     if (!sourceInput) return { status: "not-retryable" };
     const createdAt = dependencies.now();
     const inputRevisionId = asWorkoutInputRevisionId(dependencies.createId("input-revision"));
-    const idempotencyKeyDigest = digest(input.idempotencyKey);
-    const requestDigest = digest({
+    const idempotencyKeyDigest = canonicalWorkoutDigest(input.idempotencyKey);
+    const requestDigest = canonicalWorkoutDigest({
       retryOfRunId: source.runId,
       sourceRequestDigest: source.requestDigest,
       sourceEffectiveInputDigest: sourceInput.effectiveInputDigest,

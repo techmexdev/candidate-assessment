@@ -6,10 +6,11 @@ import { validateWorkoutComposition } from "../../domain/policies/workout-compos
 import type { WorkoutCompositionCandidate } from "../../domain/policies/workout-composition";
 import {
   canonicalWorkoutDecisionSetDigest,
+  canonicalWorkoutDigest,
   canonicalWorkoutPayloadDigest,
   canonicalWorkoutProvenanceDigest,
 } from "../../graph/schema/workout-run-schema";
-import { canonicalJson, sha256 } from "../../graph/revisions/movement-graph";
+import { canonicalJson } from "../../graph/revisions/movement-graph";
 import { createWorkoutComposerInput, proposalCitationsAreGrounded } from "../../agents/workout/tools";
 import { parseWorkoutProposal } from "../../agents/workout/schemas";
 import type { WorkoutComposer } from "../ports/workout-composer";
@@ -87,8 +88,6 @@ export class SimulatedWorkoutWorkerCrash extends Error {
     this.name = "SimulatedWorkoutWorkerCrash";
   }
 }
-
-const digest = (value: unknown) => `sha256:${sha256(canonicalJson(value))}`;
 
 function asCatalogSafety(result: Extract<EvaluateCatalogSafetyResult, { readonly status: "ready" }>): CatalogSafetyReadyResult {
   return {
@@ -222,7 +221,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         const catalogSafety = asCatalogSafety(evaluated);
         const safeDecisions = catalogSafety.decisions.filter((decision) => decision.classification !== "excluded");
         if (safeDecisions.length === 0) return fail("proposal-invalid", "catalog");
-        const safetyEnvelopeDigest = digest(catalogSafety);
+        const safetyEnvelopeDigest = canonicalWorkoutDigest(catalogSafety);
         if (!await checkpoint("catalog", safetyEnvelopeDigest)) return { status: "claim-lost" };
 
         const composerGrant = await authorize("composition");
@@ -246,7 +245,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           return fail("proposal-invalid", "composition");
         }
         const selectedIds = proposalIds(parsed.proposal);
-        const modelProposalDigest = digest(parsed.proposal);
+        const modelProposalDigest = canonicalWorkoutDigest(parsed.proposal);
         if (!await checkpoint("proposal", modelProposalDigest)) return { status: "claim-lost" };
 
         const validationGrant = await authorize("validation");
@@ -336,7 +335,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         const workoutPayloadDigest = canonicalWorkoutPayloadDigest(workoutVersion);
         const validated = validateWorkoutComposition({ ...commonValidation, workoutPayloadDigest });
         if (validated.status !== "valid") return fail("proposal-invalid", "validation");
-        if (!await checkpoint("validation", digest(validated.receipt))) return { status: "claim-lost" };
+        if (!await checkpoint("validation", canonicalWorkoutDigest(validated.receipt))) return { status: "claim-lost" };
 
         const completionGrant = await authorize("completion");
         if (completionGrant.status !== "authorized") return fail("authorization-denied", "completion");

@@ -25,9 +25,20 @@ export type WorkoutRunWorkerDependencies = {
 const expiresAt = (now: string, durationMs: number) => new Date(Date.parse(now) + durationMs).toISOString();
 
 function defaultHeartbeatScheduler(heartbeat: () => Promise<void>, intervalMs: number) {
-  const timer = setInterval(() => { void heartbeat(); }, intervalMs);
-  timer.unref?.();
-  return () => clearInterval(timer);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    timer = setTimeout(async () => {
+      await heartbeat();
+      if (!stopped) schedule();
+    }, intervalMs);
+    timer.unref?.();
+  };
+  schedule();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
 }
 
 /** A separately invokable worker entry point. Request handlers never call it. */
@@ -56,9 +67,14 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
       const timeout = setTimeout(() => execution.abort(new Error("Workout run lease expired")), dependencies.leaseDurationMs);
       timeout.unref?.();
       const heartbeat = async () => {
-        const at = dependencies.now();
-        const renewed = await dependencies.repository.heartbeat(claimed.fence, at, expiresAt(at, dependencies.leaseDurationMs));
-        if (renewed.status !== "updated") {
+        try {
+          const at = dependencies.now();
+          const renewed = await dependencies.repository.heartbeat(claimed.fence, at, expiresAt(at, dependencies.leaseDurationMs));
+          if (renewed.status === "updated") return;
+        } catch {
+          // Repository failures lose the claim just like an explicit stale fence.
+        }
+        if (!heartbeatLost) {
           heartbeatLost = true;
           execution.abort(new Error("Workout run claim was lost"));
         }

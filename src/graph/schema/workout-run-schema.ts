@@ -29,11 +29,12 @@ export function isWorkoutRunTransitionAllowed(from: WorkoutRunState, to: Workout
   return WORKOUT_RUN_TRANSITIONS[from].includes(to);
 }
 
-const sha256 = (value: unknown) => `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
+export const canonicalWorkoutDigest = (value: unknown) =>
+  `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 
-export const canonicalWorkoutDecisionSetDigest = (decisions: readonly WorkoutDecision[]) => sha256(decisions);
-export const canonicalWorkoutPayloadDigest = (workout: ImmutableWorkoutVersion) => sha256(workout);
+export const canonicalWorkoutDecisionSetDigest = (decisions: readonly WorkoutDecision[]) => canonicalWorkoutDigest(decisions);
+export const canonicalWorkoutPayloadDigest = (workout: ImmutableWorkoutVersion) => canonicalWorkoutDigest(workout);
 export const canonicalWorkoutProvenanceDigest = (provenance: WorkoutProvenanceBundle) => {
   const canonical = Object.fromEntries(Object.entries(provenance).filter(([key]) => key !== "digest"));
-  return sha256(canonical);
+  return canonicalWorkoutDigest(canonical);
 };

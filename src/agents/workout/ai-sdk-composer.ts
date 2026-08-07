@@ -25,8 +25,12 @@ const SYSTEM_INSTRUCTIONS = [
 export function createAiSdkWorkoutComposer(options: AiSdkWorkoutComposerOptions): WorkoutComposer {
   const timeoutMs = options.timeoutMs ?? 5_000;
   return {
-    async compose(input: Readonly<WorkoutComposerInput>): Promise<WorkoutComposerResult> {
+    async compose(input: Readonly<WorkoutComposerInput>, composeOptions): Promise<WorkoutComposerResult> {
       try {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        const abortSignal = composeOptions?.signal
+          ? AbortSignal.any([composeOptions.signal, timeoutSignal])
+          : timeoutSignal;
         const result = await generateText({
           model: options.model,
           system: SYSTEM_INSTRUCTIONS,
@@ -36,7 +40,7 @@ export function createAiSdkWorkoutComposer(options: AiSdkWorkoutComposerOptions)
             description: "A workout composed only from the supplied eligible candidates.",
             schema: jsonSchema(WORKOUT_PROPOSAL_JSON_SCHEMA),
           }),
-          abortSignal: AbortSignal.timeout(timeoutMs),
+          abortSignal,
         });
         const parsed = parseWorkoutProposal(result.output);
         return parsed.status === "valid"
