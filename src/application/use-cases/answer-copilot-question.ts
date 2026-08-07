@@ -129,8 +129,23 @@ export function createAnswerCopilotQuestion(dependencies: AnswerCopilotQuestionD
         timeoutMs: 1_000,
       }), signal);
       if (priorEvidence.status === "aborted") return timedOutOrCancelled(requestId, cancelled());
-      if (priorEvidence.status === "failed"
-        || priorEvidence.value.status !== "ready"
+      if (priorEvidence.status === "failed") {
+        return { status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
+      }
+      if (priorEvidence.value.status === "denied") {
+        return { status: "denied", requestId, message: "Member context is unavailable." };
+      }
+      if (priorEvidence.value.status === "unavailable") {
+        return { status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
+      }
+      if (priorEvidence.value.status === "invalid") {
+        return { status: "invalid", requestId, code: "invalid-context", message: "The Copilot request is invalid." };
+      }
+      if (priorEvidence.value.status === "insufficient-history") {
+        return { status: "unavailable", requestId, code: "graph-unavailable", retryable: true, message: "Member context is temporarily unavailable." };
+      }
+      if (priorEvidence.value.status === "empty"
+        || priorEvidence.value.status === "stale"
         || priorEvidence.value.contextRevisionId !== continuationClaims.contextRevisionId
         || priorEvidence.value.evidenceIds.length !== continuationClaims.selectedEvidenceIds.length
         || continuationClaims.selectedEvidenceIds.some((id) => !priorEvidence.value.evidenceIds.includes(id))) {

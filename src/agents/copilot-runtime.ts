@@ -13,7 +13,7 @@ import {
   type CopilotSectionId,
   type SignedCopilotContinuation,
 } from "../domain/contracts/copilot";
-import type { MemberEvidenceProjection, MessageProjection } from "../domain/contracts/member-context-queries";
+import type { MemberEvidenceProjection, MessageProjection, ObservationEvidenceProjection } from "../domain/contracts/member-context-queries";
 import { deriveChurnRisk } from "../domain/policies/churn-risk";
 import {
   resolveCopilotIntent,
@@ -58,7 +58,9 @@ async function waitForStage<Value>(promise: Promise<Value>, signal: AbortSignal)
 function projectionText(projection: MemberEvidenceProjection | MessageProjection): string {
   switch (projection.kind) {
     case "observation": return `${projection.metric}: ${String(projection.value)} ${projection.unit}.`;
-    case "message": return "senderRole" in projection ? `Member message: “${projection.text}”` : "Recorded conversation evidence.";
+    case "message": return "senderRole" in projection && "text" in projection
+      ? `${projection.senderRole === "member" ? "Member" : "Coach"} message: “${projection.text}”`
+      : "Recorded conversation evidence.";
     case "workout-session": return `${projection.title}: ${projection.completed ? "completed" : "not completed"}.`;
     case "preference": return `Preferred session length: ${projection.preferredSessionMinutes} minutes.`;
     case "goal": return `Goal: ${projection.text}`;
@@ -228,10 +230,13 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
       }
 
       const includeChurn = retrieved.intentId === "churn-risk" || retrieved.intentId === "morning-brief";
+      const adherence = retrieved.intentId === "morning-brief"
+        ? retrieved.sources.evidence.filter((item): item is ObservationEvidenceProjection => item.kind === "observation")
+        : retrieved.sources.longitudinal;
       const churn = includeChurn ? deriveChurnRisk({
         scope: retrieved,
         evidenceAsOf: retrieved.evidenceAsOf,
-        adherence: retrieved.sources.longitudinal,
+        adherence,
         workouts: retrieved.sources.workouts,
         messages: retrieved.sources.conversations.flatMap((conversation) => conversation.messages),
         sourceAssessment: retrieved.sources.sourceChurnAssessment,
@@ -275,7 +280,10 @@ export function createCopilotRuntime(dependencies: CopilotRuntimeDependencies): 
         churn,
         continuation: continuationStage.value,
       };
-      const sourceMessages = new Map(retrieved.sources.conversations.flatMap((conversation) => conversation.messages.map((message) => [message.evidenceId, message.text] as const)));
+      const sourceMessages = new Map(retrieved.sources.conversations.flatMap((conversation) => conversation.messages.map((message) => [message.evidenceId, {
+        senderRole: message.senderRole,
+        text: message.text,
+      }] as const)));
       const validation = validateCopilotAnswer(packet, retrieved.recipe, { sourceMessages });
       if (validation.status === "rejected") {
         return { status: "model-error", requestId: request.requestId, code: "grounding-rejected", retryable: true, message: "Copilot answer failed grounding validation." };

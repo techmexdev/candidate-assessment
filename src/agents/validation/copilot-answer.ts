@@ -23,7 +23,9 @@ function allowedKinds(recipe: CopilotIntentRecipe, sectionId: string) {
 export function validateCopilotAnswer(
   packet: Readonly<CopilotAnswerPacket>,
   recipe: Readonly<CopilotIntentRecipe>,
-  options: Readonly<{ sourceMessages?: ReadonlyMap<string, string> }> = {},
+  options: Readonly<{
+    sourceMessages?: ReadonlyMap<string, Readonly<{ senderRole: "member" | "coach"; text: string }>>;
+  }> = {},
 ): CopilotAnswerValidationResult {
   if (packet.intentId !== recipe.intentId) return { status: "rejected", code: "scope-mismatch" };
   const atoms = new Map(packet.evidence.atoms.map((atom) => [atom.evidenceId, atom]));
@@ -42,8 +44,11 @@ export function validateCopilotAnswer(
         if (!kinds.includes(atom.evidenceKind)) return { status: "rejected", code: "evidence-kind-mismatch" };
         if (!cited.has(evidenceId)) return { status: "rejected", code: "citation-missing" };
         if (atom.evidenceKind === "message") {
-          const sourceText = options.sourceMessages?.get(evidenceId);
-          if (!sourceText || !clause.text.includes(sourceText)) return { status: "rejected", code: "quote-not-exact" };
+          const sourceMessage = options.sourceMessages?.get(evidenceId);
+          const roleLabel = sourceMessage?.senderRole === "member" ? "Member" : "Coach";
+          if (!sourceMessage || clause.text !== `${roleLabel} message: “${sourceMessage.text}”`) {
+            return { status: "rejected", code: "quote-not-exact" };
+          }
         }
       }
     }

@@ -233,6 +233,13 @@ describe.sequential("Copilot canonical Neo4j grounding", () => {
     expect(payload.answer.citations.every((citation) => citation.memberId === JORDAN_ID
       && citation.contextRevisionId === first.contextRevisionId
       && payload.answer.evidence.atoms.some((atom) => atom.evidenceId === citation.evidenceId))).toBe(true);
+    expect(payload.answer.churn?.derived.level).toBe("elevated");
+    const adherenceDrop = payload.answer.churn?.derived.reasons.find((reason) => reason.code === "adherence-drop-25pp");
+    expect(adherenceDrop?.evidenceIds).toHaveLength(2);
+    expect(adherenceDrop?.evidenceIds.map((evidenceId) => {
+      const atom = payload.answer.evidence.atoms.find((candidate) => candidate.evidenceId === evidenceId);
+      return atom?.atomKind === "fact" ? atom.value : undefined;
+    })).toEqual([75, 50]);
     expect(model.select).not.toHaveBeenCalled();
   });
 
@@ -606,7 +613,9 @@ describe.sequential("Copilot canonical Neo4j grounding", () => {
     const foreign = await handler(httpRequest({ ...requestBody(), continuation: await continuation.sign(claims) }));
     const payloads = await Promise.all([avery, morgan, guessed, wrong, foreign].map((response) => response.json()));
 
-    expect(payloads.map((payload) => payload.status)).toEqual(["empty", "empty", "denied", "denied", "stale"]);
+    expect(foreign.status).toBe(400);
+    expect(payloads.map((payload) => payload.status)).toEqual(["empty", "empty", "denied", "denied", "invalid"]);
+    expect(payloads.at(-1)?.controls).toEqual({ retry: false, refresh: false, keepLastReadyAnswer: true });
     for (const payload of payloads) {
       expect(JSON.stringify(payload)).not.toContain(first.contextRevisionId);
       expect(JSON.stringify(payload)).not.toContain("assertion:foreign");
