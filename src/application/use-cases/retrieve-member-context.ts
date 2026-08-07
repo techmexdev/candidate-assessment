@@ -77,7 +77,9 @@ function wrapWithFreshAuthorization(
   });
 }
 
-function mintAuthorizedScope(claims: MemberContextAccessClaims): AuthorizedMemberContextScope {
+export function mintAuthorizedMemberContextScope(
+  claims: MemberContextAccessClaims,
+): AuthorizedMemberContextScope {
   const token = Object.freeze({});
   authorizedClaims.set(token, Object.freeze({ ...claims }));
   return token as AuthorizedMemberContextScope;
@@ -111,7 +113,7 @@ export function createRetrieveMemberContext(
       return { status: "denied", message: genericUnavailableMessage };
     }
 
-    const scope = mintAuthorizedScope(claims);
+    const scope = mintAuthorizedMemberContextScope(claims);
     const opened = await (request.contextRevisionId
       ? dependencies.memberContext.openRevision(scope, request.contextRevisionId)
       : dependencies.memberContext.openActive(scope));

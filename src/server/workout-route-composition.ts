@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { createAnswerWorkoutClarification } from "../application/use-cases/answer-workout-clarification";
 import { createCancelWorkoutRun } from "../application/use-cases/cancel-workout-run";
 import { createRetrieveMemberContext } from "../application/use-cases/retrieve-member-context";
+import { createRetrieveFullGraph, type RetrieveFullGraph } from "../application/use-cases/retrieve-full-graph";
 import { createReplayWorkoutRunEvents, createRetrieveWorkoutRun } from "../application/use-cases/retrieve-workout-run";
 import { createRetryWorkoutRun } from "../application/use-cases/retry-workout-run";
 import { createSubmitWorkoutRun } from "../application/use-cases/submit-workout-run";
@@ -14,8 +15,8 @@ import { createNeo4jMemberContextReadProvider } from "../graph/repositories/neo4
 import { createNeo4jMovementGraphReadProvider } from "../graph/repositories/neo4j-movement-graph";
 import { createNeo4jWorkoutRunRepository } from "../graph/repositories/neo4j-workout-runs";
 import type { Neo4jClient } from "../graph/neo4j/client";
-import type { MemberContextReadProvider } from "../domain/contracts/member-context-queries";
-import type { MovementGraphReadProvider } from "../domain/contracts/movement-clinical-queries";
+import type { MemberContextFullReadProvider } from "../domain/contracts/full-graph-view";
+import type { MovementGraphFullReadProvider } from "../domain/contracts/full-graph-view";
 import type { WorkoutRunRepository } from "../application/ports/workout-run-repository";
 import { MEMBER_CONTEXT_CYPHER } from "../graph/cypher/member-context";
 import { MOVEMENT_CYPHER } from "../graph/cypher/movement";
@@ -58,6 +59,8 @@ export type WorkoutRouteComposition = {
   readonly replay: ReturnType<typeof createReplayWorkoutRunEvents>;
   readonly answer: ReturnType<typeof createAnswerWorkoutClarification>;
   readonly retry: ReturnType<typeof createRetryWorkoutRun>;
+  /** Optional for existing route test doubles; present in production composition. */
+  readonly fullGraph?: RetrieveFullGraph;
 };
 
 type GrantPayload = {
@@ -195,8 +198,8 @@ export type WorkoutServerInfrastructure = {
   readonly client: Neo4jClient;
   readonly repository: WorkoutRunRepository;
   readonly authorization: WorkerAuthorizationPort;
-  readonly movement: MovementGraphReadProvider;
-  readonly memberContext: MemberContextReadProvider;
+  readonly movement: MovementGraphFullReadProvider;
+  readonly memberContext: MemberContextFullReadProvider;
   readonly protectedInput: ReturnType<typeof createProtectedWorkoutInputVault>;
 };
 
@@ -230,6 +233,14 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
   const configuredEnvironment = process.env;
   const { environment, secret, client, repository, authorization, movement, memberContext, protectedInput } = createConfiguredWorkoutServerInfrastructure(configuredEnvironment);
   const retrieveMemberContext = createRetrieveMemberContext({
+    memberContext,
+    authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
+      const session = openSessionAuthorization(secret, authorizationId);
+      return Boolean(session && session.coachId === coachId && session.memberIds.includes(memberId));
+    },
+  });
+  const retrieveFullGraph = createRetrieveFullGraph({
+    movement,
     memberContext,
     authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
       const session = openSessionAuthorization(secret, authorizationId);
@@ -364,6 +375,7 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
     replay: createReplayWorkoutRunEvents({ repository, authorization }),
     answer: createAnswerWorkoutClarification({ repository, authorization, protectPrompt, createId, now }),
     retry: createRetryWorkoutRun({ repository, authorization, createId, now, modelConfigurationId, policyRevision }),
+    fullGraph: retrieveFullGraph,
   });
 }
 
@@ -414,5 +426,27 @@ export const configuredWorkoutRouteComposition: WorkoutRouteComposition = {
   },
   retry: async (input) => {
     try { return await composition().retry(input); } catch { return { status: "not-found" }; }
+  },
+  fullGraph: {
+    readMovement: async (input) => {
+      try {
+        const fullGraph = composition().fullGraph;
+        return fullGraph
+          ? await fullGraph.readMovement(input)
+          : { status: "unavailable", domain: "movement-clinical", message: "Movement graph is unavailable." };
+      } catch {
+        return { status: "unavailable", domain: "movement-clinical", message: "Movement graph is unavailable." };
+      }
+    },
+    readMemberContext: async (input) => {
+      try {
+        const fullGraph = composition().fullGraph;
+        return fullGraph
+          ? await fullGraph.readMemberContext(input)
+          : { status: "unavailable", domain: "member-context", message: "Member context is unavailable." };
+      } catch {
+        return { status: "unavailable", domain: "member-context", message: "Member context is unavailable." };
+      }
+    },
   },
 };

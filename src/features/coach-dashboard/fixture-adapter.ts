@@ -449,5 +449,9 @@ export const fixtureDashboardAdapter: DashboardAdapter = {
       available: false,
       reason: "New drafts require a connected coaching service.",
     },
+    fullGraph: {
+      available: false,
+      reason: "Full graph views require a connected coaching service.",
+    },
   },
 };

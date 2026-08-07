@@ -18,11 +18,23 @@ import {
   type SignedCopilotContinuation,
 } from "../../domain/contracts/copilot";
 import {
+  type FullGraphDomain,
+  type FullGraphDetailField,
+  type FullGraphNode,
+  type FullGraphProjection,
+  type FullGraphProvenance,
+  type FullGraphReadResult,
+  type FullGraphRelationship,
+} from "../../domain/contracts/full-graph-view";
+import {
+  MEMBER_CONTEXT_NODE_KINDS,
+  MEMBER_CONTEXT_RELATIONSHIP_KINDS,
   MEMBER_CONTEXT_REVISION_SCOPED_NODE_KINDS,
   type AssertionClassification,
   type AssertionSource,
   type AssertionTemporal,
 } from "../../domain/contracts/member-context";
+import { MOVEMENT_EDGE_KINDS, MOVEMENT_NODE_KINDS } from "../../domain/contracts/movement-graph";
 import { isCopilotQuickPromptId } from "../../domain/policies/copilot-retrieval-plan";
 import type {
   DashboardCopilotClient,
@@ -64,6 +76,204 @@ function scalar(value: unknown): value is string | number | boolean | null {
     || typeof value === "string"
     || typeof value === "boolean"
     || (typeof value === "number" && Number.isFinite(value));
+}
+
+const fullGraphCategories = ["domain", "identity", "lineage", "publication"] as const;
+
+function decodeFullGraphDetail(value: unknown): FullGraphNode["detail"] | null {
+  if (!Array.isArray(value)) return null;
+  const detail: FullGraphDetailField[] = [];
+  for (const field of value) {
+    if (!record(field) || typeof field.key !== "string" || field.key.length === 0 || !scalar(field.value)) return null;
+    detail.push({ key: field.key, value: field.value });
+  }
+  return detail;
+}
+
+function decodeFullGraphProvenance(value: unknown): FullGraphProvenance | null {
+  if (!record(value) || (value.directAssertion !== "present" && value.directAssertion !== "none")) return null;
+  const lineageIds = stringArray(value.lineageIds);
+  if (!lineageIds) return null;
+  if (value.directAssertion === "present" && typeof value.assertionId !== "string") return null;
+  if (value.directAssertion === "none" && Object.hasOwn(value, "assertionId")) return null;
+  const assertionId = value.directAssertion === "present" ? value.assertionId as string : undefined;
+  let source: FullGraphProvenance["source"];
+  if (value.source !== undefined) {
+    const sourceRecord = value.source;
+    if (!record(sourceRecord)) return null;
+    const sourceKeys = ["sourceId", "sourceRevision", "sourceRecordId", "locator", "artifactDigest"] as const;
+    if (sourceKeys.some((key) => Object.hasOwn(sourceRecord, key) && typeof sourceRecord[key] !== "string")) return null;
+    source = {
+      ...(typeof sourceRecord.sourceId === "string" ? { sourceId: sourceRecord.sourceId } : {}),
+      ...(typeof sourceRecord.sourceRevision === "string" ? { sourceRevision: sourceRecord.sourceRevision } : {}),
+      ...(typeof sourceRecord.sourceRecordId === "string" ? { sourceRecordId: sourceRecord.sourceRecordId } : {}),
+      ...(typeof sourceRecord.locator === "string" ? { locator: sourceRecord.locator } : {}),
+      ...(typeof sourceRecord.artifactDigest === "string" ? { artifactDigest: sourceRecord.artifactDigest } : {}),
+    };
+  }
+  let classification: FullGraphProvenance["classification"];
+  if (value.classification !== undefined) {
+    if (!oneOf(value.classification, assertionClassifications)) return null;
+    classification = value.classification;
+  }
+  let temporal: FullGraphProvenance["temporal"];
+  if (value.temporal !== undefined) {
+    const decodedTemporal = decodeTemporal(value.temporal);
+    if (!decodedTemporal) return null;
+    temporal = decodedTemporal;
+  }
+  return {
+    directAssertion: value.directAssertion,
+    ...(assertionId === undefined ? {} : { assertionId }),
+    ...(source === undefined ? {} : { source }),
+    ...(classification === undefined ? {} : { classification }),
+    ...(temporal === undefined ? {} : { temporal }),
+    lineageIds,
+  };
+}
+
+function decodeFullGraphNode(value: unknown, domain: FullGraphDomain, revisionId: string): FullGraphNode | null {
+  if (!record(value)
+    || typeof value.id !== "string"
+    || typeof value.kind !== "string"
+    || typeof value.label !== "string"
+    || !oneOf(value.category, fullGraphCategories)
+    || value.revisionId !== revisionId) return null;
+  const validKind = domain === "movement-clinical"
+    ? oneOf(value.kind, MOVEMENT_NODE_KINDS)
+    : oneOf(value.kind, MEMBER_CONTEXT_NODE_KINDS);
+  if (!validKind) return null;
+  const detail = decodeFullGraphDetail(value.detail);
+  const provenance = decodeFullGraphProvenance(value.provenance);
+  if (!detail || !provenance) return null;
+  return {
+    id: value.id,
+    kind: value.kind as FullGraphNode["kind"],
+    label: value.label,
+    category: value.category as FullGraphNode["category"],
+    revisionId,
+    detail,
+    provenance,
+  };
+}
+
+function decodeFullGraphRelationship(value: unknown, domain: FullGraphDomain, revisionId: string): FullGraphRelationship | null {
+  if (!record(value)
+    || typeof value.id !== "string"
+    || typeof value.kind !== "string"
+    || typeof value.fromId !== "string"
+    || typeof value.toId !== "string"
+    || value.revisionId !== revisionId) return null;
+  const validKind = domain === "movement-clinical"
+    ? oneOf(value.kind, MOVEMENT_EDGE_KINDS)
+    : oneOf(value.kind, MEMBER_CONTEXT_RELATIONSHIP_KINDS);
+  if (!validKind) return null;
+  const detail = decodeFullGraphDetail(value.detail);
+  const provenance = decodeFullGraphProvenance(value.provenance);
+  if (!detail || !provenance) return null;
+  return {
+    id: value.id,
+    kind: value.kind as FullGraphRelationship["kind"],
+    fromId: value.fromId,
+    toId: value.toId,
+    revisionId,
+    detail,
+    provenance,
+  };
+}
+
+function decodeFullGraphProjection(value: unknown, expectedDomain: FullGraphDomain, expectedMemberId?: string): FullGraphProjection | null {
+  const counts = record(value) && record(value.counts)
+    ? { nodes: value.counts.nodes, relationships: value.counts.relationships }
+    : null;
+  if (!record(value)
+    || value.domain !== expectedDomain
+    || typeof value.revisionId !== "string"
+    || (expectedDomain === "member-context" && value.memberId !== expectedMemberId)
+    || (expectedDomain === "movement-clinical" && value.memberId !== undefined)
+    || !oneOf(value.authority, ["canonical", "fixture"] as const)
+    || !counts
+    || typeof counts.nodes !== "number"
+    || typeof counts.relationships !== "number"
+    || !Number.isSafeInteger(counts.nodes)
+    || !Number.isSafeInteger(counts.relationships)
+    || counts.nodes < 0
+    || counts.relationships < 0
+    || !Array.isArray(value.nodes)
+    || !Array.isArray(value.relationships)) return null;
+  const nodeCount = counts.nodes as number;
+  const relationshipCount = counts.relationships as number;
+  const nodes = decodedArray(value.nodes, (node) => decodeFullGraphNode(node, expectedDomain, value.revisionId as string));
+  const relationships = decodedArray(value.relationships, (relationship) => decodeFullGraphRelationship(relationship, expectedDomain, value.revisionId as string));
+  if (!nodes || !relationships || nodes.length !== nodeCount || relationships.length !== relationshipCount) return null;
+  const nodeIds = new Set<string>();
+  for (const node of nodes) {
+    if (nodeIds.has(node.id)) return null;
+    nodeIds.add(node.id);
+  }
+  const relationshipIds = new Set<string>();
+  for (const relationship of relationships) {
+    if (relationshipIds.has(relationship.id) || !nodeIds.has(relationship.fromId) || !nodeIds.has(relationship.toId)) return null;
+    relationshipIds.add(relationship.id);
+  }
+  return {
+    domain: expectedDomain,
+    revisionId: value.revisionId,
+    ...(expectedDomain === "member-context" ? { memberId: expectedMemberId } : {}),
+    ...(typeof value.sourceArtifactDigest === "string" ? { sourceArtifactDigest: value.sourceArtifactDigest } : {}),
+    authority: value.authority as FullGraphProjection["authority"],
+    counts: { nodes: nodeCount, relationships: relationshipCount },
+    nodes,
+    relationships,
+  };
+}
+
+function decodeFullGraphResult(value: unknown, input: { readonly domain: FullGraphDomain; readonly memberId?: string }): FullGraphReadResult | null {
+  if (!record(value) || typeof value.status !== "string") return null;
+  if (value.status === "ready") {
+    const data = decodeFullGraphProjection(value.data, input.domain, input.memberId);
+    return data ? { status: "ready", data } : null;
+  }
+  if (value.domain !== input.domain || typeof value.message !== "string") return null;
+  if (value.status === "stale") {
+    if (typeof value.requestedRevisionId !== "string"
+      || (value.activeRevisionId !== null && typeof value.activeRevisionId !== "string")) return null;
+    return { status: "stale", domain: input.domain, requestedRevisionId: value.requestedRevisionId, activeRevisionId: value.activeRevisionId };
+  }
+  if (value.status === "empty" || value.status === "denied" || value.status === "invalid" || value.status === "unavailable") {
+    return { status: value.status, domain: input.domain, message: value.message };
+  }
+  return null;
+}
+
+function unavailableFullGraph(domain: FullGraphDomain): FullGraphReadResult {
+  return { status: "unavailable", domain, message: domain === "member-context" ? "Member context is unavailable." : "Movement graph is unavailable." };
+}
+
+export function createFetchDashboardFullGraphClient(fetcher: typeof fetch = fetch): import("./dashboard-contract").DashboardFullGraphClient {
+  return {
+    async read(input) {
+      if ((input.domain === "member-context" && (!input.memberId || input.memberId.length > 200))
+        || (input.domain === "movement-clinical" && input.memberId !== undefined)
+        || (input.revisionId !== undefined && (input.revisionId.length === 0 || input.revisionId.length > 200))) {
+        return { status: "invalid", domain: input.domain, message: "Invalid full graph request." };
+      }
+      const params = new URLSearchParams();
+      if (input.domain === "member-context") params.set("memberId", input.memberId!);
+      if (input.revisionId) params.set(input.domain === "member-context" ? "contextRevisionId" : "revisionId", input.revisionId);
+      const path = input.domain === "member-context" ? "/api/member-context/graph" : "/api/movement-graph";
+      try {
+        const response = await fetcher(`${path}?${params.toString()}`, {
+          headers: { accept: "application/json" },
+          ...(input.signal ? { signal: input.signal } : {}),
+        });
+        const decoded = decodeFullGraphResult(await response.json(), input);
+        return decoded ?? unavailableFullGraph(input.domain);
+      } catch {
+        return unavailableFullGraph(input.domain);
+      }
+    },
+  };
 }
 
 function decodedArray<Value>(value: unknown, decode: (item: unknown) => Value | null): Value[] | null {

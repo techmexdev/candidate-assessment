@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { CoachDashboard } from "./CoachDashboard";
 import type { DashboardAdapter } from "./dashboard-contract";
-import { createFetchDashboardCopilotClient, createFetchDashboardSessionClient } from "./production-adapter";
+import { createFetchDashboardCopilotClient, createFetchDashboardFullGraphClient, createFetchDashboardSessionClient } from "./production-adapter";
 import { createFetchDashboardConversationClient } from "./conversation-adapter";
 import { createDashboardWorkoutRuntime, createFetchDashboardWorkoutRuntimeClient } from "./runtime-adapter";
 import { syntheticDashboardBase } from "./synthetic-dashboard-base";
@@ -23,6 +23,13 @@ export function createProductionDashboardAdapter(): DashboardAdapter {
         supportsMember: (memberId) => memberId === syntheticDashboardBase.member.id,
       },
       conversation: { available: true, client: createFetchDashboardConversationClient() },
+      fullGraph: {
+        available: true,
+        client: createFetchDashboardFullGraphClient(),
+        supports: (input) => input.domain === "movement-clinical"
+          ? input.memberId === undefined
+          : typeof input.memberId === "string" && input.memberId.length > 0,
+      },
     },
   };
 }

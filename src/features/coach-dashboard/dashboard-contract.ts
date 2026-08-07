@@ -1,3 +1,5 @@
+import type { FullGraphDomain, FullGraphReadResult } from "../../domain/contracts/full-graph-view";
+
 export type DashboardInsightId = "brief" | "adherence" | "sleep" | "change" | "churn";
 export type DashboardDecisionId = string;
 
@@ -36,6 +38,7 @@ export type DashboardAdapter = {
     conversation?:
       | { available: false; reason: string }
       | { available: true; client: DashboardConversationClient };
+    fullGraph?: DashboardFullGraphCapability;
   };
 };
 
@@ -92,6 +95,25 @@ export type DashboardConversationClient = {
     readonly signal?: AbortSignal;
   }) => Promise<import("../../application/use-cases/retrieve-member-conversation").MemberConversationTimeline>;
 };
+
+export type DashboardFullGraphRequest = {
+  readonly domain: FullGraphDomain;
+  readonly memberId?: string;
+  readonly revisionId?: string;
+  readonly signal?: AbortSignal;
+};
+
+export type DashboardFullGraphClient = {
+  readonly read: (input: DashboardFullGraphRequest) => Promise<FullGraphReadResult>;
+};
+
+export type DashboardFullGraphCapability =
+  | { readonly available: false; readonly reason: string }
+  | {
+      readonly available: true;
+      readonly client: DashboardFullGraphClient;
+      readonly supports: (input: DashboardFullGraphRequest) => boolean;
+    };
 
 export type CoachContext = { name: string };
 export type CoachAsOfDate = { weekday: string; monthDay: string };

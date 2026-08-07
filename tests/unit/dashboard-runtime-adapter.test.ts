@@ -7,6 +7,7 @@ import {
   projectWorkoutRunResource,
   type DashboardWorkoutRuntimeClient,
 } from "../../src/features/coach-dashboard/runtime-adapter";
+import { createFetchDashboardFullGraphClient } from "../../src/features/coach-dashboard/production-adapter";
 
 const completedResource = (): WorkoutRunResource => ({
   runId: "run:1" as WorkoutRunResource["runId"],
@@ -202,5 +203,92 @@ describe("dashboard workout runtime adapter", () => {
     await expect(client.read({ runId: "run:1", memberId: "member:1", resourceUrl: replay.snapshotUrl }))
       .resolves.toMatchObject({ state: "completed" });
     expect(fetcher).toHaveBeenNthCalledWith(2, snapshotUrl, expect.anything());
+  });
+});
+
+describe("dashboard full graph adapter", () => {
+  it("loads a complete, revision-pinned movement projection without fetching on construction", async () => {
+    const fetcher = vi.fn(async () => Response.json({
+      status: "ready",
+      data: {
+        domain: "movement-clinical",
+        revisionId: "movement:one",
+        authority: "canonical",
+        counts: { nodes: 2, relationships: 1 },
+        nodes: [
+          {
+            id: "exercise:squat",
+            kind: "exercise",
+            label: "Squat",
+            category: "domain",
+            revisionId: "movement:one",
+            detail: [{ key: "catalogId", value: "exercise:squat" }],
+            provenance: { directAssertion: "present", assertionId: "assertion:exercise", source: { sourceId: "movement-catalog", sourceRevision: "v1" }, lineageIds: [] },
+          },
+          {
+            id: "joint:knee",
+            kind: "joint",
+            label: "Knee",
+            category: "domain",
+            revisionId: "movement:one",
+            detail: [],
+            provenance: { directAssertion: "present", assertionId: "assertion:knee", source: { sourceId: "movement-catalog", sourceRevision: "v1" }, lineageIds: [] },
+          },
+        ],
+        relationships: [{
+          id: "assertion:targets",
+          kind: "targets",
+          fromId: "exercise:squat",
+          toId: "joint:knee",
+          revisionId: "movement:one",
+          detail: [],
+          provenance: { directAssertion: "present", assertionId: "assertion:targets", source: { sourceId: "movement-catalog", sourceRevision: "v1" }, lineageIds: [] },
+        }],
+      },
+    }));
+
+    const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+    const result = await client.read({ domain: "movement-clinical", revisionId: "movement:one" });
+
+    expect(result).toMatchObject({ status: "ready", data: { counts: { nodes: 2, relationships: 1 }, revisionId: "movement:one" } });
+    expect(fetcher).toHaveBeenCalledWith("/api/movement-graph?revisionId=movement%3Aone", expect.anything());
+  });
+
+  it("fails closed when a projection is truncated or has a dangling edge", async () => {
+    const fetcher = vi.fn(async () => Response.json({
+      status: "ready",
+      data: {
+        domain: "member-context",
+        revisionId: "context:one",
+        memberId: "member:one",
+        authority: "canonical",
+        counts: { nodes: 1, relationships: 1 },
+        nodes: [{
+          id: "member:one",
+          kind: "member",
+          label: "Jordan Rivera",
+          category: "identity",
+          revisionId: "context:one",
+          detail: [],
+          provenance: { directAssertion: "none", lineageIds: [] },
+        }],
+        relationships: [{
+          id: "assertion:missing",
+          kind: "HAS_PROFILE",
+          fromId: "member:one",
+          toId: "profile:missing",
+          revisionId: "context:one",
+          detail: [],
+          provenance: { directAssertion: "present", assertionId: "assertion:missing", source: { locator: "profile", artifactDigest: "sha256:fixture" }, lineageIds: [] },
+        }],
+      },
+    }));
+    const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+
+    await expect(client.read({ domain: "member-context", memberId: "member:one" })).resolves.toEqual({
+      status: "unavailable",
+      domain: "member-context",
+      message: "Member context is unavailable.",
+    });
   });
 });
