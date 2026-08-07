@@ -1,7 +1,7 @@
 import { asWorkoutRunId } from "../../../../../domain/contracts/workout";
 import type { ReplayWorkoutRunEventsResult } from "../../../../../application/use-cases/retrieve-workout-run";
 import { configuredWorkoutRouteComposition } from "../../../../../server/workout-route-composition";
-import { jsonResponse, noStoreHeaders, type ResolveWorkoutRouteSession, type WorkoutRouteContext } from "../../route";
+import { jsonResponse, noStoreHeaders, workoutRunResourceUrl, type ResolveWorkoutRouteSession, type WorkoutRouteContext } from "../../route";
 
 export function createWorkoutRunEventsHandler(dependencies: {
   readonly resolveSession: ResolveWorkoutRouteSession;
@@ -24,7 +24,9 @@ export function createWorkoutRunEventsHandler(dependencies: {
     if (!memberId || !runId || memberId.length > 200 || runId.length > 300) return jsonResponse({ status: "not-found" }, 404);
     const cursor = request.headers.get("last-event-id") ?? url.searchParams.get("cursor") ?? undefined;
     const result = await dependencies.replay({ runId: asWorkoutRunId(runId), coachId: session.coachId, memberId, ...(cursor ? { cursor } : {}) });
-    if (result.status === "resync_required") return jsonResponse(result, 409);
+    if (result.status === "resync_required") {
+      return jsonResponse({ status: result.status, snapshotUrl: workoutRunResourceUrl(runId, memberId) }, 409);
+    }
     if (result.status === "not-found") return jsonResponse({ status: "not-found" }, 404);
     const body = result.events.map(({ event, cursor: eventCursor }) => [
       `id: ${eventCursor}`,

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkoutRunResource } from "../../src/application/use-cases/retrieve-workout-run";
 import {
   createDashboardWorkoutRuntime,
+  createFetchDashboardWorkoutRuntimeClient,
   projectWorkoutRunResource,
   type DashboardWorkoutRuntimeClient,
 } from "../../src/features/coach-dashboard/runtime-adapter";
@@ -146,5 +147,60 @@ describe("dashboard workout runtime adapter", () => {
     expect(result).toMatchObject({ status: "no-safe-result", runId: "run:2" });
     expect(updates).toEqual(["submitting", "disconnected", "no-safe-result"]);
     expect(client.read).not.toHaveBeenCalled();
+  });
+
+  it("loads the authoritative snapshot after cursor pruning and resumes without the stale cursor", async () => {
+    const running = { ...completedResource(), state: "running" as const, workout: undefined, provenance: undefined };
+    const read = vi.fn()
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(completedResource());
+    const replay = vi.fn()
+      .mockResolvedValueOnce({
+        status: "ready" as const,
+        cursor: "cursor:pruned",
+        events: [{ eventId: "event:queued", sequence: 1, kind: "queued", occurredAt: "2026-08-07T12:00:00.000Z", data: {} }],
+      })
+      .mockResolvedValueOnce({ status: "resync_required" as const, snapshotUrl: "/api/workout-runs/run%3A1?memberId=member%3A1" })
+      .mockResolvedValueOnce({
+        status: "ready" as const,
+        cursor: "cursor:fresh",
+        events: [{ eventId: "event:completed", sequence: 9, kind: "completed", occurredAt: "2026-08-07T12:00:09.000Z", data: {} }],
+      });
+    const client: DashboardWorkoutRuntimeClient = {
+      submit: vi.fn(async () => ({
+        runId: "run:1",
+        replayed: false,
+        resourceUrl: "/api/workout-runs/run%3A1?memberId=member%3A1",
+      })),
+      replay,
+      read,
+    };
+    const runtime = createDashboardWorkoutRuntime(client, { wait: async () => undefined });
+
+    const result = await runtime.generate(
+      { memberId: "member:1", prompt: "Knee-aware workout", durationMinutes: 45, idempotencyKey: "key:resync" },
+      () => undefined,
+    );
+
+    expect(result.status).toBe("completed");
+    expect(replay).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: "cursor:pruned" }));
+    expect(replay).toHaveBeenNthCalledWith(3, expect.not.objectContaining({ cursor: expect.anything() }));
+    expect(read).toHaveBeenNthCalledWith(1, expect.objectContaining({ resourceUrl: "/api/workout-runs/run%3A1?memberId=member%3A1" }));
+  });
+
+  it("parses pruned-cursor responses and follows their member-scoped snapshot links", async () => {
+    const snapshotUrl = "/api/workout-runs/run%3A1?memberId=member%3A1";
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ status: "resync_required", snapshotUrl }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json(completedResource()));
+    const client = createFetchDashboardWorkoutRuntimeClient(fetcher as typeof fetch);
+
+    const replay = await client.replay({ runId: "run:1", memberId: "member:1", cursor: "cursor:pruned" });
+    expect(replay).toEqual({ status: "resync_required", snapshotUrl });
+    if (replay.status !== "resync_required") throw new Error("expected resync response");
+
+    await expect(client.read({ runId: "run:1", memberId: "member:1", resourceUrl: replay.snapshotUrl }))
+      .resolves.toMatchObject({ state: "completed" });
+    expect(fetcher).toHaveBeenNthCalledWith(2, snapshotUrl, expect.anything());
   });
 });

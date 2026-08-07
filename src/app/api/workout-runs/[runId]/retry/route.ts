@@ -5,6 +5,7 @@ import {
   isSameOriginMutation,
   jsonResponse,
   readJsonObject,
+  workoutRunResourceUrl,
   type ResolveWorkoutRouteSession,
   type WorkoutRouteContext,
 } from "../../route";
@@ -36,7 +37,7 @@ export function createWorkoutRetryHandler(dependencies: {
       idempotencyKey: body.idempotencyKey,
     });
     if (result.status === "created" || result.status === "replayed") {
-      return jsonResponse({ ...result, resourceUrl: `/api/workout-runs/${encodeURIComponent(result.runId)}` }, result.status === "created" ? 202 : 200);
+      return jsonResponse({ ...result, resourceUrl: workoutRunResourceUrl(result.runId, body.memberId) }, result.status === "created" ? 202 : 200);
     }
     if (result.status === "invalid-request") return jsonResponse(result, 400);
     if (result.status === "not-retryable" || result.status === "idempotency-conflict") return jsonResponse(result, 409);

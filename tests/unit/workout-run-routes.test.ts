@@ -32,7 +32,11 @@ describe("workout run route adapters", () => {
     }));
 
     expect(accepted.status).toBe(202);
-    expect(await accepted.json()).toEqual({ runId: "workout-run:one", status: "created", resourceUrl: "/api/workout-runs/workout-run%3Aone" });
+    expect(await accepted.json()).toEqual({
+      runId: "workout-run:one",
+      status: "created",
+      resourceUrl: "/api/workout-runs/workout-run%3Aone?memberId=member%3Aone",
+    });
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({ coachId: "coach:server", sessionAuthorizationId: "session:opaque", memberId: "member:one" }));
     expect(submit.mock.calls[0]![0]).not.toHaveProperty("coachId", "coach:forged");
 
@@ -109,6 +113,37 @@ describe("workout run route adapters", () => {
     expect(replay).toHaveBeenCalledWith(expect.objectContaining({ cursor: "prior.cursor", coachId: "coach:server" }));
   });
 
+  it("returns directly followable member-scoped resource and resync links", async () => {
+    const retrieve = vi.fn(async (): Promise<RetrieveWorkoutRunResult> => ({
+      status: "ready",
+      resource: {
+        runId: asWorkoutRunId("workout-run:one"), state: "running", requestedDurationMinutes: 45,
+        movementGraphRevisionId: "movement:one", memberContextRevisionId: "member:one",
+      },
+    }));
+    const resourceHandlers = createWorkoutRunResourceHandlers({
+      resolveSession: async () => session,
+      retrieve,
+      cancel: vi.fn(async (): Promise<CancelWorkoutRunResult> => ({ status: "canceled" })),
+    });
+    const events = createWorkoutRunEventsHandler({
+      resolveSession: async () => session,
+      replay: vi.fn(async () => ({ status: "resync_required" as const, snapshotUrl: "/internal/unscoped" })),
+    });
+
+    const response = await events(
+      request("/api/workout-runs/workout-run:one/events?memberId=member%3Aone&cursor=pruned"),
+      context,
+    );
+    expect(response.status).toBe(409);
+    const body = await response.json() as { snapshotUrl: string };
+    expect(body.snapshotUrl).toBe("/api/workout-runs/workout-run%3Aone?memberId=member%3Aone");
+
+    const followed = await resourceHandlers.GET(request(body.snapshotUrl), context);
+    expect(followed.status).toBe(200);
+    expect(retrieve).toHaveBeenCalledWith(expect.objectContaining({ memberId: "member:one" }));
+  });
+
   it("keeps clarification and retry as same-origin server-authorized mutations", async () => {
     const answer = vi.fn(async () => ({ status: "requeued" as const, revision: 2 }));
     const retry = vi.fn(async () => ({ status: "created" as const, runId: asWorkoutRunId("workout-run:retry") }));
@@ -124,6 +159,7 @@ describe("workout run route adapters", () => {
 
     expect(clarification.status).toBe(202);
     expect(retried.status).toBe(202);
+    expect(await retried.json()).toMatchObject({ resourceUrl: "/api/workout-runs/workout-run%3Aretry?memberId=member%3Aone" });
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ coachId: "coach:server", sessionAuthorizationId: "session:opaque" }));
     expect(retry).toHaveBeenCalledWith(expect.objectContaining({ coachId: "coach:server", sessionAuthorizationId: "session:opaque" }));
   });

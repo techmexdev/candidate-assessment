@@ -38,9 +38,26 @@ export type DashboardRuntimeEvent = {
 };
 
 export type DashboardWorkoutRuntimeClient = {
-  readonly submit: (input: DashboardWorkoutGenerationInput, signal?: AbortSignal) => Promise<{ readonly runId: string; readonly replayed: boolean }>;
-  readonly replay: (input: { readonly runId: string; readonly memberId: string; readonly cursor?: string; readonly signal?: AbortSignal }) => Promise<{ readonly cursor: string; readonly events: readonly DashboardRuntimeEvent[] }>;
-  readonly read: (input: { readonly runId: string; readonly memberId: string; readonly signal?: AbortSignal }) => Promise<WorkoutRunResource>;
+  readonly submit: (input: DashboardWorkoutGenerationInput, signal?: AbortSignal) => Promise<{
+    readonly runId: string;
+    readonly replayed: boolean;
+    readonly resourceUrl?: string;
+  }>;
+  readonly replay: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly cursor?: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<
+    | { readonly status?: "ready"; readonly cursor: string; readonly events: readonly DashboardRuntimeEvent[] }
+    | { readonly status: "resync_required"; readonly snapshotUrl: string }
+  >;
+  readonly read: (input: {
+    readonly runId: string;
+    readonly memberId: string;
+    readonly resourceUrl?: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<WorkoutRunResource>;
 };
 
 export type DashboardWorkoutGenerationInput = {
@@ -185,6 +202,23 @@ const terminalFailure = (runId: string, data: DashboardRuntimeEvent["data"]): Da
     : { status: "failed", runId, message: "Workout generation failed. Try again with a new request." };
 };
 
+function resultFromTerminalSnapshot(runId: string, snapshot: WorkoutRunResource): DashboardWorkoutRuntimeResult | undefined {
+  if (snapshot.state === "completed") {
+    return {
+      status: "completed",
+      runId,
+      message: "Generated workout and decision trace ready.",
+      projection: projectWorkoutRunResource(snapshot),
+    };
+  }
+  if (snapshot.state === "awaiting-clarification") {
+    return { status: "awaiting-clarification", runId, message: "More detail is needed before a safe workout can be generated." };
+  }
+  if (snapshot.state === "failed") return terminalFailure(runId, snapshot.failure ?? {});
+  if (snapshot.state === "canceled") return { status: "canceled", runId, message: "Workout generation was canceled." };
+  return undefined;
+}
+
 export function createDashboardWorkoutRuntime(
   client: DashboardWorkoutRuntimeClient,
   options: { readonly wait?: () => Promise<void>; readonly maximumReconnects?: number } = {},
@@ -198,6 +232,7 @@ export function createDashboardWorkoutRuntime(
       try {
         const submitted = await client.submit(input, input.signal);
         runId = submitted.runId;
+        const resourceUrl = submitted.resourceUrl;
         let cursor: string | undefined;
         let reconnects = 0;
         const seenEvents = new Set<string>();
@@ -211,6 +246,22 @@ export function createDashboardWorkoutRuntime(
             const disconnected = { status: "disconnected", runId, message: "Connection interrupted. Reconnecting…" } as const;
             onUpdate(disconnected);
             if (reconnects > maximumReconnects) return disconnected;
+            await wait();
+            continue;
+          }
+          if (replay.status === "resync_required") {
+            cursor = undefined;
+            const snapshot = await client.read({
+              runId,
+              memberId: input.memberId,
+              resourceUrl: replay.snapshotUrl,
+              ...(input.signal ? { signal: input.signal } : {}),
+            });
+            const terminal = resultFromTerminalSnapshot(runId, snapshot);
+            if (terminal) {
+              onUpdate(terminal);
+              return terminal;
+            }
             await wait();
             continue;
           }
@@ -242,7 +293,7 @@ export function createDashboardWorkoutRuntime(
             }
             if (event.kind === "completed") {
               try {
-                const resource = await client.read({ runId, memberId: input.memberId, ...(input.signal ? { signal: input.signal } : {}) });
+                const resource = await client.read({ runId, memberId: input.memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
                 const projection = projectWorkoutRunResource(resource);
                 const result = { status: "completed", runId, message: "Generated workout and decision trace ready.", projection } as const;
                 onUpdate(result);
@@ -255,27 +306,11 @@ export function createDashboardWorkoutRuntime(
             }
           }
           if (!sawNewEvent) {
-            const snapshot = await client.read({ runId, memberId: input.memberId, ...(input.signal ? { signal: input.signal } : {}) });
-            if (snapshot.state === "completed") {
-              const projection = projectWorkoutRunResource(snapshot);
-              const result = { status: "completed", runId, message: "Generated workout and decision trace ready.", projection } as const;
-              onUpdate(result);
-              return result;
-            }
-            if (snapshot.state === "awaiting-clarification") {
-              const result = { status: "awaiting-clarification", runId, message: "More detail is needed before a safe workout can be generated." } as const;
-              onUpdate(result);
-              return result;
-            }
-            if (snapshot.state === "failed") {
-              const result = terminalFailure(runId, snapshot.failure ?? {});
-              onUpdate(result);
-              return result;
-            }
-            if (snapshot.state === "canceled") {
-              const result = { status: "canceled", runId, message: "Workout generation was canceled." } as const;
-              onUpdate(result);
-              return result;
+            const snapshot = await client.read({ runId, memberId: input.memberId, ...(resourceUrl ? { resourceUrl } : {}), ...(input.signal ? { signal: input.signal } : {}) });
+            const terminal = resultFromTerminalSnapshot(runId, snapshot);
+            if (terminal) {
+              onUpdate(terminal);
+              return terminal;
             }
           }
           await wait();
@@ -308,7 +343,11 @@ export function createFetchDashboardWorkoutRuntimeClient(fetcher: typeof fetch =
       });
       const body: unknown = await response.json();
       if (!response.ok || !isObject(body) || typeof body.runId !== "string") throw new Error("Workout submission failed.");
-      return { runId: body.runId, replayed: body.status === "replayed" };
+      return {
+        runId: body.runId,
+        replayed: body.status === "replayed",
+        ...(typeof body.resourceUrl === "string" ? { resourceUrl: body.resourceUrl } : {}),
+      };
     },
     async replay(input) {
       const params = new URLSearchParams({ memberId: input.memberId });
@@ -317,6 +356,13 @@ export function createFetchDashboardWorkoutRuntimeClient(fetcher: typeof fetch =
         headers: { accept: "text/event-stream" },
         ...(input.signal ? { signal: input.signal } : {}),
       });
+      if (response.status === 409) {
+        const body: unknown = await response.json();
+        if (!isObject(body) || body.status !== "resync_required" || typeof body.snapshotUrl !== "string") {
+          throw new Error("Workout resync response was invalid.");
+        }
+        return { status: "resync_required", snapshotUrl: body.snapshotUrl };
+      }
       if (!response.ok) throw new Error("Workout event replay failed.");
       const text = await response.text();
       const events: DashboardRuntimeEvent[] = [];
@@ -340,7 +386,11 @@ export function createFetchDashboardWorkoutRuntimeClient(fetcher: typeof fetch =
     },
     async read(input) {
       const params = new URLSearchParams({ memberId: input.memberId });
-      const response = await fetcher(`/api/workout-runs/${encodeURIComponent(input.runId)}?${params}`, {
+      const canonicalResourceUrl = `/api/workout-runs/${encodeURIComponent(input.runId)}?${params}`;
+      if (input.resourceUrl && input.resourceUrl !== canonicalResourceUrl) {
+        throw new Error("Workout resource link did not match the requested run and member scope.");
+      }
+      const response = await fetcher(input.resourceUrl ?? canonicalResourceUrl, {
         headers: { accept: "application/json" },
         ...(input.signal ? { signal: input.signal } : {}),
       });

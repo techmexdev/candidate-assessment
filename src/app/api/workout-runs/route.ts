@@ -30,6 +30,12 @@ export function jsonResponse(value: unknown, status: number, headers: HeadersIni
   return Response.json(value, { status, headers: { ...noStoreHeaders, ...headers } });
 }
 
+/** Builds an authorization-scoped link that can be followed without reconstructing request context. */
+export function workoutRunResourceUrl(runId: string, memberId: string): string {
+  const query = new URLSearchParams({ memberId });
+  return `/api/workout-runs/${encodeURIComponent(runId)}?${query.toString()}`;
+}
+
 export function createWorkoutRunPostHandler(dependencies: {
   readonly resolveSession: ResolveWorkoutRouteSession;
   readonly submit: (input: SubmitWorkoutRunInput) => Promise<SubmitWorkoutRunResult>;
@@ -60,7 +66,7 @@ export function createWorkoutRunPostHandler(dependencies: {
       return jsonResponse({
         runId: result.runId,
         status: result.status,
-        resourceUrl: `/api/workout-runs/${encodeURIComponent(result.runId)}`,
+        resourceUrl: workoutRunResourceUrl(result.runId, body.memberId),
       }, result.status === "created" ? 202 : 200);
     }
     if (result.status === "invalid-request") return jsonResponse({ status: result.status }, 400);
