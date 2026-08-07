@@ -7,6 +7,7 @@ import type {
   CreateWorkoutRunResult,
   FencedMutationResult,
   RetryWorkoutRunResult,
+  WorkoutCompletionArtifact,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
@@ -19,7 +20,10 @@ import type {
   WorkoutRun,
   WorkoutRunFailure,
   WorkoutValidationReceipt,
+  WorkoutRevisionSealArtifact,
 } from "../../domain/contracts/workout-run";
+import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
+import type { WorkoutCompositionProposal } from "../../domain/policies/workout-composition";
 import type { ImmutableWorkoutVersion, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
 import { validateWorkoutProvenance, workoutDecisionWasSelected } from "../../domain/contracts/workout-provenance";
@@ -30,8 +34,10 @@ import {
   WORKOUT_RUN_LIMITS,
   WORKOUT_RUN_TERMINAL_STATES,
   canonicalWorkoutDecisionSetDigest,
+  canonicalWorkoutDigest,
   canonicalWorkoutPayloadDigest,
   canonicalWorkoutProvenanceDigest,
+  canonicalWorkoutRevisionSealDigest,
   isWorkoutRunTransitionAllowed,
 } from "../schema/workout-run-schema";
 
@@ -42,6 +48,13 @@ type StoredRun = {
   workout?: ImmutableWorkoutVersion;
   provenance?: WorkoutProvenanceBundle;
   validationReceipt?: WorkoutValidationReceipt;
+  completionArtifacts: CompletionArtifactStore;
+};
+
+export type CompletionArtifactStore = {
+  revisionSeals?: Readonly<WorkoutRevisionSealArtifact>;
+  safetyEnvelope?: Readonly<CatalogSafetyReadyResult>;
+  modelProposal?: Readonly<WorkoutCompositionProposal>;
 };
 
 type CursorPayload = {
@@ -73,9 +86,24 @@ function selectedExerciseIds(workout: ImmutableWorkoutVersion): readonly string[
   return workout.workout.sections.flatMap((section) => section.items.map((item) => item.exerciseConceptId));
 }
 
-export function validateCompletionBindings(run: WorkoutRun, input: CompleteWorkoutRunInput): boolean {
+export function validateCompletionBindings(run: WorkoutRun, input: CompleteWorkoutRunInput, artifacts: Readonly<CompletionArtifactStore>): boolean {
   const { validationReceipt: receipt, workoutVersion, provenance } = input;
-  if (!sameFence(run, input.fence)
+  if (!artifacts.revisionSeals || !artifacts.safetyEnvelope || !artifacts.modelProposal
+    || artifacts.revisionSeals.schemaVersion !== "workout-revision-seals/v1"
+    || !artifacts.revisionSeals.movementGraphSealId
+    || !artifacts.revisionSeals.movementGraphSealDigest
+    || !artifacts.revisionSeals.memberContextSealId
+    || !artifacts.revisionSeals.memberContextSealDigest
+    || artifacts.revisionSeals.movementGraphRevisionId !== run.movementGraphRevisionId
+    || artifacts.revisionSeals.memberContextRevisionId !== run.memberContextRevisionId
+    || artifacts.safetyEnvelope.status !== "ready"
+    || artifacts.safetyEnvelope.authority !== "canonical"
+    || artifacts.safetyEnvelope.movementGraphRevisionId !== run.movementGraphRevisionId
+    || artifacts.safetyEnvelope.memberContextRevisionId !== run.memberContextRevisionId
+    || receipt.revisionSealDigest !== canonicalWorkoutRevisionSealDigest(artifacts.revisionSeals)
+    || receipt.safetyEnvelopeDigest !== canonicalWorkoutDigest(artifacts.safetyEnvelope)
+    || receipt.modelProposalDigest !== canonicalWorkoutDigest(artifacts.modelProposal)
+    || !sameFence(run, input.fence)
     || input.authorizationReferenceId !== run.authorizationReferenceId
     || receipt.schemaVersion !== "workout-validation-receipt/v1"
     || receipt.policyVersion !== "workout-composition/v1"
@@ -101,7 +129,11 @@ export function validateCompletionBindings(run: WorkoutRun, input: CompleteWorko
     || validateWorkoutProvenance(provenance).status !== "valid") return false;
 
   const workoutEntity = provenance.entities.find((entity) => entity.kind === "workout-version");
-  if (workoutEntity?.entityId !== workoutVersion.workoutVersionId) return false;
+  const candidateSetEntity = provenance.entities.find((entity) => entity.kind === "candidate-set");
+  const modelProposalEntity = provenance.entities.find((entity) => entity.kind === "model-proposal");
+  if (workoutEntity?.entityId !== workoutVersion.workoutVersionId
+    || candidateSetEntity?.entityId !== `candidate-set:${receipt.safetyEnvelopeDigest}`
+    || modelProposalEntity?.entityId !== `model-proposal:${receipt.modelProposalDigest}`) return false;
   const selected = new Set(provenance.decisions.filter(workoutDecisionWasSelected).map((decision) => decision.exerciseConceptId));
   return selectedExerciseIds(workoutVersion).every((exerciseId) => selected.has(exerciseId));
 }
@@ -164,7 +196,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
         : { status: "idempotency-conflict" };
     }
     if (this.runs.has(run.runId)) return { status: "idempotency-conflict" };
-    const stored: StoredRun = { run: frozenClone(run) as WorkoutRun, events: [], nextEventSequence: 1 };
+    const stored: StoredRun = { run: frozenClone(run) as WorkoutRun, events: [], nextEventSequence: 1, completionArtifacts: {} };
     this.runs.set(run.runId, stored);
     this.runIdByIdentity.set(key, run.runId);
     this.event(stored, { kind: "queued", occurredAt: run.inputRevisions[0]?.createdAt ?? new Date(0).toISOString(), safeData: {} });
@@ -181,6 +213,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     if (!isQueued && !isExpired) return { status: "not-claimable" };
     const generation = (previous?.generation ?? 0) + 1;
     const claim = { generation, workerId, claimedAt: now, heartbeatAt: now, expiresAt };
+    store.completionArtifacts = {};
     store.run = frozenClone({ ...store.run, state: "running", claim, startedAt: store.run.startedAt ?? now }) as WorkoutRun;
     this.event(store, { kind: "claimed", occurredAt: now, safeData: { generation, workerId } });
     return { status: "claimed", run: this.publicRun(store), fence: { runId, generation, workerId } };
@@ -203,6 +236,19 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     if (snapshot.movementGraphRevisionId !== store.run.movementGraphRevisionId
       || snapshot.memberContextRevisionId !== store.run.memberContextRevisionId) return { status: "stale-fence" };
     store.run = frozenClone({ ...store.run, constraintSnapshot: snapshot }) as WorkoutRun;
+    return { status: "updated", run: this.publicRun(store) };
+  }
+
+  async saveCompletionArtifact(fence: WorkoutRunFence, artifact: WorkoutCompletionArtifact): Promise<FencedMutationResult> {
+    const store = this.find(fence.runId);
+    if (!store) return { status: "missing" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
+    const payload = frozenClone(artifact.payload);
+    const key = artifact.kind === "revision-seals" ? "revisionSeals"
+      : artifact.kind === "safety-envelope" ? "safetyEnvelope" : "modelProposal";
+    const existing = store.completionArtifacts[key];
+    if (existing && canonicalWorkoutDigest(existing) !== canonicalWorkoutDigest(payload)) return { status: "stale-fence" };
+    store.completionArtifacts = { ...store.completionArtifacts, [key]: payload };
     return { status: "updated", run: this.publicRun(store) };
   }
 
@@ -281,7 +327,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
         : { status: "invalid-receipt" };
     }
     if (!this.hasActiveFence(store.run, input.fence)) return { status: "stale-fence" };
-    if (!validateCompletionBindings(store.run, input)) return { status: "invalid-receipt" };
+    if (!validateCompletionBindings(store.run, input, store.completionArtifacts)) return { status: "invalid-receipt" };
     const endedAt = input.workoutVersion.createdAt;
     store.workout = frozenClone(input.workoutVersion) as ImmutableWorkoutVersion;
     store.provenance = frozenClone(input.provenance) as WorkoutProvenanceBundle;

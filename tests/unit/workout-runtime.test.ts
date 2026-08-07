@@ -77,7 +77,15 @@ function harness(overrides: Record<string, unknown> = {}) {
     explicitExclusions: [],
     preferences: [],
     candidateProfiles: decisions.map((decision) => compositionCandidate(decision.exerciseConceptId)),
-    revisionSealDigest: "sha256:revision-seals",
+    revisionSeals: {
+      schemaVersion: "workout-revision-seals/v1" as const,
+      movementGraphRevisionId: catalogSafety.movementGraphRevisionId,
+      movementGraphSealId: "revision-seal:movement-test",
+      movementGraphSealDigest: "sha256:movement-seal",
+      memberContextRevisionId: catalogSafety.memberContextRevisionId,
+      memberContextSealId: "member-revision-seal:member-test",
+      memberContextSealDigest: "sha256:member-seal",
+    },
   }));
   const evaluateCatalogSafety = vi.fn(async () => ({
     status: "ready" as const,

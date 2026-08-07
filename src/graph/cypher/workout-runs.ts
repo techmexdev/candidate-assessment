@@ -49,6 +49,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       run.claimGeneration = coalesce(run.claimGeneration, 0) + 1,
       run.claimWorkerId = $workerId, run.claimedAt = $now,
       run.heartbeatAt = $now, run.claimExpiresAt = $expiresAt,
+      run.revisionSeals = null, run.safetyEnvelope = null, run.modelProposal = null,
       run.startedAt = coalesce(run.startedAt, $now)
     RETURN run
   `,
@@ -69,6 +70,43 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       AND datetime(run.claimExpiresAt) > datetime()
     SET run.constraintSnapshot = $snapshot
     RETURN run
+  `,
+  saveRevisionSeals: `
+    MATCH (run:WorkoutRun {runId: $runId})
+    SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
+    WITH run
+    WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
+      AND (run.revisionSeals IS NULL OR run.revisionSeals = $artifact)
+    SET run.revisionSeals = $artifact
+    RETURN run
+  `,
+  saveSafetyEnvelope: `
+    MATCH (run:WorkoutRun {runId: $runId})
+    SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
+    WITH run
+    WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
+      AND (run.safetyEnvelope IS NULL OR run.safetyEnvelope = $artifact)
+    SET run.safetyEnvelope = $artifact
+    RETURN run
+  `,
+  saveModelProposal: `
+    MATCH (run:WorkoutRun {runId: $runId})
+    SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
+    WITH run
+    WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
+      AND (run.modelProposal IS NULL OR run.modelProposal = $artifact)
+    SET run.modelProposal = $artifact
+    RETURN run
+  `,
+  readCompletionArtifacts: `
+    MATCH (run:WorkoutRun {runId: $runId})
+    RETURN run.revisionSeals AS revisionSeals,
+      run.safetyEnvelope AS safetyEnvelope,
+      run.modelProposal AS modelProposal
+    LIMIT 1
   `,
   allocateEvent: `
     MATCH (run:WorkoutRun {runId: $runId})
@@ -158,6 +196,9 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       AND datetime(run.claimExpiresAt) > datetime()
       AND run.authorizationReferenceId = $authorizationReferenceId
       AND run.requestDigest = $requestDigest
+      AND run.revisionSeals = $revisionSeals
+      AND run.safetyEnvelope = $safetyEnvelope
+      AND run.modelProposal = $modelProposal
     CREATE (workout:WorkoutVersion {
       workoutVersionId: $workoutVersionId, runId: $runId,
       version: $workoutVersion, createdAt: $endedAt, payload: $workoutPayload

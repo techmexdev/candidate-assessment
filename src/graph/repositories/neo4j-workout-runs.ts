@@ -8,6 +8,7 @@ import type {
   CreateWorkoutRunResult,
   FencedMutationResult,
   RetryWorkoutRunResult,
+  WorkoutCompletionArtifact,
   WorkoutRunEvent,
   WorkoutRunEventReadResult,
   WorkoutRunFence,
@@ -17,11 +18,14 @@ import type {
 import type {
   CompletedWorkoutRun,
   ResolvedConstraintSnapshot,
+  WorkoutRevisionSealArtifact,
   WorkoutRun,
   WorkoutRunFailure,
 } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
+import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
+import type { WorkoutCompositionProposal } from "../../domain/policies/workout-composition";
 import { validateWorkoutProvenance } from "../../domain/contracts/workout-provenance";
 import { WORKOUT_RUN_CYPHER } from "../cypher/workout-runs";
 import type { Neo4jClient, Neo4jRecord, Neo4jTransaction } from "../neo4j/client";
@@ -32,7 +36,7 @@ import {
   WORKOUT_RUN_LIMITS,
   WORKOUT_RUN_TERMINAL_STATES,
 } from "../schema/workout-run-schema";
-import { validateCompletionBindings } from "./workout-runs";
+import { validateCompletionBindings, type CompletionArtifactStore } from "./workout-runs";
 
 type Neo4jNode = { readonly properties: Readonly<Record<string, unknown>> };
 type CursorPayload = {
@@ -190,6 +194,23 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
     return this.fencedUpdate(fence, WORKOUT_RUN_CYPHER.saveConstraintSnapshot, { snapshot: json(snapshot) });
   }
 
+  async saveCompletionArtifact(fence: WorkoutRunFence, artifact: WorkoutCompletionArtifact): Promise<FencedMutationResult> {
+    const query = artifact.kind === "revision-seals" ? WORKOUT_RUN_CYPHER.saveRevisionSeals
+      : artifact.kind === "safety-envelope" ? WORKOUT_RUN_CYPHER.saveSafetyEnvelope
+        : WORKOUT_RUN_CYPHER.saveModelProposal;
+    return this.fencedUpdate(fence, query, { artifact: json(artifact.payload) });
+  }
+
+  private async readCompletionArtifacts(transaction: Neo4jTransaction, runId: WorkoutRunId): Promise<CompletionArtifactStore> {
+    const result = await transaction.run(WORKOUT_RUN_CYPHER.readCompletionArtifacts, { runId });
+    const record = result.records[0];
+    return {
+      revisionSeals: parse<WorkoutRevisionSealArtifact>(record?.get("revisionSeals")),
+      safetyEnvelope: parse<CatalogSafetyReadyResult>(record?.get("safetyEnvelope")),
+      modelProposal: parse<WorkoutCompositionProposal>(record?.get("modelProposal")),
+    };
+  }
+
   private async fencedUpdate(
     fence: WorkoutRunFence,
     query: string,
@@ -294,7 +315,8 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
         const existing = await this.completed(transaction, current);
         return existing?.workoutVersion.workoutVersionId === input.workoutVersion.workoutVersionId ? { status: "completed", run: existing } : { status: "invalid-receipt" };
       }
-      if (!validateCompletionBindings(current, input)) return { status: current.claim?.generation === input.fence.generation ? "invalid-receipt" : "stale-fence" };
+      const artifacts = await this.readCompletionArtifacts(transaction, input.fence.runId);
+      if (!validateCompletionBindings(current, input, artifacts)) return { status: current.claim?.generation === input.fence.generation ? "invalid-receipt" : "stale-fence" };
       const proposalEntityId = input.provenance.entities.find((entity) => entity.kind === "model-proposal")?.entityId;
       if (!proposalEntityId || validateWorkoutProvenance(input.provenance).status !== "valid") return { status: "invalid-receipt" };
       const result = await transaction.run(WORKOUT_RUN_CYPHER.complete, {
@@ -303,6 +325,9 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
         workerId: input.fence.workerId,
         authorizationReferenceId: input.authorizationReferenceId,
         requestDigest: current.requestDigest,
+        revisionSeals: json(artifacts.revisionSeals),
+        safetyEnvelope: json(artifacts.safetyEnvelope),
+        modelProposal: json(artifacts.modelProposal),
         workoutVersionId: input.workoutVersion.workoutVersionId,
         workoutVersion: input.workoutVersion.version,
         endedAt: input.workoutVersion.createdAt,

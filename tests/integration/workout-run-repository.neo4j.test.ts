@@ -6,7 +6,7 @@ import { validateWorkoutComposition } from "../../src/domain/policies/workout-co
 import { createNeo4jClient, type Neo4jClient } from "../../src/graph/neo4j/client";
 import { setupWorkoutRunNeo4jSchema } from "../../src/graph/neo4j/workout-run-schema";
 import { Neo4jWorkoutRunRepository } from "../../src/graph/repositories/neo4j-workout-runs";
-import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
+import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
 import { validationInput, workoutDecision } from "../fixtures/workout-runtime-builder";
 
 const config = {
@@ -76,26 +76,49 @@ describe("Neo4j workout run repository", () => {
     });
     await repository.appendEvent(claim.fence, { kind: "stage", occurredAt: claimedAt.toISOString(), safeData: { stage: "validate" } });
 
-    const validated = validateWorkoutComposition(validationInput());
+    const source = validationInput();
+    const validated = validateWorkoutComposition(source);
     if (validated.status !== "valid") throw new Error("fixture must validate");
     const workoutVersion = { workoutVersionId: asWorkoutVersionId("workout-version:neo4j"), version: 1, createdAt: "2026-08-07T10:00:05.000Z", workout: { ...validated.workout, runId: RUN_ID } };
+    if (source.catalogSafety.status !== "ready") throw new Error("fixture safety envelope must be ready");
     let provenance = createWorkoutProvenanceBundle({
-      runId: RUN_ID, workoutVersionId: workoutVersion.workoutVersionId, promptEntityId: "prompt:neo4j:1", candidateSetEntityId: "candidate:neo4j",
-      modelProposalEntityId: "proposal:neo4j", policyEntityId: "policy:v1", movementGraphRevisionId: queuedRun().movementGraphRevisionId,
+      runId: RUN_ID, workoutVersionId: workoutVersion.workoutVersionId, promptEntityId: "prompt:neo4j:1", candidateSetEntityId: `candidate-set:${canonicalWorkoutDigest(source.catalogSafety)}`,
+      modelProposalEntityId: `model-proposal:${canonicalWorkoutDigest(source.proposal)}`, policyEntityId: "policy:v1", movementGraphRevisionId: queuedRun().movementGraphRevisionId,
       memberContextRevisionId: queuedRun().memberContextRevisionId,
       decisions: [workoutDecision("exercise:warm-up"), workoutDecision("exercise:main", "cautioned"), workoutDecision("exercise:cool-down", "downranked")],
       traceSchemaVersion: "workout-provenance/v1", digest: "sha256:provenance",
     });
     const provenanceDigest = canonicalWorkoutProvenanceDigest(provenance);
     provenance = { ...provenance, digest: provenanceDigest };
+    const revisionSeals = {
+      schemaVersion: "workout-revision-seals/v1" as const,
+      movementGraphRevisionId: queuedRun().movementGraphRevisionId,
+      movementGraphSealId: "revision-seal:movement-neo4j",
+      movementGraphSealDigest: "sha256:movement-seal",
+      memberContextRevisionId: queuedRun().memberContextRevisionId,
+      memberContextSealId: "member-revision-seal:member-neo4j",
+      memberContextSealDigest: "sha256:member-seal",
+    };
+    await repository.saveCompletionArtifact(claim.fence, { kind: "revision-seals", payload: revisionSeals });
+    await repository.saveCompletionArtifact(claim.fence, { kind: "safety-envelope", payload: source.catalogSafety });
+    await repository.saveCompletionArtifact(claim.fence, { kind: "model-proposal", payload: source.proposal });
     const completion = { fence: claim.fence, authorizationReferenceId: "grant:neo4j", workoutVersion, provenance, validationReceipt: {
       ...validated.receipt,
       runId: RUN_ID,
       claimGeneration: claim.fence.generation,
       completeDecisionSetDigest: canonicalWorkoutDecisionSetDigest(provenance.decisions),
+      revisionSealDigest: canonicalWorkoutDigest(revisionSeals),
+      safetyEnvelopeDigest: canonicalWorkoutDigest(source.catalogSafety),
+      modelProposalDigest: canonicalWorkoutDigest(source.proposal),
       workoutPayloadDigest: canonicalWorkoutPayloadDigest(workoutVersion),
       provenanceDigest,
     } };
+    for (const field of ["revisionSealDigest", "safetyEnvelopeDigest", "modelProposalDigest"] as const) {
+      await expect(repository.complete({
+        ...completion,
+        validationReceipt: { ...completion.validationReceipt, [field]: "sha256:tampered" },
+      })).resolves.toEqual({ status: "invalid-receipt" });
+    }
     await expect(repository.complete(completion)).resolves.toMatchObject({ status: "completed", run: { state: "completed" } });
     await expect(repository.complete(completion)).resolves.toMatchObject({ status: "completed" });
 

@@ -1,7 +1,7 @@
 import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
 import { createWorkoutProvenanceBundle, type WorkoutDecision } from "../../domain/contracts/workout-provenance";
 import { asWorkoutVersionId, type WorkoutRunId } from "../../domain/contracts/workout";
-import type { ResolvedConstraintSnapshot, WorkoutRun, WorkoutRunFailure } from "../../domain/contracts/workout-run";
+import type { ResolvedConstraintSnapshot, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure } from "../../domain/contracts/workout-run";
 import { validateWorkoutComposition } from "../../domain/policies/workout-composition";
 import type { WorkoutCompositionCandidate } from "../../domain/policies/workout-composition";
 import {
@@ -9,6 +9,7 @@ import {
   canonicalWorkoutDigest,
   canonicalWorkoutPayloadDigest,
   canonicalWorkoutProvenanceDigest,
+  canonicalWorkoutRevisionSealDigest,
 } from "../../graph/schema/workout-run-schema";
 import { canonicalJson } from "../../graph/revisions/movement-graph";
 import { createWorkoutComposerInput, proposalCitationsAreGrounded } from "../../agents/workout/tools";
@@ -39,7 +40,7 @@ export type ResolveWorkoutConstraintsResult =
       readonly explicitExclusions: readonly CatalogSafetyResolvedMatch[];
       readonly preferences: readonly CatalogSafetyResolvedMatch[];
       readonly candidateProfiles: readonly WorkoutCompositionCandidate[];
-      readonly revisionSealDigest: string;
+      readonly revisionSeals: Readonly<WorkoutRevisionSealArtifact>;
     }
   | { readonly status: "clarification-required"; readonly candidateConceptIds: readonly string[] }
   | { readonly status: "failed"; readonly reason: "graph-unavailable" | "insufficient-safety-context" };
@@ -178,12 +179,15 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
       if (resolved.status === "failed") return fail(resolved.reason, "constraints");
       if (resolved.snapshot.movementGraphRevisionId !== run.movementGraphRevisionId
         || resolved.snapshot.memberContextRevisionId !== run.memberContextRevisionId
+        || resolved.revisionSeals.movementGraphRevisionId !== run.movementGraphRevisionId
+        || resolved.revisionSeals.memberContextRevisionId !== run.memberContextRevisionId
         || resolved.snapshot.digest.length === 0
         || resolved.canonicalIntent.requestedDurationMinutes !== run.requestedDurationMinutes) {
         return fail("insufficient-safety-context", "constraints");
       }
       const snapshotSaved = await dependencies.repository.saveConstraintSnapshot(fence, resolved.snapshot);
-      if (snapshotSaved.status !== "updated" || !await checkpoint("constraints", resolved.snapshot.digest)) return { status: "claim-lost" };
+      const sealsSaved = await dependencies.repository.saveCompletionArtifact(fence, { kind: "revision-seals", payload: resolved.revisionSeals });
+      if (snapshotSaved.status !== "updated" || sealsSaved.status !== "updated" || !await checkpoint("constraints", resolved.snapshot.digest)) return { status: "claim-lost" };
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const catalogGrant = await authorize("catalog");
@@ -221,6 +225,8 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         const safeDecisions = catalogSafety.decisions.filter((decision) => decision.classification !== "excluded");
         if (safeDecisions.length === 0) return fail("proposal-invalid", "catalog");
         const safetyEnvelopeDigest = canonicalWorkoutDigest(catalogSafety);
+        const safetySaved = await dependencies.repository.saveCompletionArtifact(fence, { kind: "safety-envelope", payload: catalogSafety });
+        if (safetySaved.status !== "updated") return { status: "claim-lost" };
         if (!await checkpoint("catalog", safetyEnvelopeDigest)) return { status: "claim-lost" };
 
         const composerGrant = await authorize("composition");
@@ -245,6 +251,8 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
         }
         const selectedIds = proposalIds(parsed.proposal);
         const modelProposalDigest = canonicalWorkoutDigest(parsed.proposal);
+        const proposalSaved = await dependencies.repository.saveCompletionArtifact(fence, { kind: "model-proposal", payload: parsed.proposal });
+        if (proposalSaved.status !== "updated") return { status: "claim-lost" };
         if (!await checkpoint("proposal", modelProposalDigest)) return { status: "claim-lost" };
 
         const validationGrant = await authorize("validation");
@@ -313,7 +321,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           requestedDurationMinutes: run.requestedDurationMinutes,
           movementGraphRevisionId: run.movementGraphRevisionId,
           memberContextRevisionId: run.memberContextRevisionId,
-          revisionSealDigest: resolved.revisionSealDigest,
+          revisionSealDigest: canonicalWorkoutRevisionSealDigest(resolved.revisionSeals),
           requestDigest: run.requestDigest,
           resolvedConstraintDigest: resolved.snapshot.digest,
           safetyEnvelopeDigest,

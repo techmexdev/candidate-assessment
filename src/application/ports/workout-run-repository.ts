@@ -1,6 +1,8 @@
-import type { CompletedWorkoutRun, ResolvedConstraintSnapshot, WorkoutRun, WorkoutRunFailure, WorkoutValidationReceipt } from "../../domain/contracts/workout-run";
+import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
+import type { CompletedWorkoutRun, ResolvedConstraintSnapshot, WorkoutRevisionSealArtifact, WorkoutRun, WorkoutRunFailure, WorkoutValidationReceipt } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion, WorkoutInputRevisionId, WorkoutRunId } from "../../domain/contracts/workout";
 import type { WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
+import type { WorkoutCompositionProposal } from "../../domain/policies/workout-composition";
 
 export type WorkoutRunFence = {
   readonly runId: WorkoutRunId;
@@ -27,6 +29,11 @@ export type CompleteWorkoutRunInput = {
   readonly provenance: WorkoutProvenanceBundle;
   readonly validationReceipt: WorkoutValidationReceipt;
 };
+
+export type WorkoutCompletionArtifact =
+  | { readonly kind: "revision-seals"; readonly payload: Readonly<WorkoutRevisionSealArtifact> }
+  | { readonly kind: "safety-envelope"; readonly payload: Readonly<CatalogSafetyReadyResult> }
+  | { readonly kind: "model-proposal"; readonly payload: Readonly<WorkoutCompositionProposal> };
 
 export type WorkoutRunEventKind =
   | "queued"
@@ -81,6 +88,7 @@ export interface WorkoutRunRepository {
   claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult>;
   heartbeat(fence: WorkoutRunFence, now: string, expiresAt: string): Promise<FencedMutationResult>;
   saveConstraintSnapshot(fence: WorkoutRunFence, snapshot: ResolvedConstraintSnapshot): Promise<FencedMutationResult>;
+  saveCompletionArtifact(fence: WorkoutRunFence, artifact: WorkoutCompletionArtifact): Promise<FencedMutationResult>;
   appendEvent(fence: WorkoutRunFence, event: AppendWorkoutRunEvent): Promise<FencedMutationResult>;
   awaitClarification(fence: WorkoutRunFence, at: string, candidateConceptIds: readonly string[]): Promise<ClarificationMutationResult>;
   answerClarification(runId: WorkoutRunId, coachId: string, memberId: string, revision: WorkoutRunInputRevision): Promise<ClarificationMutationResult>;

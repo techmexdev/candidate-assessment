@@ -4,7 +4,7 @@ import { asWorkoutInputRevisionId, asWorkoutRunId, asWorkoutVersionId } from "..
 import type { WorkoutRun } from "../../src/domain/contracts/workout-run";
 import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
 import { WORKOUT_RUN_CYPHER } from "../../src/graph/cypher/workout-runs";
-import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
+import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
 import { validateWorkoutComposition } from "../../src/domain/policies/workout-composition";
 import { validationInput, workoutDecision } from "../fixtures/workout-runtime-builder";
 
@@ -39,7 +39,8 @@ function run(overrides: Partial<WorkoutRun> = {}): WorkoutRun {
 }
 
 function completion(generation: number) {
-  const validated = validateWorkoutComposition(validationInput());
+  const source = validationInput();
+  const validated = validateWorkoutComposition(source);
   if (validated.status !== "valid") throw new Error("fixture must validate");
   const workoutVersion = {
     workoutVersionId: asWorkoutVersionId("workout-version:1"),
@@ -51,8 +52,8 @@ function completion(generation: number) {
     runId: RUN_ID,
     workoutVersionId: workoutVersion.workoutVersionId,
     promptEntityId: "prompt:1",
-    candidateSetEntityId: "candidates:1",
-    modelProposalEntityId: "proposal:1",
+    candidateSetEntityId: `candidate-set:${canonicalWorkoutDigest(completionArtifacts.safetyEnvelope)}`,
+    modelProposalEntityId: `model-proposal:${canonicalWorkoutDigest(completionArtifacts.modelProposal)}`,
     policyEntityId: "policy:v1",
     movementGraphRevisionId: run().movementGraphRevisionId,
     memberContextRevisionId: run().memberContextRevisionId,
@@ -71,6 +72,9 @@ function completion(generation: number) {
     runId: RUN_ID,
     claimGeneration: generation,
     completeDecisionSetDigest: canonicalWorkoutDecisionSetDigest(provenance.decisions),
+    revisionSealDigest: canonicalWorkoutDigest(completionArtifacts.revisionSeals),
+    safetyEnvelopeDigest: canonicalWorkoutDigest(completionArtifacts.safetyEnvelope),
+    modelProposalDigest: canonicalWorkoutDigest(completionArtifacts.modelProposal),
     workoutPayloadDigest: canonicalWorkoutPayloadDigest(workoutVersion),
     provenanceDigest,
   };
@@ -81,6 +85,28 @@ function completion(generation: number) {
     provenance,
     validationReceipt,
   };
+}
+
+const safetyEnvelope = validationInput().catalogSafety;
+if (safetyEnvelope.status !== "ready") throw new Error("fixture safety envelope must be ready");
+const completionArtifacts = {
+  revisionSeals: {
+    schemaVersion: "workout-revision-seals/v1" as const,
+    movementGraphRevisionId: run().movementGraphRevisionId,
+    movementGraphSealId: "revision-seal:movement-test",
+    movementGraphSealDigest: "sha256:movement-seal",
+    memberContextRevisionId: run().memberContextRevisionId,
+    memberContextSealId: "member-revision-seal:member-test",
+    memberContextSealDigest: "sha256:member-seal",
+  },
+  safetyEnvelope,
+  modelProposal: validationInput().proposal,
+};
+
+async function saveCompletionArtifacts(repository: InMemoryWorkoutRunRepository, fence: { runId: typeof RUN_ID; generation: number; workerId: string }) {
+  await repository.saveCompletionArtifact(fence, { kind: "revision-seals", payload: completionArtifacts.revisionSeals });
+  await repository.saveCompletionArtifact(fence, { kind: "safety-envelope", payload: completionArtifacts.safetyEnvelope });
+  await repository.saveCompletionArtifact(fence, { kind: "model-proposal", payload: completionArtifacts.modelProposal });
 }
 
 const constraintSnapshot = {
@@ -200,6 +226,8 @@ describe("in-memory workout run repository contract", () => {
     const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim failed");
     await repository.saveConstraintSnapshot(claim.fence, constraintSnapshot);
+    await expect(repository.complete(completion(claim.fence.generation))).resolves.toEqual({ status: "invalid-receipt" });
+    await saveCompletionArtifacts(repository, claim.fence);
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
     await expect(repository.complete(completion(claim.fence.generation))).resolves.toMatchObject({ status: "completed" });
     const events = await repository.readEvents(RUN_ID, "coach:one", "member:one", { limit: 20 });
@@ -212,6 +240,7 @@ describe("in-memory workout run repository contract", () => {
     const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim failed");
     await repository.saveConstraintSnapshot(claim.fence, constraintSnapshot);
+    await saveCompletionArtifacts(repository, claim.fence);
     const invalid = completion(claim.fence.generation);
     invalid.provenance = { ...invalid.provenance, decisions: [] };
     await expect(repository.complete(invalid)).resolves.toEqual({ status: "invalid-receipt" });
@@ -223,6 +252,11 @@ describe("in-memory workout run repository contract", () => {
     const partialProvenance = completion(claim.fence.generation);
     partialProvenance.provenance = { ...partialProvenance.provenance, relations: [] };
     await expect(repository.complete(partialProvenance)).resolves.toEqual({ status: "invalid-receipt" });
+    for (const field of ["revisionSealDigest", "safetyEnvelopeDigest", "modelProposalDigest"] as const) {
+      const tampered = completion(claim.fence.generation);
+      tampered.validationReceipt = { ...tampered.validationReceipt, [field]: "sha256:tampered" };
+      await expect(repository.complete(tampered)).resolves.toEqual({ status: "invalid-receipt" });
+    }
     await expect(repository.getWorkout(RUN_ID, "coach:one", "member:one")).resolves.toBeUndefined();
 
     await repository.awaitClarification(claim.fence, "2026-08-07T10:00:03.000Z", ["joint:knee"]);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { WorkoutRunState } from "../../domain/contracts/workout-run";
+import type { WorkoutRevisionSealArtifact } from "../../domain/contracts/workout-run";
 import type { ImmutableWorkoutVersion } from "../../domain/contracts/workout";
 import type { WorkoutDecision, WorkoutProvenanceBundle } from "../../domain/contracts/workout-provenance";
 import { canonicalJson } from "../revisions/movement-graph";
@@ -33,6 +34,7 @@ export const canonicalWorkoutDigest = (value: unknown) =>
   `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 
 export const canonicalWorkoutDecisionSetDigest = (decisions: readonly WorkoutDecision[]) => canonicalWorkoutDigest(decisions);
+export const canonicalWorkoutRevisionSealDigest = (artifact: WorkoutRevisionSealArtifact) => canonicalWorkoutDigest(artifact);
 export const canonicalWorkoutPayloadDigest = (workout: ImmutableWorkoutVersion) => canonicalWorkoutDigest(workout);
 export const canonicalWorkoutProvenanceDigest = (provenance: WorkoutProvenanceBundle) => {
   const canonical = Object.fromEntries(Object.entries(provenance).filter(([key]) => key !== "digest"));

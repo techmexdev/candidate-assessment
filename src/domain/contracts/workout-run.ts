@@ -49,6 +49,16 @@ export type ResolvedConstraintSnapshot = {
   readonly digest: string;
 };
 
+export type WorkoutRevisionSealArtifact = {
+  readonly schemaVersion: "workout-revision-seals/v1";
+  readonly movementGraphRevisionId: string;
+  readonly movementGraphSealId: string;
+  readonly movementGraphSealDigest: string;
+  readonly memberContextRevisionId: string;
+  readonly memberContextSealId: string;
+  readonly memberContextSealDigest: string;
+};
+
 export type WorkoutValidationReceipt = {
   readonly runId: WorkoutRunId;
   readonly claimGeneration: number;
