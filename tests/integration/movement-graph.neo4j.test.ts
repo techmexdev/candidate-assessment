@@ -8,6 +8,7 @@ import { createNeo4jMovementGraphReadProvider } from "../../src/graph/repositori
 import { InMemoryMovementGraphReadProvider } from "../../src/graph/repositories/movement-graph";
 import { canonicalJson, sha256 } from "../../src/graph/revisions/movement-graph";
 import { MOVEMENT_CYPHER } from "../../src/graph/cypher/movement";
+import { buildMovementVariantDiamondFixture } from "../fixtures/movement-variant-diamond";
 
 const config = {
   uri: process.env.NEO4J_URI ?? "neo4j://127.0.0.1:7687",
@@ -103,6 +104,37 @@ describe.sequential("Neo4j movement graph persistence", () => {
       (handle: typeof neoOpened.handle) => handle.getAssertions({ assertionIds: [snapshot.nodes[0]!.assertionId, snapshot.edges[0]!.assertionId], maxResults: 10 }),
     ];
     for (const operation of operations) expect(await operation(neoOpened.handle)).toEqual(await operation(memoryOpened.handle));
+  });
+
+  it("preserves deterministic multi-parent variant traversal across adapters", async () => {
+    const diamond = buildMovementVariantDiamondFixture();
+    const { publisher } = await publishAndSeal(client, diamond.snapshot);
+    const activated = await publisher.activate({
+      graphRevisionId: diamond.snapshot.graphRevisionId,
+      expectedPriorRevisionId: null,
+      actorId: "curator:variant-diamond-test",
+    });
+    expect(activated.status).toBe("ok");
+
+    const neoOpened = await createNeo4jMovementGraphReadProvider(client).openActive();
+    const memoryOpened = await new InMemoryMovementGraphReadProvider([diamond.snapshot], { authority: "canonical" }).openActive();
+    if (neoOpened.status !== "ready" || memoryOpened.status !== "ready") throw new Error("expected readable adapters");
+    const query = {
+      conceptId: diamond.rootConceptId,
+      conceptKind: "exercise" as const,
+      maxDepth: 2,
+      maxResults: 10,
+    };
+    const neoResult = await neoOpened.handle.getCatalogFamilyFacts(query);
+    const memoryResult = await memoryOpened.handle.getCatalogFamilyFacts(query);
+
+    expect(neoResult).toEqual(memoryResult);
+    expect(neoResult.status).toBe("ok");
+    if (neoResult.status === "ok") {
+      expect(neoResult.data.filter((fact) => fact.exerciseConceptId === diamond.mergedConceptId)).toHaveLength(1);
+      expect(neoResult.data.find((fact) => fact.exerciseConceptId === diamond.mergedConceptId)?.pathAssertionIds)
+        .toEqual(diamond.expectedMergedPathAssertionIds);
+    }
   });
 
   it("reuses one verified canonical snapshot for every query on an opened handle", async () => {

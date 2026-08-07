@@ -1,4 +1,4 @@
-import type { CatalogSafetyDecision } from "../../domain/contracts/catalog-safety";
+import { CATALOG_SAFETY_MAX_EXERCISES, type CatalogSafetyDecision } from "../../domain/contracts/catalog-safety";
 import type { CatalogSafetySessionStore } from "../ports/catalog-safety-sessions";
 import type { MemberContextAccessAuthorizer, MemberContextAccessClaims } from "../ports/graph-repositories";
 import { authorizeMemberContextSafely, sameMemberContextClaims } from "../ports/graph-repositories";
@@ -7,16 +7,22 @@ import { recordCatalogSafetyAudit } from "../ports/security-audit";
 
 export type ValidateWorkoutCandidatesRequest = MemberContextAccessClaims & {
   readonly evaluationToken: string;
+  readonly exerciseConceptIds: readonly string[];
+};
+
+/** Server-owned orchestration state. Never construct this value from an agent request. */
+export type WorkoutCandidateValidationBinding = {
+  readonly runId: string;
   readonly expectedEvaluationSessionId: string;
   readonly movementGraphRevisionId: string;
   readonly memberContextRevisionId: string;
   readonly constraintDigest: string;
-  readonly exerciseConceptIds: readonly string[];
 };
 
 export type WorkoutCandidateViolation = {
-  readonly exerciseConceptId: string;
-  readonly reasonCode: "duplicate-candidate" | "unknown-candidate" | "excluded-candidate";
+  readonly candidateIndex?: number;
+  readonly exerciseConceptId?: string;
+  readonly reasonCode: "invalid-candidate-count" | "duplicate-candidate" | "unknown-candidate" | "excluded-candidate";
 };
 
 export type ValidateWorkoutCandidatesResult =
@@ -29,10 +35,13 @@ export type ValidateWorkoutCandidatesDependencies = {
   readonly authorizeMemberContext: MemberContextAccessAuthorizer;
   readonly now: () => string;
   readonly securityAudit: CatalogSafetySecurityAudit;
+  readonly trustedBinding: Readonly<WorkoutCandidateValidationBinding>;
 };
 
 export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCandidatesDependencies) {
+  const trustedBinding = Object.freeze({ ...dependencies.trustedBinding });
   return async (request: ValidateWorkoutCandidatesRequest): Promise<ValidateWorkoutCandidatesResult> => {
+    const binding = trustedBinding;
     const claims = { coachId: request.coachId, memberId: request.memberId, authorizationId: request.authorizationId };
     const lookedUp = dependencies.sessions.lookup(request.evaluationToken, dependencies.now());
     if (lookedUp.status !== "found") {
@@ -54,7 +63,7 @@ export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCan
         statusCode: "token-rejected",
         coachId: request.coachId,
         memberId: request.memberId,
-        evaluationSessionId: request.expectedEvaluationSessionId,
+        evaluationSessionId: binding.expectedEvaluationSessionId,
         reasonCode: "evaluation-binding-mismatch",
         assertionIds: [],
         evidenceIds: [],
@@ -77,17 +86,18 @@ export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCan
       });
       return { status: "denied", reasonCode: "authorization-denied" };
     }
-    const bindingsMatch = record.evaluationSessionId === request.expectedEvaluationSessionId
-      && record.movementGraphRevisionId === request.movementGraphRevisionId
-      && record.memberContextRevisionId === request.memberContextRevisionId
-      && record.constraintDigest === request.constraintDigest;
+    const bindingsMatch = record.runId === binding.runId
+      && record.evaluationSessionId === binding.expectedEvaluationSessionId
+      && record.movementGraphRevisionId === binding.movementGraphRevisionId
+      && record.memberContextRevisionId === binding.memberContextRevisionId
+      && record.constraintDigest === binding.constraintDigest;
     if (!bindingsMatch) {
       await recordCatalogSafetyAudit(dependencies.securityAudit, {
         kind: "catalog-safety-security",
         statusCode: "token-rejected",
         coachId: request.coachId,
         memberId: request.memberId,
-        evaluationSessionId: request.expectedEvaluationSessionId,
+        evaluationSessionId: binding.expectedEvaluationSessionId,
         reasonCode: "evaluation-binding-mismatch",
         assertionIds: [],
         evidenceIds: [],
@@ -95,21 +105,48 @@ export function createValidateWorkoutCandidates(dependencies: ValidateWorkoutCan
       return { status: "evaluation-unavailable", reasonCode: "evaluation-binding-mismatch" };
     }
 
+    if (!Array.isArray(request.exerciseConceptIds)
+      || request.exerciseConceptIds.length === 0
+      || request.exerciseConceptIds.length > CATALOG_SAFETY_MAX_EXERCISES) {
+      await recordCatalogSafetyAudit(dependencies.securityAudit, {
+        kind: "catalog-safety-security",
+        statusCode: "candidate-validation-rejected",
+        coachId: request.coachId,
+        memberId: request.memberId,
+        evaluationSessionId: record.evaluationSessionId,
+        movementGraphRevisionId: record.movementGraphRevisionId,
+        memberContextRevisionId: record.memberContextRevisionId,
+        reasonCode: "invalid-candidate-count",
+        assertionIds: [],
+        evidenceIds: [],
+      });
+      return {
+        status: "violations",
+        accepted: [],
+        violations: [{ reasonCode: "invalid-candidate-count" }],
+      };
+    }
+
     const decisions = new Map(record.result.decisions.map((decision) => [decision.exerciseConceptId, decision]));
     const seen = new Set<string>();
     const violations: WorkoutCandidateViolation[] = [];
     const accepted: CatalogSafetyDecision[] = [];
-    for (const exerciseConceptId of request.exerciseConceptIds) {
-      if (seen.has(exerciseConceptId)) {
-        violations.push({ exerciseConceptId, reasonCode: "duplicate-candidate" });
+    for (const [candidateIndex, presentedCandidate] of request.exerciseConceptIds.entries()) {
+      const exerciseConceptId = typeof presentedCandidate === "string" ? presentedCandidate : undefined;
+      const decision = exerciseConceptId ? decisions.get(exerciseConceptId) : undefined;
+      if (exerciseConceptId && seen.has(exerciseConceptId)) {
+        violations.push({
+          candidateIndex,
+          ...(decision ? { exerciseConceptId: decision.exerciseConceptId } : {}),
+          reasonCode: "duplicate-candidate",
+        });
         continue;
       }
-      seen.add(exerciseConceptId);
-      const decision = decisions.get(exerciseConceptId);
+      if (exerciseConceptId) seen.add(exerciseConceptId);
       if (!decision) {
-        violations.push({ exerciseConceptId, reasonCode: "unknown-candidate" });
+        violations.push({ candidateIndex, reasonCode: "unknown-candidate" });
       } else if (decision.classification === "excluded") {
-        violations.push({ exerciseConceptId, reasonCode: "excluded-candidate" });
+        violations.push({ candidateIndex, exerciseConceptId: decision.exerciseConceptId, reasonCode: "excluded-candidate" });
       } else {
         accepted.push(decision);
       }

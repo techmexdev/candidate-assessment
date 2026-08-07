@@ -10,7 +10,11 @@ import type {
   MovementSafetyRequest,
   MovementSafetyResult,
 } from "../../domain/contracts/movement-safety";
-import { decideMovementSafety } from "../../domain/policies/movement-safety";
+import {
+  clinicalRuleApplies,
+  decideMovementSafety,
+  hasSufficientMovementSafetyContext,
+} from "../../domain/policies/movement-safety";
 
 export const MOVEMENT_SAFETY_QUERY_LIMITS = Object.freeze({ maxConditions: 8, maxExerciseFacts: 32, maxRules: 32, maxAnatomyDepth: 4, maxAnatomyPaths: 32 });
 
@@ -175,17 +179,22 @@ export async function evaluateMovementSafetyFactsWithHandle(
   for (const context of request.conditions) {
     const rulesResult = await readClinicalRules(handle, context.conditionConceptId, cache);
     if (rulesResult.status !== "ok") return fail(request, failureReason(rulesResult.failure, "unresolved_condition"), handle);
+    const evaluationContext = {
+      ...context,
+      loadedLaterality: exercise.attributes.isBilateral ? "bilateral" as const : "unknown" as const,
+    };
+    if (rulesResult.data.some((rule) => !hasSufficientMovementSafetyContext(rule, evaluationContext))) {
+      return fail(request, "insufficient_member_context", handle);
+    }
     const matchedPaths: MatchedClinicalRulePath[] = [];
     for (const rule of rulesResult.data) {
+      if (!clinicalRuleApplies(rule, evaluationContext)) continue;
       const matched = await matchRuleToExercise(handle, exercise, rule, context.affectedAnatomyConceptId, cache);
       if (matched && "status" in matched) return matched;
       if (matched) matchedPaths.push(matched);
     }
     evaluations.push({
-      context: {
-        ...context,
-        loadedLaterality: exercise.attributes.isBilateral ? "bilateral" as const : "unknown" as const,
-      },
+      context: evaluationContext,
       matchedPaths,
     });
   }

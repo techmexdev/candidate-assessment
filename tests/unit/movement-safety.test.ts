@@ -131,6 +131,19 @@ describe("movement safety", () => {
     })).resolves.toMatchObject({ status: "fail_closed", reason: "graph_consistency_failure" });
   });
 
+  it("does not require anatomy corroboration for a target-matching rule outside the current applicability", async () => {
+    const provider = new InMemoryMovementGraphReadProvider([snapshot()], { authority: "canonical" });
+    await expect(evaluateMovementSafety(provider, {
+      exerciseConceptId: BARBELL_LUNGE,
+      conditions: [{
+        ...activePfps,
+        affectedAnatomyConceptId: "joint:shoulder",
+        recoveryStage: "managed",
+        severityBand: "low",
+      }],
+    })).resolves.toMatchObject({ status: "allowed" });
+  });
+
   it("reuses pinned rule and anatomy reads across a catalog evaluation", async () => {
     const provider = new InMemoryMovementGraphReadProvider([snapshot()], { authority: "canonical" });
     const opened = await provider.openActive();

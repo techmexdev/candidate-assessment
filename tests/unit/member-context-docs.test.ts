@@ -109,6 +109,7 @@ describe("member context graph documentation", () => {
       "authorization-denied",
       "evaluation-fail-closed",
       "token-rejected",
+      "candidate-validation-rejected",
       "session-superseded",
       "session-invalidated",
     ]) {

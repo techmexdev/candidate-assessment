@@ -3,6 +3,8 @@ import { CATALOG_SAFETY_MAX_EXERCISES } from "../../src/domain/contracts/catalog
 import type { MovementGraphSnapshot } from "../../src/domain/contracts/movement-graph";
 import { compileDefaultMovementGraph } from "../../src/graph/ingest/movement-clinical";
 import { InMemoryMovementGraphReadProvider } from "../../src/graph/repositories/movement-graph";
+import { validateMovementGraph } from "../../src/graph/validation/movement-graph";
+import { buildMovementVariantDiamondFixture } from "../fixtures/movement-variant-diamond";
 
 function snapshot() {
   const result = compileDefaultMovementGraph();
@@ -154,6 +156,48 @@ describe("in-memory movement graph read contract", () => {
       ].sort());
       expect(pattern.data.every((fact) => fact.matchKind === "expresses")).toBe(true);
     }
+  });
+
+  it("traverses a valid variant diamond once using the first deterministic shortest path", async () => {
+    const diamond = buildMovementVariantDiamondFixture();
+    expect(validateMovementGraph(diamond.snapshot).status).toBe("valid");
+    const reversed: MovementGraphSnapshot = { ...diamond.snapshot, edges: [...diamond.snapshot.edges].reverse() };
+    const providers = [diamond.snapshot, reversed].map((graph) => (
+      new InMemoryMovementGraphReadProvider([graph], { authority: "canonical" })
+    ));
+    const results = [];
+    for (const provider of providers) {
+      const opened = await provider.openActive();
+      if (opened.status !== "ready") throw new Error("diamond graph unavailable");
+      results.push(await opened.handle.getCatalogFamilyFacts({
+        conceptId: diamond.rootConceptId,
+        conceptKind: "exercise",
+        maxDepth: 2,
+        maxResults: 10,
+      }));
+    }
+
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]?.status).toBe("ok");
+    if (results[0]?.status !== "ok") return;
+    expect(results[0].data.map((fact) => fact.exerciseConceptId)).toEqual([
+      diamond.rootConceptId,
+      ...diamond.parentConceptIds,
+      diamond.mergedConceptId,
+    ].sort((left, right) => Number(left !== diamond.rootConceptId) - Number(right !== diamond.rootConceptId)
+      || left.localeCompare(right)));
+    expect(results[0].data.filter((fact) => fact.exerciseConceptId === diamond.mergedConceptId)).toHaveLength(1);
+    expect(results[0].data.find((fact) => fact.exerciseConceptId === diamond.mergedConceptId)?.pathAssertionIds)
+      .toEqual(diamond.expectedMergedPathAssertionIds);
+
+    const opened = await providers[0]!.openActive();
+    if (opened.status !== "ready") throw new Error("diamond graph unavailable");
+    await expect(opened.handle.getCatalogFamilyFacts({
+      conceptId: diamond.rootConceptId,
+      conceptKind: "exercise",
+      maxDepth: 1,
+      maxResults: 10,
+    })).resolves.toMatchObject({ status: "failed", failure: { code: "traversal_limit_exceeded" } });
   });
 
   it("fails closed for invalid family bounds, missing concepts, broken paths, and catalog overflow", async () => {

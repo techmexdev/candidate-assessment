@@ -14,6 +14,10 @@ export type MovementSafetyContext = {
   readonly severityBand?: string;
   readonly affectedLaterality: MovementLaterality;
   readonly loadedLaterality: MovementLaterality;
+  /** Optional source identity used by catalog evaluation to preserve repeated episodes separately. */
+  readonly sourceKey?: string;
+  readonly sourceAssertionId?: string;
+  readonly sourceEvidenceId?: string;
 };
 
 export type MatchedClinicalRulePath = ClinicalRuleFact & {
@@ -50,6 +54,9 @@ export type MovementSafetyContributingPath = {
   readonly mappingAssertionIds: readonly string[];
   readonly evidenceAssertionIds: readonly string[];
   readonly affectedAnatomyPathAssertionIds: readonly string[];
+  readonly sourceKey?: string;
+  readonly sourceAssertionId?: string;
+  readonly sourceEvidenceId?: string;
 };
 
 type MovementSafetySuccessContext = {

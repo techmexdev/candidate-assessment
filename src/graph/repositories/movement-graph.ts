@@ -332,17 +332,22 @@ class InMemoryMovementGraphReadHandle implements MovementGraphReadHandle {
       while (queue.length > 0) {
         const current = queue.shift()!;
         const children = (this.edgesByTo.get(current.conceptId) ?? []).filter((edge) => edge.kind === "variant-of");
+        const resolvedChildren: Array<{ edge: Extract<MovementGraphEdgeAssertion, { kind: "variant-of" }>; exercise: Extract<MovementGraphNodeAssertion, { kind: "exercise" }> }> = [];
+        for (const edge of children) {
+          const exercise = this.nodesById.get(edge.fromConceptId);
+          if (!exercise || exercise.kind !== "exercise") {
+            return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
+          }
+          resolvedChildren.push({ edge, exercise });
+        }
         if (current.depth >= query.maxDepth) {
-          if (children.length > 0) {
+          if (resolvedChildren.some(({ exercise }) => !visited.has(exercise.conceptId))) {
             return this.failure({ code: "traversal_limit_exceeded", maxDepth: query.maxDepth, maxResults: query.maxResults });
           }
           continue;
         }
-        for (const edge of children) {
-          const exercise = this.nodesById.get(edge.fromConceptId);
-          if (!exercise || exercise.kind !== "exercise" || visited.has(exercise.conceptId)) {
-            return this.failure({ code: "broken_assertion", assertionId: edge.assertionId });
-          }
+        for (const { edge, exercise } of resolvedChildren) {
+          if (visited.has(exercise.conceptId)) continue;
           visited.add(exercise.conceptId);
           const pathAssertionIds = [...current.pathAssertionIds, edge.assertionId, exercise.assertionId];
           facts.push({

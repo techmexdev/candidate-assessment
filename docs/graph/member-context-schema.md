@@ -202,6 +202,6 @@ Sessions expire after 10 minutes. Each coach/member scope permits at most 128 ac
 
 Agent-facing responses, routine logs, diagnostics, typed failures, and security audit events may contain only bounded stable IDs, revision IDs, effect, status and reason codes, and assertion/evidence IDs. They must omit raw injury, applicability, preference, or prompt values. Authorization denial, rejected tokens, supersession or revocation invalidation, explicit invalidation, and fail-closed evaluation emit exactly one redacted security event for the attempted operation.
 
-The typed security-event status codes are `authorization-denied`, `evaluation-fail-closed`, `token-rejected`, `session-superseded`, and `session-invalidated`. These codes describe the boundary outcome; they do not authorize extra diagnostic fields.
+The typed security-event status codes are `authorization-denied`, `evaluation-fail-closed`, `token-rejected`, `candidate-validation-rejected`, `session-superseded`, and `session-invalidated`. These codes describe the boundary outcome; they do not authorize extra diagnostic fields. Candidate-set cardinality failures use `candidate-validation-rejected` without recording candidate values.
 
 All facts, constraints, examples, and fixtures in this workflow remain synthetic. Neither graph nor this session boundary is clinically validated guidance.

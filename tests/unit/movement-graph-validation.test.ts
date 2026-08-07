@@ -3,6 +3,7 @@ import type {
   MovementGraphNodeAssertion,
   MovementGraphSnapshot,
 } from "../../src/domain/contracts/movement-graph";
+import { CATALOG_SAFETY_MAX_FAMILY_DEPTH } from "../../src/domain/contracts/catalog-safety";
 import {
   compileDefaultMovementGraph,
   compileMovementGraph,
@@ -12,6 +13,7 @@ import {
   validateMovementGraph,
   type MovementGraphValidationErrorCode,
 } from "../../src/graph/validation/movement-graph";
+import { buildMovementVariantDiamondFixture } from "../fixtures/movement-variant-diamond";
 
 type MutableNode = Record<string, unknown> & {
   assertionId: string;
@@ -53,6 +55,36 @@ function expectCode(snapshot: MutableSnapshot, code: MovementGraphValidationErro
 }
 
 describe("movement graph compiler and validator", () => {
+  it("accepts an acyclic multi-parent movement variant diamond", () => {
+    const { snapshot } = buildMovementVariantDiamondFixture();
+
+    expect(validateMovementGraph(snapshot)).toEqual({ status: "valid", errors: [] });
+  });
+
+  it("continues to reject variant DAGs beyond the bounded family depth", () => {
+    const diamond = buildMovementVariantDiamondFixture();
+    const copy = mutableCopy(diamond.snapshot);
+    const template = copy.edges.find((edge) => edge.kind === "variant-of")!;
+    const variantConceptIds = new Set(copy.edges
+      .filter((edge) => edge.kind === "variant-of")
+      .flatMap((edge) => [edge.fromConceptId, edge.toConceptId]));
+    const descendants = copy.nodes
+      .filter((node) => node.kind === "exercise" && !variantConceptIds.has(node.conceptId))
+      .slice(0, CATALOG_SAFETY_MAX_FAMILY_DEPTH - 1);
+    let parentConceptId = diamond.mergedConceptId;
+    for (const [index, descendant] of descendants.entries()) {
+      copy.edges.push({
+        ...template,
+        assertionId: `assertion:test:variant-depth:${index}`,
+        fromConceptId: descendant.conceptId,
+        toConceptId: parentConceptId,
+      });
+      parentConceptId = descendant.conceptId;
+    }
+
+    expectCode(copy, "variant_depth_exceeded");
+  });
+
   it("pins the deterministic golden revision and deeply freezes the snapshot", () => {
     const first = compileDefaultMovementGraph();
     const second = compileMovementGraph(structuredClone(movementGraphSources));
