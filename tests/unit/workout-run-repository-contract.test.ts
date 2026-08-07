@@ -199,6 +199,18 @@ describe("in-memory workout run repository contract", () => {
     await expect(repository.complete(completion(first.fence.generation))).resolves.toEqual({ status: "stale-fence" });
   });
 
+  it("claims the oldest queued run without exposing a run id to the queue consumer", async () => {
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
+    const older = run({ runId: asWorkoutRunId("workout-run:queued-older"), idempotencyKeyDigest: "sha256:queued-older" });
+    const newer = run({ runId: asWorkoutRunId("workout-run:queued-newer"), idempotencyKeyDigest: "sha256:queued-newer", inputRevisions: [{ ...run().inputRevisions[0]!, createdAt: "2026-08-07T10:00:01.000Z" }] });
+    await repository.createOrFind(newer);
+    await repository.createOrFind(older);
+    const claimed = await repository.claimNext!("worker:queue", "2026-08-07T10:00:02.000Z", "2026-08-07T10:01:00.000Z");
+    expect(claimed).toMatchObject({ status: "claimed", run: { runId: older.runId }, fence: { workerId: "worker:queue" } });
+    const second = await repository.claimNext!("worker:queue-2", "2026-08-07T10:00:02.000Z", "2026-08-07T10:01:00.000Z");
+    expect(second).toMatchObject({ status: "claimed", run: { runId: newer.runId } });
+  });
+
   it("rejects every fenced mutation once the authoritative repository clock reaches lease expiry", async () => {
     let currentTime = "2026-08-07T10:00:01.000Z";
     const repository = new InMemoryWorkoutRunRepository({

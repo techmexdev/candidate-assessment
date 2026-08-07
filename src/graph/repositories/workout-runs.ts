@@ -347,6 +347,15 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
     return created;
   }
 
+  async claimNext(workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {
+    if (!workerId.trim() || !validDate(now) || !validDate(expiresAt) || Date.parse(expiresAt) <= Date.parse(now)) return { status: "not-claimable" };
+    const candidate = [...this.runs.values()]
+      .map((store) => store.run)
+      .filter((run) => run.state === "queued" || (run.state === "running" && run.claim && Date.parse(run.claim.expiresAt) <= Date.parse(now)))
+      .sort((left, right) => `${left.inputRevisions[0]?.createdAt ?? ""}\0${left.runId}`.localeCompare(`${right.inputRevisions[0]?.createdAt ?? ""}\0${right.runId}`))[0];
+    return candidate ? this.claim(candidate.runId, workerId, now, expiresAt) : { status: "not-claimable" };
+  }
+
   async claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {
     const store = this.find(runId);
     if (!store) return { status: "missing" };

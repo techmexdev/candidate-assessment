@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createGateway } from "ai";
 import { createAiSdkWorkoutComposer } from "../agents/workout/ai-sdk-composer";
 import { createAiSdkWorkoutReviewer } from "../agents/workout/ai-sdk-reviewer";
+import { createDeterministicWorkoutComposer, createDeterministicWorkoutReviewer } from "../agents/workout/deterministic-agents";
 import { InMemoryCatalogSafetySessionStore } from "../application/ports/catalog-safety-sessions";
 import type { WorkerAuthorizationPort } from "../application/ports/worker-authorization";
 import type { WorkoutRunRepository } from "../application/ports/workout-run-repository";
@@ -48,6 +49,7 @@ export type ConfiguredWorkoutWorkerOptions = {
   readonly heartbeatEveryMs: number;
   readonly executionTimeoutMs: number;
   readonly providerTimeoutMs: number;
+  readonly mode?: "provider" | "deterministic";
 };
 
 function required(environment: Environment, name: string): string {
@@ -67,6 +69,8 @@ function positiveInteger(environment: Environment, name: string, fallback: numbe
 /** Validate all worker-specific configuration before opening a graph connection. */
 export function readConfiguredWorkoutWorkerOptions(environment: Environment = process.env): ConfiguredWorkoutWorkerOptions {
   const runtimeEnvironment = environment.NODE_ENV ?? "production";
+  const mode = environment.WORKOUT_DEMO_MODE === "deterministic" ? "deterministic" : "provider";
+  if (runtimeEnvironment === "production" && mode === "deterministic") throw new Error("WORKOUT_DEMO_MODE is development-only");
   workoutRouteSecret(runtimeEnvironment, environment.WORKOUT_ROUTE_SECRET);
   if (runtimeEnvironment === "production") {
     required(environment, "NEO4J_URI");
@@ -74,8 +78,8 @@ export function readConfiguredWorkoutWorkerOptions(environment: Environment = pr
     required(environment, "NEO4J_PASSWORD");
   }
   const workerId = required(environment, "WORKOUT_WORKER_ID");
-  const modelId = required(environment, "WORKOUT_MODEL_ID");
-  const gatewayApiKey = required(environment, "AI_GATEWAY_API_KEY");
+  const modelId = mode === "deterministic" ? environment.WORKOUT_MODEL_ID?.trim() || "demo:deterministic" : required(environment, "WORKOUT_MODEL_ID");
+  const gatewayApiKey = mode === "deterministic" ? environment.AI_GATEWAY_API_KEY?.trim() || "demo:no-provider-key" : required(environment, "AI_GATEWAY_API_KEY");
   const leaseDurationMs = positiveInteger(environment, "WORKOUT_LEASE_DURATION_MS", 60_000);
   const heartbeatEveryMs = positiveInteger(environment, "WORKOUT_HEARTBEAT_INTERVAL_MS", 15_000);
   const executionTimeoutMs = positiveInteger(environment, "WORKOUT_EXECUTION_TIMEOUT_MS", 45_000);
@@ -83,7 +87,7 @@ export function readConfiguredWorkoutWorkerOptions(environment: Environment = pr
   if (heartbeatEveryMs >= leaseDurationMs) {
     throw new Error("WORKOUT_HEARTBEAT_INTERVAL_MS must be shorter than WORKOUT_LEASE_DURATION_MS");
   }
-  return Object.freeze({ workerId, modelId, gatewayApiKey, leaseDurationMs, heartbeatEveryMs, executionTimeoutMs, providerTimeoutMs });
+  return Object.freeze({ workerId, modelId, gatewayApiKey, leaseDurationMs, heartbeatEveryMs, executionTimeoutMs, providerTimeoutMs, mode });
 }
 
 export function createConfiguredWorkoutGatewayModel(options: Pick<ConfiguredWorkoutWorkerOptions, "gatewayApiKey" | "modelId">) {
@@ -125,6 +129,14 @@ export function createWorkoutWorkerComposition(dependencies: WorkoutWorkerCompos
       const timeout = AbortSignal.timeout(dependencies.executionTimeoutMs);
       const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
       return worker.runOnce({ ...input, signal });
+    },
+    async runNext(input?: { readonly signal?: AbortSignal }) {
+      const claimNext = dependencies.repository.claimNext;
+      if (!claimNext) return { status: "not-claimable" as const };
+      const now = dependencies.now();
+      const claimed = await claimNext.call(dependencies.repository, dependencies.workerId, now, new Date(Date.parse(now) + dependencies.leaseDurationMs).toISOString());
+      if (claimed.status !== "claimed") return { status: "not-claimable" as const };
+      return worker.runClaimed(claimed, input?.signal);
     },
   });
 }
@@ -640,8 +652,12 @@ export function createCanonicalWorkoutRuntimeDependencies(
     evaluateCatalogSafety,
     findSubstitutes: (request) => findMovementSubstitutes(infrastructure.movement, request),
     validateCandidates,
-    composer: createAiSdkWorkoutComposer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
-    reviewer: createAiSdkWorkoutReviewer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
+    composer: options.mode === "deterministic"
+      ? createDeterministicWorkoutComposer()
+      : createAiSdkWorkoutComposer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
+    reviewer: options.mode === "deterministic"
+      ? createDeterministicWorkoutReviewer()
+      : createAiSdkWorkoutReviewer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
     now,
     createId: (kind) => `${kind}:${randomUUID()}`,
   };

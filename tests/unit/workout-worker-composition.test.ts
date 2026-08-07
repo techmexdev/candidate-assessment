@@ -230,6 +230,15 @@ describe("workout worker production composition", () => {
     })).toThrow(/AI_GATEWAY_API_KEY/);
   });
 
+  it("allows deterministic queue mode without provider credentials outside production", () => {
+    expect(readConfiguredWorkoutWorkerOptions({
+      NODE_ENV: "development",
+      WORKOUT_DEMO_MODE: "deterministic",
+      WORKOUT_ROUTE_SECRET: "x".repeat(32),
+      WORKOUT_WORKER_ID: "worker:demo",
+    })).toMatchObject({ mode: "deterministic", modelId: "demo:deterministic" });
+  });
+
   it("instantiates the configured model through the AI Gateway provider", () => {
     const model = createConfiguredWorkoutGatewayModel({
       gatewayApiKey: "gateway-test-key",

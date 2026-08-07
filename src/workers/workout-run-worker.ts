@@ -48,18 +48,8 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
   if (!Number.isFinite(dependencies.heartbeatEveryMs) || dependencies.heartbeatEveryMs <= 0
     || dependencies.heartbeatEveryMs >= dependencies.leaseDurationMs) throw new Error("heartbeatEveryMs must be positive and shorter than the lease");
 
-  return {
-    async runOnce(input: { readonly runId: WorkoutRunId; readonly coachId: string; readonly memberId: string; readonly signal?: AbortSignal }): Promise<ExecuteWorkoutRunResult> {
-      const claimedAt = dependencies.now();
-      const leaseExpiresAt = expiresAt(claimedAt, dependencies.leaseDurationMs);
-      const claimed = await dependencies.claim({
-        ...input,
-        workerId: dependencies.workerId,
-        now: claimedAt,
-        expiresAt: leaseExpiresAt,
-      });
-      if (claimed.status !== "claimed") return { status: "not-claimable" };
-
+  const runClaimed = async (claimed: ClaimedRun, signal?: AbortSignal): Promise<ExecuteWorkoutRunResult> => {
+      const leaseExpiresAt = claimed.run.claim?.expiresAt ?? expiresAt(dependencies.now(), dependencies.leaseDurationMs);
       const execution = new AbortController();
       let stopped = false;
       let watchdog: ReturnType<typeof setTimeout> | undefined;
@@ -87,8 +77,8 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
         );
         watchdog.unref?.();
       };
-      const cancelExecution = () => stopForClaimLoss(input.signal?.reason);
-      input.signal?.addEventListener("abort", cancelExecution, { once: true });
+      const cancelExecution = () => stopForClaimLoss(signal?.reason);
+      signal?.addEventListener("abort", cancelExecution, { once: true });
       resetWatchdog(claimed.run.claim?.expiresAt ?? leaseExpiresAt);
       const heartbeat = async () => {
         if (stopped) return;
@@ -106,12 +96,12 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
         stopForClaimLoss(new Error("Workout run claim was lost"));
       };
       try {
-        if (input.signal?.aborted) stopForClaimLoss(input.signal.reason);
+        if (signal?.aborted) stopForClaimLoss(signal.reason);
         await Promise.race([heartbeat(), cancellation]);
         if (stopped) return { status: "claim-lost" };
         stopHeartbeat = (dependencies.startHeartbeat ?? defaultHeartbeatScheduler)(heartbeat, dependencies.heartbeatEveryMs);
         const executionResult = dependencies.executeClaimed({
-          runId: input.runId,
+          runId: claimed.run.runId,
           workerId: dependencies.workerId,
           leaseExpiresAt,
           claimed,
@@ -123,8 +113,26 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
         stopped = true;
         stopHeartbeat();
         if (watchdog) clearTimeout(watchdog);
-        input.signal?.removeEventListener("abort", cancelExecution);
+        signal?.removeEventListener("abort", cancelExecution);
       }
+  };
+
+  return {
+    async runOnce(input: { readonly runId: WorkoutRunId; readonly coachId: string; readonly memberId: string; readonly signal?: AbortSignal }): Promise<ExecuteWorkoutRunResult> {
+      const claimedAt = dependencies.now();
+      const leaseExpiresAt = expiresAt(claimedAt, dependencies.leaseDurationMs);
+      const claimed = await dependencies.claim({
+        ...input,
+        workerId: dependencies.workerId,
+        now: claimedAt,
+        expiresAt: leaseExpiresAt,
+      });
+      if (claimed.status !== "claimed") return { status: "not-claimable" };
+      return runClaimed(claimed, input.signal);
+    },
+    /** Queue mode uses only the claimed run/fence returned by the repository. */
+    async runClaimed(claimed: ClaimedRun, signal?: AbortSignal): Promise<ExecuteWorkoutRunResult> {
+      return runClaimed(claimed, signal);
     },
   };
 }

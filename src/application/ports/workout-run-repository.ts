@@ -130,6 +130,8 @@ export interface WorkoutRunRepository {
   createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult>;
   /** Atomically creates one predecessor-linked run without mutating its source. */
   createAdjustment(run: WorkoutRun): Promise<CreateWorkoutAdjustmentResult>;
+  /** Atomically claims the oldest queued/expired run without requiring a caller-supplied run ID. */
+  claimNext?(workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult>;
   claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult>;
   heartbeat(fence: WorkoutRunFence, now: string, expiresAt: string): Promise<FencedMutationResult>;
   saveConstraintSnapshot(fence: WorkoutRunFence, snapshot: ResolvedConstraintSnapshot): Promise<FencedMutationResult>;

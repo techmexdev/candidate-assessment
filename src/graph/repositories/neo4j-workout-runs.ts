@@ -291,6 +291,19 @@ export class Neo4jWorkoutRunRepository implements WorkoutRunRepository {
     });
   }
 
+  async claimNext(workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {
+    if (!workerId.trim() || !Number.isFinite(Date.parse(now)) || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.parse(now)) return { status: "not-claimable" };
+    return this.client.executeWrite(async (transaction) => {
+      const result = await transaction.run(WORKOUT_RUN_CYPHER.claimNext, { workerId, now, expiresAt });
+      const claimedNode = node(result.records[0]);
+      if (!claimedNode) return { status: "not-claimable" };
+      const run = await hydrateRun(transaction, claimedNode);
+      if (!run?.claim) return { status: "not-claimable" };
+      await this.systemEvent(transaction, run.runId, { kind: "claimed", occurredAt: now, safeData: { generation: run.claim.generation, workerId } });
+      return { status: "claimed" as const, run, fence: { runId: run.runId, generation: run.claim.generation, workerId } };
+    });
+  }
+
   async claim(runId: WorkoutRunId, workerId: string, now: string, expiresAt: string): Promise<ClaimWorkoutRunResult> {
     if (!workerId.trim() || !Number.isFinite(Date.parse(now)) || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.parse(now)) return { status: "not-claimable" };
     return this.client.executeWrite(async (transaction) => {

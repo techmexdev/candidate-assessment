@@ -146,6 +146,22 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
       run.startedAt = coalesce(run.startedAt, $now)
     RETURN run
   `,
+  claimNext: `
+    MATCH (run:WorkoutRun)
+    WHERE run.state = 'queued'
+      OR (run.state = 'running' AND datetime(run.claimExpiresAt) <= datetime($now))
+    WITH run
+    ORDER BY coalesce(run.createdAt, run.claimedAt, '') ASC, run.runId ASC
+    LIMIT 1
+    SET run.lockVersion = coalesce(run.lockVersion, 0) + 1,
+      run.state = 'running',
+      run.claimGeneration = coalesce(run.claimGeneration, 0) + 1,
+      run.claimWorkerId = $workerId, run.claimedAt = $now,
+      run.heartbeatAt = $now, run.claimExpiresAt = $expiresAt,
+      run.revisionSeals = null, run.safetyEnvelope = null, run.modelProposal = null,
+      run.startedAt = coalesce(run.startedAt, $now)
+    RETURN run
+  `,
   heartbeat: `
     MATCH (run:WorkoutRun {runId: $runId})
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
