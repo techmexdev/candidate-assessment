@@ -492,7 +492,6 @@ function sameIds(actual: readonly string[], expected: readonly string[]) {
 }
 
 function runtimeInvariantChecks(scenarioInput: WorkoutGenerationScenario, capture: WorkoutScenarioCapture) {
-  const selected = new Set(capture.observed.selectedExerciseIds);
   const decisions = capture.provenance?.decisions ?? [];
   const candidateIds = new Set(capture.evidence.candidateExerciseIds);
   const publicBoundary = JSON.stringify({ providerInput: capture.evidence.providerInput, publicEvents: capture.evidence.publicEvents });
