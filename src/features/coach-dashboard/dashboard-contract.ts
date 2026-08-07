@@ -28,6 +28,9 @@ export type DashboardAdapter = {
   load: () => Promise<DashboardLoadState<CoachDashboardViewModel>>;
   capabilities: {
     startNewDraft: StartNewDraftCapability;
+    workoutGeneration?:
+      | { available: false; reason: string }
+      | { available: true; runtime: import("./runtime-adapter").DashboardWorkoutRuntime };
   };
 };
 
@@ -35,6 +38,7 @@ export type DashboardWorkoutItem = {
   id: string;
   name: string;
   dose: string;
+  rest?: string;
   why: string;
   provenance: string;
   decisionId?: DashboardDecisionId;
@@ -103,15 +107,15 @@ export type CoachDashboardViewModel = {
     };
     equipment: string[];
   };
-  workoutSections: { title: string; items: DashboardWorkoutItem[] }[];
-  exclusions: (DashboardWorkoutItem & { decisionId: DashboardDecisionId; reason: string; overridable: boolean })[];
-  decisionPaths: Record<
+  workoutSections: readonly { title: string; items: readonly DashboardWorkoutItem[] }[];
+  exclusions: readonly (DashboardWorkoutItem & { decisionId: DashboardDecisionId; reason: string; overridable: boolean })[];
+  decisionPaths: Readonly<Record<
     string,
     {
       kind: string;
-      lanes: { name: string; text: string; source: string }[];
+      lanes: readonly { name: string; text: string; source: string }[];
     }
-  >;
+  >>;
   copilotCards: Record<DashboardInsightId, DashboardCopilotCard>;
   history: {
     date: string;
