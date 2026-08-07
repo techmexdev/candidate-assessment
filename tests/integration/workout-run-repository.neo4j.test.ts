@@ -62,7 +62,9 @@ describe("Neo4j workout run repository", () => {
       .resolves.toMatchObject({ status: "replayed", run: { runId: RUN_ID } });
     await expect(repository.getRun(RUN_ID, "coach:neo4j", "member:foreign")).resolves.toBeUndefined();
 
-    const claim = await repository.claim(RUN_ID, "worker:neo4j", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
+    const claimedAt = new Date();
+    const expiresAt = new Date(claimedAt.getTime() + 60_000);
+    const claim = await repository.claim(RUN_ID, "worker:neo4j", claimedAt.toISOString(), expiresAt.toISOString());
     expect(claim.status).toBe("claimed");
     if (claim.status !== "claimed") return;
     await repository.saveConstraintSnapshot(claim.fence, {
@@ -72,7 +74,7 @@ describe("Neo4j workout run repository", () => {
       canonicalConstraintIds: ["constraint:test"], applicabilityAssertionIds: ["assertion:test"], evidenceIds: ["evidence:test"],
       zeroMatchCertificates: [], resolverVersion: "resolver:v1", searchPolicyVersion: "search:v1", digest: "sha256:constraints",
     });
-    await repository.appendEvent(claim.fence, { kind: "stage", occurredAt: "2026-08-07T10:00:02.000Z", safeData: { stage: "validate" } });
+    await repository.appendEvent(claim.fence, { kind: "stage", occurredAt: claimedAt.toISOString(), safeData: { stage: "validate" } });
 
     const validated = validateWorkoutComposition(validationInput());
     if (validated.status !== "valid") throw new Error("fixture must validate");
@@ -102,5 +104,35 @@ describe("Neo4j workout run repository", () => {
     await expect(restarted.getProvenance(RUN_ID, "coach:neo4j", "member:neo4j")).resolves.toEqual(provenance);
     const events = await restarted.readEvents(RUN_ID, "coach:neo4j", "member:neo4j", { limit: 20 });
     expect(events.status === "ready" ? events.events.filter((event) => event.kind === "completed") : []).toHaveLength(1);
+  });
+
+  it("uses database time to reject mutations from an already-expired claim before reclaim", async () => {
+    await repository.createOrFind(queuedRun());
+    const claim = await repository.claim(
+      RUN_ID,
+      "worker:expired",
+      "2000-01-01T00:00:00.000Z",
+      "2000-01-01T00:01:00.000Z",
+    );
+    if (claim.status !== "claimed") throw new Error("claim failed");
+
+    await expect(repository.heartbeat(claim.fence, new Date().toISOString(), new Date(Date.now() + 60_000).toISOString()))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.saveConstraintSnapshot(claim.fence, {
+      schemaVersion: "resolved-constraint-snapshot/v1",
+      movementGraphRevisionId: queuedRun().movementGraphRevisionId,
+      memberContextRevisionId: queuedRun().memberContextRevisionId,
+      canonicalConstraintIds: ["constraint:test"], applicabilityAssertionIds: ["assertion:test"], evidenceIds: ["evidence:test"],
+      zeroMatchCertificates: [], resolverVersion: "resolver:v1", searchPolicyVersion: "search:v1", digest: "sha256:constraints",
+    })).resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.appendEvent(claim.fence, { kind: "stage", occurredAt: new Date().toISOString(), safeData: { stage: "late" } }))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.awaitClarification(claim.fence, new Date().toISOString(), ["joint:knee"]))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.fail(claim.fence, {
+      kind: "claim-lost", stage: "claim", safeMessage: "Claim lost", occurredAt: new Date().toISOString(),
+    })).resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.getRun(RUN_ID, "coach:neo4j", "member:neo4j"))
+      .resolves.toMatchObject({ state: "running", claim: { generation: 1, workerId: "worker:expired" } });
   });
 });

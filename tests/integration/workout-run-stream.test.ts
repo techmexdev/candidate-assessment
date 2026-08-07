@@ -12,7 +12,7 @@ import { createWorkoutRunWorker } from "../../src/workers/workout-run-worker";
 const NOW = "2026-08-07T10:00:00.000Z";
 
 function createHarness(maxEventsPerRun = 100) {
-  const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "stream-test-secret", maxEventsPerRun });
+  const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "stream-test-secret", maxEventsPerRun, now: () => NOW });
   let id = 0;
   const authorization: WorkerAuthorizationPort = {
     createReference: vi.fn(async ({ runId }) => ({ status: "authorized" as const, authorizationReferenceId: `grant-ref:${runId}` })),

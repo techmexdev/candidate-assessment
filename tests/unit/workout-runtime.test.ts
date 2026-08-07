@@ -37,7 +37,7 @@ function queuedRun(overrides: Partial<WorkoutRun> = {}): WorkoutRun {
 }
 
 function harness(overrides: Record<string, unknown> = {}) {
-  const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "runtime-test-secret" });
+  const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "runtime-test-secret", now: () => now });
   const decisions = [
     catalogDecision("exercise:warm-up"),
     catalogDecision("exercise:main", "caution"),
@@ -319,7 +319,7 @@ describe("workout runtime", () => {
   });
 
   it("cannot complete after cancellation invalidates the current fence", async () => {
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "runtime-test-secret" });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "runtime-test-secret", now: () => now });
     const dependencies = harness({
       repository,
       afterCheckpoint: vi.fn(async (stage: string) => {

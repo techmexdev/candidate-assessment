@@ -17,7 +17,9 @@ The workout-generation runtime owns a separate `WorkoutRun` namespace. It record
 
 The allowed path is `queued → running → completed|failed|canceled|awaiting-clarification`; clarification answers append an input revision and move `awaiting-clarification → queued`. Failed, canceled, and completed runs are terminal. Retrying creates a distinct queued run with `retryOfRunId`; it never mutates the failed attempt.
 
-A claim has an expiry and monotonically increasing generation. Reclaiming an expired lease increments the generation. Heartbeats, checkpoints, event appends, failures, clarification, and completion compare both generation and worker ID. Consequently a stale worker cannot mutate after reclaim.
+A claim has an expiry and monotonically increasing generation. Reclaiming an expired lease increments the generation. Heartbeats, checkpoints, event appends, failures, clarification, and completion atomically compare generation, worker ID, and the repository's authoritative mutation time with the lease expiry. Consequently a worker cannot mutate after expiry, including during the window before another worker reclaims the run.
+
+The worker resets its local watchdog only after a successful renewal. Deadline expiry, renewal loss, or caller cancellation stops future heartbeats, aborts cooperative work, and lets the worker invocation settle even when a dependency ignores the abort signal; the durable lease can then expire and be reclaimed.
 
 Completion is one Neo4j write transaction. It verifies run ownership, authorization reference, current fence, state, request digest, pinned revisions, resolved-constraint digest, validation-receipt bindings, complete decision evidence, workout identity, and provenance shape before creating the immutable workout, decisions, PROV links, receipt, and one terminal event. Cancellation wins when its transaction changes the run before the completion compare-and-set. Duplicate completion with the same workout version is a read-only replay.
 

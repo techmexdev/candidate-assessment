@@ -57,6 +57,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
     WITH run
     WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
     SET run.heartbeatAt = $now, run.claimExpiresAt = $expiresAt
     RETURN run
   `,
@@ -65,6 +66,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
     WITH run
     WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
     SET run.constraintSnapshot = $snapshot
     RETURN run
   `,
@@ -73,6 +75,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
     WITH run, run.nextEventSequence AS sequence
     WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
     SET run.nextEventSequence = sequence + 1
     CREATE (event:WorkoutRunEvent {
       runId: $runId, sequence: sequence, eventId: $eventIdPrefix + toString(sequence),
@@ -100,6 +103,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
     WITH run
     WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
     SET run.state = 'awaiting-clarification', run.claimWorkerId = null,
       run.claimedAt = null, run.heartbeatAt = null, run.claimExpiresAt = null,
       run.clarificationCandidateIds = $candidateConceptIds
@@ -128,6 +132,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     SET run.lockVersion = coalesce(run.lockVersion, 0) + 1
     WITH run
     WHERE run.state = 'running' AND run.claimGeneration = $generation AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
     SET run.state = 'failed', run.failure = $failure, run.endedAt = $endedAt,
       run.claimWorkerId = null, run.claimedAt = null,
       run.heartbeatAt = null, run.claimExpiresAt = null
@@ -150,6 +155,7 @@ export const WORKOUT_RUN_CYPHER = Object.freeze({
     WITH run
     WHERE run.state = 'running' AND run.claimGeneration = $generation
       AND run.claimWorkerId = $workerId
+      AND datetime(run.claimExpiresAt) > datetime()
       AND run.authorizationReferenceId = $authorizationReferenceId
       AND run.requestDigest = $requestDigest
     CREATE (workout:WorkoutVersion {

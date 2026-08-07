@@ -3,11 +3,13 @@ import { createWorkoutProvenanceBundle } from "../../src/domain/contracts/workou
 import { asWorkoutInputRevisionId, asWorkoutRunId, asWorkoutVersionId } from "../../src/domain/contracts/workout";
 import type { WorkoutRun } from "../../src/domain/contracts/workout-run";
 import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
+import { WORKOUT_RUN_CYPHER } from "../../src/graph/cypher/workout-runs";
 import { canonicalWorkoutDecisionSetDigest, canonicalWorkoutPayloadDigest, canonicalWorkoutProvenanceDigest } from "../../src/graph/schema/workout-run-schema";
 import { validateWorkoutComposition } from "../../src/domain/policies/workout-composition";
 import { validationInput, workoutDecision } from "../fixtures/workout-runtime-builder";
 
 const RUN_ID = asWorkoutRunId("workout-run:repository-contract");
+const REPOSITORY_NOW = () => "2026-08-07T10:00:05.000Z";
 
 function run(overrides: Partial<WorkoutRun> = {}): WorkoutRun {
   return {
@@ -96,7 +98,7 @@ const constraintSnapshot = {
 
 describe("in-memory workout run repository contract", () => {
   it("enforces scoped idempotency and authorized reads", async () => {
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret" });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await expect(repository.createOrFind(run())).resolves.toMatchObject({ status: "created" });
     await expect(repository.createOrFind(run({ runId: asWorkoutRunId("workout-run:duplicate") })))
       .resolves.toMatchObject({ status: "replayed", run: { runId: RUN_ID } });
@@ -110,7 +112,7 @@ describe("in-memory workout run repository contract", () => {
   });
 
   it("claims with a lease, increments the fence on reclaim, and rejects stale mutations", async () => {
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret" });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await repository.createOrFind(run());
     const first = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:00:10.000Z");
     expect(first.status).toBe("claimed");
@@ -129,8 +131,42 @@ describe("in-memory workout run repository contract", () => {
     await expect(repository.complete(completion(first.fence.generation))).resolves.toEqual({ status: "stale-fence" });
   });
 
+  it("rejects every fenced mutation once the authoritative repository clock reaches lease expiry", async () => {
+    let currentTime = "2026-08-07T10:00:01.000Z";
+    const repository = new InMemoryWorkoutRunRepository({
+      cursorSecret: "test-secret",
+      now: () => currentTime,
+    });
+    await repository.createOrFind(run());
+    const claim = await repository.claim(RUN_ID, "worker:one", currentTime, "2026-08-07T10:00:10.000Z");
+    if (claim.status !== "claimed") throw new Error("claim failed");
+    currentTime = "2026-08-07T10:00:10.000Z";
+
+    await expect(repository.heartbeat(claim.fence, currentTime, "2026-08-07T10:00:20.000Z"))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.saveConstraintSnapshot(claim.fence, constraintSnapshot))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.appendEvent(claim.fence, { kind: "stage", occurredAt: currentTime, safeData: { stage: "late" } }))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.awaitClarification(claim.fence, currentTime, ["joint:knee"]))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.fail(claim.fence, { kind: "claim-lost", stage: "claim", safeMessage: "Claim lost", occurredAt: currentTime }))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.complete(completion(claim.fence.generation)))
+      .resolves.toEqual({ status: "stale-fence" });
+    await expect(repository.getRun(RUN_ID, "coach:one", "member:one"))
+      .resolves.toMatchObject({ state: "running", claim: { generation: 1 } });
+  });
+
+  it.each(["heartbeat", "saveConstraintSnapshot", "allocateEvent", "awaitClarification", "fail", "complete"] as const)(
+    "guards the Neo4j %s mutation with database-authoritative lease time",
+    (mutation) => {
+      expect(WORKOUT_RUN_CYPHER[mutation]).toContain("datetime(run.claimExpiresAt) > datetime()");
+    },
+  );
+
   it("uses opaque run-bound cursors and returns resync after pruning", async () => {
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", maxEventsPerRun: 1 });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", maxEventsPerRun: 1, now: REPOSITORY_NOW });
     await repository.createOrFind(run());
     const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim failed");
@@ -151,7 +187,7 @@ describe("in-memory workout run repository contract", () => {
   });
 
   it("linearizes cancellation before completion and makes completion idempotent", async () => {
-    const canceledRepository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret" });
+    const canceledRepository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await canceledRepository.createOrFind(run());
     const canceledClaim = await canceledRepository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (canceledClaim.status !== "claimed") throw new Error("claim failed");
@@ -159,7 +195,7 @@ describe("in-memory workout run repository contract", () => {
     await expect(canceledRepository.complete(completion(canceledClaim.fence.generation))).resolves.toEqual({ status: "canceled" });
     await expect(canceledRepository.getWorkout(RUN_ID, "coach:one", "member:one")).resolves.toBeUndefined();
 
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret" });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await repository.createOrFind(run());
     const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim failed");
@@ -171,7 +207,7 @@ describe("in-memory workout run repository contract", () => {
   });
 
   it("rejects invalid provenance atomically and supports clarification plus linked retry", async () => {
-    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret" });
+    const repository = new InMemoryWorkoutRunRepository({ cursorSecret: "test-secret", now: REPOSITORY_NOW });
     await repository.createOrFind(run());
     const claim = await repository.claim(RUN_ID, "worker:one", "2026-08-07T10:00:01.000Z", "2026-08-07T10:01:00.000Z");
     if (claim.status !== "claimed") throw new Error("claim failed");

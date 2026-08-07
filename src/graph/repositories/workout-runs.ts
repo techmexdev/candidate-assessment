@@ -53,6 +53,7 @@ type CursorPayload = {
 export type InMemoryWorkoutRunRepositoryOptions = {
   readonly cursorSecret?: string | Uint8Array;
   readonly maxEventsPerRun?: number;
+  readonly now?: () => string;
 };
 
 const clone = <Value>(value: Value): Value => structuredClone(value);
@@ -121,10 +122,12 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   private readonly runIdByIdentity = new Map<string, string>();
   private readonly cursorSecret: Buffer;
   private readonly maxEventsPerRun: number;
+  private readonly now: () => string;
 
   constructor(options: InMemoryWorkoutRunRepositoryOptions = {}) {
     this.cursorSecret = Buffer.from(options.cursorSecret ?? randomBytes(32));
     this.maxEventsPerRun = options.maxEventsPerRun ?? WORKOUT_RUN_LIMITS.defaultEventsRetainedPerRun;
+    this.now = options.now ?? (() => new Date().toISOString());
     if (!Number.isInteger(this.maxEventsPerRun) || this.maxEventsPerRun < 1) throw new Error("maxEventsPerRun must be a positive integer");
   }
 
@@ -144,6 +147,12 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
 
   private find(runId: WorkoutRunId): StoredRun | undefined { return this.runs.get(runId); }
   private publicRun(store: StoredRun): WorkoutRun { return frozenClone(store.run) as WorkoutRun; }
+  private hasActiveFence(run: WorkoutRun, fence: WorkoutRunFence): boolean {
+    const now = this.now();
+    return sameFence(run, fence)
+      && validDate(now)
+      && Date.parse(run.claim!.expiresAt) > Date.parse(now);
+  }
 
   async createOrFind(run: WorkoutRun): Promise<CreateWorkoutRunResult> {
     const key = identityKey(run);
@@ -180,7 +189,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async heartbeat(fence: WorkoutRunFence, now: string, expiresAt: string): Promise<FencedMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
-    if (!sameFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
     if (!validDate(now) || !validDate(expiresAt) || Date.parse(expiresAt) <= Date.parse(now)) return { status: "stale-fence" };
     store.run = frozenClone({ ...store.run, claim: { ...store.run.claim!, heartbeatAt: now, expiresAt } }) as WorkoutRun;
     this.event(store, { kind: "heartbeat", occurredAt: now, safeData: { generation: fence.generation } });
@@ -190,7 +199,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async saveConstraintSnapshot(fence: WorkoutRunFence, snapshot: ResolvedConstraintSnapshot): Promise<FencedMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
-    if (!sameFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
     if (snapshot.movementGraphRevisionId !== store.run.movementGraphRevisionId
       || snapshot.memberContextRevisionId !== store.run.memberContextRevisionId) return { status: "stale-fence" };
     store.run = frozenClone({ ...store.run, constraintSnapshot: snapshot }) as WorkoutRun;
@@ -200,7 +209,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async appendEvent(fence: WorkoutRunFence, event: AppendWorkoutRunEvent): Promise<FencedMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
-    if (!sameFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
     if (!isSafeProgressEvent(event)) return { status: "stale-fence" };
     this.event(store, event);
     return { status: "updated", run: this.publicRun(store) };
@@ -209,7 +218,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async awaitClarification(fence: WorkoutRunFence, at: string, candidateConceptIds: readonly string[]): Promise<ClarificationMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
-    if (!sameFence(store.run, fence)) return { status: "stale-fence" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: "stale-fence" };
     if (candidateConceptIds.length === 0 || candidateConceptIds.length > WORKOUT_RUN_LIMITS.maximumClarificationCandidates) return { status: "invalid-state" };
     store.run = frozenClone({ ...store.run, state: "awaiting-clarification", claim: undefined }) as WorkoutRun;
     this.event(store, { kind: "awaiting-clarification", occurredAt: at, safeData: { candidateCount: candidateConceptIds.length } });
@@ -246,7 +255,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
   async fail(fence: WorkoutRunFence, failure: WorkoutRunFailure): Promise<FencedMutationResult> {
     const store = this.find(fence.runId);
     if (!store) return { status: "missing" };
-    if (!sameFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
+    if (!this.hasActiveFence(store.run, fence)) return { status: WORKOUT_RUN_TERMINAL_STATES.has(store.run.state) ? "terminal" : "stale-fence" };
     store.run = frozenClone({ ...store.run, state: "failed", failure, endedAt: failure.occurredAt, claim: undefined }) as WorkoutRun;
     this.event(store, { kind: "failed", occurredAt: failure.occurredAt, safeData: { kind: failure.kind, stage: failure.stage } });
     return { status: "updated", run: this.publicRun(store) };
@@ -271,7 +280,7 @@ export class InMemoryWorkoutRunRepository implements WorkoutRunRepository {
         ? { status: "completed", run: this.completed(store) }
         : { status: "invalid-receipt" };
     }
-    if (!sameFence(store.run, input.fence)) return { status: "stale-fence" };
+    if (!this.hasActiveFence(store.run, input.fence)) return { status: "stale-fence" };
     if (!validateCompletionBindings(store.run, input)) return { status: "invalid-receipt" };
     const endedAt = input.workoutVersion.createdAt;
     store.workout = frozenClone(input.workoutVersion) as ImmutableWorkoutVersion;

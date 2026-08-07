@@ -60,41 +60,69 @@ export function createWorkoutRunWorker(dependencies: WorkoutRunWorkerDependencie
       });
       if (claimed.status !== "claimed") return { status: "not-claimable" };
 
-      let heartbeatLost = false;
       const execution = new AbortController();
-      const cancelExecution = () => execution.abort(input.signal?.reason);
+      let stopped = false;
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      let stopHeartbeat: () => void = () => undefined;
+      let settleCancellation!: (result: ExecuteWorkoutRunResult) => void;
+      const cancellation = new Promise<ExecuteWorkoutRunResult>((resolve) => { settleCancellation = resolve; });
+      const stopForClaimLoss = (reason: unknown) => {
+        if (stopped) return;
+        stopped = true;
+        stopHeartbeat();
+        if (watchdog) clearTimeout(watchdog);
+        execution.abort(reason);
+        settleCancellation({ status: "claim-lost" });
+      };
+      const resetWatchdog = (renewedExpiresAt: string) => {
+        if (watchdog) clearTimeout(watchdog);
+        const remainingMs = Date.parse(renewedExpiresAt) - Date.parse(dependencies.now());
+        if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+          stopForClaimLoss(new Error("Workout run lease expired"));
+          return;
+        }
+        watchdog = setTimeout(
+          () => stopForClaimLoss(new Error("Workout run lease expired")),
+          remainingMs,
+        );
+        watchdog.unref?.();
+      };
+      const cancelExecution = () => stopForClaimLoss(input.signal?.reason);
       input.signal?.addEventListener("abort", cancelExecution, { once: true });
-      const timeout = setTimeout(() => execution.abort(new Error("Workout run lease expired")), dependencies.leaseDurationMs);
-      timeout.unref?.();
+      resetWatchdog(claimed.run.claim?.expiresAt ?? leaseExpiresAt);
       const heartbeat = async () => {
+        if (stopped) return;
         try {
           const at = dependencies.now();
           const renewed = await dependencies.repository.heartbeat(claimed.fence, at, expiresAt(at, dependencies.leaseDurationMs));
-          if (renewed.status === "updated") return;
+          if (stopped) return;
+          if (renewed.status === "updated") {
+            resetWatchdog(renewed.run.claim?.expiresAt ?? expiresAt(at, dependencies.leaseDurationMs));
+            return;
+          }
         } catch {
           // Repository failures lose the claim just like an explicit stale fence.
         }
-        if (!heartbeatLost) {
-          heartbeatLost = true;
-          execution.abort(new Error("Workout run claim was lost"));
-        }
+        stopForClaimLoss(new Error("Workout run claim was lost"));
       };
-      let stopHeartbeat: () => void = () => undefined;
       try {
-        await heartbeat();
-        if (heartbeatLost) return { status: "claim-lost" };
+        if (input.signal?.aborted) stopForClaimLoss(input.signal.reason);
+        await Promise.race([heartbeat(), cancellation]);
+        if (stopped) return { status: "claim-lost" };
         stopHeartbeat = (dependencies.startHeartbeat ?? defaultHeartbeatScheduler)(heartbeat, dependencies.heartbeatEveryMs);
-        const result = await dependencies.executeClaimed({
+        const executionResult = dependencies.executeClaimed({
           runId: input.runId,
           workerId: dependencies.workerId,
           leaseExpiresAt,
           claimed,
           signal: execution.signal,
         });
-        return heartbeatLost && result.status === "completed" ? { status: "claim-lost" } : result;
+        const result = await Promise.race([executionResult, cancellation]);
+        return stopped ? { status: "claim-lost" } : result;
       } finally {
+        stopped = true;
         stopHeartbeat();
-        clearTimeout(timeout);
+        if (watchdog) clearTimeout(watchdog);
         input.signal?.removeEventListener("abort", cancelExecution);
       }
     },
