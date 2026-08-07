@@ -1,6 +1,6 @@
 import type { CatalogSafetyReadyResult } from "../../domain/contracts/catalog-safety";
 import type { WorkoutCompositionCandidate } from "../../domain/policies/workout-composition";
-import type { WorkoutComposerInput } from "../../application/ports/workout-composer";
+import type { WorkoutComposerInput, WorkoutComposerProposal } from "../../application/ports/workout-composer";
 
 export type CreateWorkoutComposerInput = {
   readonly canonicalIntent: WorkoutComposerInput["canonicalIntent"];
@@ -11,6 +11,15 @@ export type CreateWorkoutComposerInput = {
   readonly safetyEnvelopeDigest: string;
   readonly catalogSafety: CatalogSafetyReadyResult;
   readonly candidateProfiles: readonly WorkoutCompositionCandidate[];
+};
+
+/** Model-facing projection. Citation IDs stay server-side and are rebound after parsing. */
+export type WorkoutComposerAgentInput = {
+  readonly schemaVersion: "workout-composer-agent-input/v1";
+  readonly canonicalIntent: WorkoutComposerInput["canonicalIntent"];
+  readonly candidates: readonly (Omit<WorkoutComposerInput["candidates"][number], "citationIds"> & {
+    readonly citationRefs: readonly string[];
+  })[];
 };
 
 function reasonCodes(decision: CatalogSafetyReadyResult["decisions"][number]) {
@@ -56,6 +65,49 @@ export function createWorkoutComposerInput(input: CreateWorkoutComposerInput): W
     }),
     candidates: Object.freeze(candidates.map((candidate) => Object.freeze(candidate))),
   });
+}
+
+export function createWorkoutComposerAgentInput(input: Readonly<WorkoutComposerInput>): WorkoutComposerAgentInput {
+  return Object.freeze({
+    schemaVersion: "workout-composer-agent-input/v1" as const,
+    canonicalIntent: Object.freeze({
+      focusConceptIds: Object.freeze([...input.canonicalIntent.focusConceptIds]),
+      requestedDurationMinutes: input.canonicalIntent.requestedDurationMinutes,
+    }),
+    candidates: Object.freeze(input.candidates.map((candidate, index) => Object.freeze({
+      exerciseConceptId: candidate.exerciseConceptId,
+      allowedSections: Object.freeze([...candidate.allowedSections]),
+      doseBounds: Object.freeze({ ...candidate.doseBounds }),
+      safetyStatus: candidate.safetyStatus,
+      reasonCodes: Object.freeze([...candidate.reasonCodes]),
+      citationRefs: Object.freeze([`candidate-ref:${index + 1}`]),
+    }))),
+  });
+}
+
+/** Rebind opaque model references to the authoritative server-side citations. */
+export function bindWorkoutProposalCitations(
+  proposal: Readonly<WorkoutComposerProposal>,
+  input: Readonly<WorkoutComposerInput>,
+) {
+  const refs = new Map(input.candidates.map((candidate, index) => [
+    candidate.exerciseConceptId,
+    { ref: `candidate-ref:${index + 1}`, citations: [...candidate.citationIds] },
+  ]));
+  const sections = proposal.sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => {
+      const itemWithCitations = item as typeof item & { readonly citationIds: readonly string[] };
+      const binding = refs.get(itemWithCitations.exerciseConceptId);
+      if (!binding || itemWithCitations.citationIds.length === 0 || itemWithCitations.citationIds.some((ref: string) => ref !== binding.ref)) return undefined;
+      return { ...itemWithCitations, citationIds: binding.citations };
+    }),
+  }));
+  if (sections.some((section) => section.items.some((item) => item === undefined))) return undefined;
+  return {
+    ...proposal,
+    sections: sections.map((section) => ({ ...section, items: section.items as Exclude<typeof section.items[number], undefined>[] })),
+  };
 }
 
 export function proposalCitationsAreGrounded(proposal: { readonly sections: readonly { readonly items: readonly { readonly exerciseConceptId: string; readonly citationIds: readonly string[] }[] }[] }, input: WorkoutComposerInput) {

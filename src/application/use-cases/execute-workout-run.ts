@@ -16,7 +16,9 @@ import {
 import { canonicalJson } from "../../graph/revisions/movement-graph";
 import { createWorkoutComposerInput, proposalCitationsAreGrounded } from "../../agents/workout/tools";
 import { parseWorkoutProposal } from "../../agents/workout/schemas";
+import { createWorkoutReviewInput } from "../../agents/workout/review-tools";
 import type { WorkoutComposer } from "../ports/workout-composer";
+import { parseWorkoutReviewerResult, reviewTraceForResult, type WorkoutReviewer } from "../ports/workout-reviewer";
 import type { ClaimWorkoutRunResult, WorkoutRunRepository } from "../ports/workout-run-repository";
 import type {
   CatalogSafetyInjuryApplicability,
@@ -64,7 +66,7 @@ export type ExecuteWorkoutRunDependencies = {
     readonly runId: WorkoutRunId;
     readonly coachId: string;
     readonly memberId: string;
-    readonly stage: "claim" | "constraints" | "catalog" | "composition" | "validation" | "completion";
+    readonly stage: "claim" | "constraints" | "catalog" | "composition" | "review" | "validation" | "completion";
   }) => Promise<WorkoutGrantAuthorization>;
   readonly resolveConstraints: (input: {
     readonly run: Readonly<WorkoutRun>;
@@ -82,9 +84,11 @@ export type ExecuteWorkoutRunDependencies = {
     readonly graphRevisionId: string;
   }) => Promise<MovementSubstitutionResult>;
   readonly composer: WorkoutComposer;
+  /** Advisory quality critic. It cannot change the candidate envelope or bypass validation. */
+  readonly reviewer?: WorkoutReviewer;
   readonly now: () => string;
   readonly createId: (kind: "workout-version" | "decision") => string;
-  readonly afterCheckpoint?: (stage: "constraints" | "catalog" | "proposal" | "validation") => void | Promise<void>;
+  readonly afterCheckpoint?: (stage: "constraints" | "catalog" | "proposal" | "review" | "validation") => void | Promise<void>;
 };
 
 export type ExecuteWorkoutRunResult =
@@ -160,7 +164,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
       });
       return failed.status === "updated" ? { status: "failed", reason: kind } : { status: "claim-lost" };
     };
-    const checkpoint = async (stage: "constraints" | "catalog" | "proposal" | "validation", stageDigest: string) => {
+    const checkpoint = async (stage: "constraints" | "catalog" | "proposal" | "review" | "validation", stageDigest: string) => {
       if (claimWasCanceled()) return false;
       const saved = await dependencies.repository.appendEvent(fence, {
         kind: "stage",
@@ -283,16 +287,46 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           candidateProfiles: resolved.candidateProfiles,
         });
         if (composerInput.candidates.length === 0) return fail("proposal-invalid", "composition");
+        const proposalDigests: string[] = [];
+        let recompositionCount: 0 | 1 = 0;
+        let reviewTrace: ReturnType<typeof reviewTraceForResult> | undefined;
+        const parseComposedProposal = (proposal: unknown) => {
+          const parsedProposal = parseWorkoutProposal(proposal);
+          if (parsedProposal.status !== "valid" || !proposalCitationsAreGrounded(parsedProposal.proposal, composerInput)) return undefined;
+          proposalDigests.push(canonicalWorkoutDigest(parsedProposal.proposal));
+          return parsedProposal.proposal;
+        };
         const composed = await dependencies.composer.compose(composerInput, { signal: input.signal });
         if (claimWasCanceled()) return { status: "claim-lost" };
         if (composed.status !== "proposed") return fail("provider-failure", "composition");
-        const parsed = parseWorkoutProposal(composed.proposal);
-        if (parsed.status !== "valid" || !proposalCitationsAreGrounded(parsed.proposal, composerInput)) {
-          return fail("proposal-invalid", "composition");
+        let parsedProposal = parseComposedProposal(composed.proposal);
+        if (!parsedProposal) return fail("proposal-invalid", "composition");
+
+        if (dependencies.reviewer) {
+          const reviewGrant = await authorize("review");
+          if (reviewGrant.status !== "authorized") return fail("authorization-denied", "review");
+          const reviewPacket = createWorkoutReviewInput(composerInput, parsedProposal);
+          const rawReview = await dependencies.reviewer.review(reviewPacket, { signal: input.signal });
+          if (claimWasCanceled()) return { status: "claim-lost" };
+          const reviewResult = parseWorkoutReviewerResult(rawReview, composerInput.candidates.map((candidate) => candidate.exerciseConceptId));
+          if (reviewResult.status === "revise") {
+            const recomposed = await dependencies.composer.compose(composerInput, {
+              signal: input.signal,
+              qualityFeedback: reviewResult.defects,
+            });
+            if (claimWasCanceled()) return { status: "claim-lost" };
+            if (recomposed.status !== "proposed") return fail("provider-failure", "composition-retry");
+            const recomposedProposal = parseComposedProposal(recomposed.proposal);
+            if (!recomposedProposal) return fail("proposal-invalid", "composition-retry");
+            parsedProposal = recomposedProposal;
+            recompositionCount = 1;
+          }
+          reviewTrace = reviewTraceForResult(reviewResult, proposalDigests, recompositionCount);
+          if (!await checkpoint("review", canonicalWorkoutDigest(reviewTrace))) return { status: "claim-lost" };
         }
-        const selectedIds = proposalIds(parsed.proposal);
-        const modelProposalDigest = canonicalWorkoutDigest(parsed.proposal);
-        const proposalSaved = await dependencies.repository.saveCompletionArtifact(fence, { kind: "model-proposal", payload: parsed.proposal });
+        const selectedIds = proposalIds(parsedProposal);
+        const modelProposalDigest = canonicalWorkoutDigest(parsedProposal);
+        const proposalSaved = await dependencies.repository.saveCompletionArtifact(fence, { kind: "model-proposal", payload: parsedProposal });
         if (proposalSaved.status !== "updated") return { status: "claim-lost" };
         if (!await checkpoint("proposal", modelProposalDigest)) return { status: "claim-lost" };
 
@@ -367,6 +401,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           movementGraphRevisionId: run.movementGraphRevisionId,
           memberContextRevisionId: run.memberContextRevisionId,
           decisions: provenanceDecisions,
+          ...(reviewTrace ? { review: reviewTrace } : {}),
           substitutions: [...substitutionForSelected.values()].map(({ originalExerciseConceptId, candidate }) => ({
             originalExerciseConceptId,
             selectedExerciseConceptId: candidate.exerciseConceptId,
@@ -394,7 +429,7 @@ export function createExecuteWorkoutRun(dependencies: ExecuteWorkoutRunDependenc
           modelProposalDigest,
           workoutPayloadDigest: "sha256:pending",
           provenanceDigest: provenance.digest,
-          proposal: parsed.proposal,
+          proposal: parsedProposal,
           candidates: resolved.candidateProfiles,
           catalogSafety,
         };

@@ -7,6 +7,7 @@ import {
 } from "ai";
 import type { WorkoutComposer, WorkoutComposerInput, WorkoutComposerResult } from "../../application/ports/workout-composer";
 import { parseWorkoutProposal, WORKOUT_PROPOSAL_JSON_SCHEMA } from "./schemas";
+import { bindWorkoutProposalCitations, createWorkoutComposerAgentInput } from "./tools";
 
 export type AiSdkWorkoutComposerOptions = {
   readonly model: LanguageModel;
@@ -17,7 +18,7 @@ const SYSTEM_INSTRUCTIONS = [
   "Compose exactly one workout from the supplied canonical candidates.",
   "Candidate eligibility and safety status are authoritative and cannot be changed.",
   "Return warm-up, main, and cool-down sections only.",
-  "Each item must cite one or more citationIds supplied on that exact candidate.",
+  "Each item must cite one or more opaque citation references supplied on that exact candidate.",
   "Do not infer member facts, graph facts, exclusions, identities, or authorization data.",
 ].join(" ");
 
@@ -34,7 +35,7 @@ export function createAiSdkWorkoutComposer(options: AiSdkWorkoutComposerOptions)
         const result = await generateText({
           model: options.model,
           system: SYSTEM_INSTRUCTIONS,
-          prompt: JSON.stringify(input),
+          prompt: JSON.stringify(createWorkoutComposerAgentInput(input)),
           output: Output.object({
             name: "workout_proposal",
             description: "A workout composed only from the supplied eligible candidates.",
@@ -43,8 +44,9 @@ export function createAiSdkWorkoutComposer(options: AiSdkWorkoutComposerOptions)
           abortSignal,
         });
         const parsed = parseWorkoutProposal(result.output);
-        return parsed.status === "valid"
-          ? { status: "proposed", proposal: parsed.proposal }
+        const rebound = parsed.status === "valid" ? bindWorkoutProposalCitations(parsed.proposal, input) : undefined;
+        return rebound
+          ? { status: "proposed", proposal: rebound }
           : { status: "failed", reason: "invalid-structured-output" };
       } catch (error) {
         if (NoObjectGeneratedError.isInstance(error)) return { status: "failed", reason: "invalid-structured-output" };

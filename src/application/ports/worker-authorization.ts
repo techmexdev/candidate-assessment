@@ -5,6 +5,7 @@ export type WorkoutAuthorizationStage =
   | "constraints"
   | "catalog"
   | "composition"
+  | "review"
   | "validation"
   | "completion"
   | "read"

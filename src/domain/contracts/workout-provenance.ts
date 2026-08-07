@@ -38,6 +38,16 @@ export type WorkoutSubstitutionProvenance = {
   readonly memberContextRevisionId: string;
 };
 
+/** Non-authoritative composition/review record retained with a completed trace. */
+export type WorkoutReviewTrace = {
+  readonly schemaVersion: "workout-review-trace/v1";
+  readonly outcome: "accepted" | "recomposed" | "ignored";
+  readonly defects: readonly ("dose-imbalance" | "section-coverage" | "redundant-pattern" | "rationale-quality")[];
+  readonly recompositionCount: 0 | 1;
+  readonly proposalDigests: readonly string[];
+  readonly ignoredReason?: "unavailable" | "timeout" | "invalid-structured-output";
+};
+
 export type WorkoutProvenanceEntityKind =
   | "prompt"
   | "movement-graph-revision"
@@ -71,6 +81,7 @@ export type WorkoutProvenanceBundle = {
   readonly entities: readonly WorkoutProvenanceEntity[];
   readonly decisions: readonly WorkoutDecision[];
   readonly substitutions?: readonly WorkoutSubstitutionProvenance[];
+  readonly review?: WorkoutReviewTrace;
   readonly relations: readonly WorkoutProvenanceRelation[];
 };
 
@@ -85,6 +96,7 @@ export type CreateWorkoutProvenanceInput = {
   readonly memberContextRevisionId: string;
   readonly decisions: readonly WorkoutDecision[];
   readonly substitutions?: readonly WorkoutSubstitutionProvenance[];
+  readonly review?: WorkoutReviewTrace;
   readonly traceSchemaVersion: "workout-provenance/v1";
   readonly digest: string;
 };
@@ -129,6 +141,11 @@ export function createWorkoutProvenanceBundle(input: CreateWorkoutProvenanceInpu
       safetyAssertionIds: [...substitution.safetyAssertionIds],
       safetyEvidenceIds: [...substitution.safetyEvidenceIds],
     })) } : {}),
+    ...(input.review ? { review: {
+      ...input.review,
+      defects: [...input.review.defects],
+      proposalDigests: [...input.review.proposalDigests],
+    } } : {}),
     relations: [
       ...sourceEntities.map((entity) => ({ kind: "used" as const, activityId, entityId: entity.entityId })),
       { kind: "wasGeneratedBy", entityId: workoutVersionId, activityId },

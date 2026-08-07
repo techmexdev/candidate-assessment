@@ -5,6 +5,7 @@ import { asWorkoutInputRevisionId, asWorkoutRunId } from "../../src/domain/contr
 import type { WorkoutRun } from "../../src/domain/contracts/workout-run";
 import { catalogDecision, catalogResult, compositionCandidate, proposalForMinutes } from "../fixtures/workout-runtime-builder";
 import type { WorkoutComposerInput } from "../../src/application/ports/workout-composer";
+import type { WorkoutReviewer } from "../../src/application/ports/workout-reviewer";
 
 const RUN_ID = asWorkoutRunId("workout-run:runtime");
 const now = "2026-08-07T10:00:00.000Z";
@@ -113,6 +114,7 @@ function harness(overrides: Record<string, unknown> = {}) {
     resolveConstraints,
     evaluateCatalogSafety,
     composer,
+    reviewer: undefined as WorkoutReviewer | undefined,
     validateCandidates,
     now: () => now,
     createId: (kind: string) => `${kind}:one`,
@@ -368,5 +370,56 @@ describe("workout runtime", () => {
     expect(result).toMatchObject({ status: "failed", reason: "graph-unavailable" });
     const stored = await dependencies.repository.getRun(RUN_ID, "coach:one", "member:one");
     expect(JSON.stringify(stored)).not.toContain("sensitive payload");
+  });
+
+  it("allows one advisory quality recomposition inside the unchanged envelope", async () => {
+    const first = proposalForMinutes(45);
+    const final = proposalForMinutes(45);
+    const dependencies = harness({
+      composer: {
+        compose: vi.fn()
+          .mockResolvedValueOnce({ status: "proposed" as const, proposal: first })
+          .mockResolvedValueOnce({ status: "proposed" as const, proposal: final }),
+      },
+      reviewer: {
+        review: vi.fn(async (packet) => {
+          expect(JSON.stringify(packet)).not.toContain("member:one");
+          expect(JSON.stringify(packet)).not.toContain("evidence:");
+          return { status: "revise" as const, defects: ["dose-imbalance" as const] };
+        }),
+      },
+    });
+    await dependencies.repository.createOrFind(queuedRun());
+
+    const result = await createExecuteWorkoutRun(dependencies)({ runId: RUN_ID, workerId: "worker:one", leaseExpiresAt: "2026-08-07T10:10:00.000Z" });
+
+    expect(result.status).toBe("completed");
+    expect(dependencies.composer.compose).toHaveBeenCalledTimes(2);
+    expect(dependencies.reviewer!.review).toHaveBeenCalledOnce();
+    expect(dependencies.composer.compose.mock.calls[0]![0]).toEqual(dependencies.composer.compose.mock.calls[1]![0]);
+    const provenance = await dependencies.repository.getProvenance(RUN_ID, "coach:one", "member:one");
+    expect(provenance?.review).toMatchObject({ outcome: "recomposed", recompositionCount: 1, defects: ["dose-imbalance"] });
+    expect(provenance?.review?.proposalDigests).toHaveLength(2);
+  });
+
+  it("records but ignores a widening critique without changing the proposal", async () => {
+    const dependencies = harness({
+      reviewer: {
+        review: vi.fn(async () => ({
+          status: "revise" as const,
+          defects: ["redundant-pattern" as const],
+          requestedCandidateConceptIds: ["exercise:not-eligible"],
+        })),
+      },
+    });
+    await dependencies.repository.createOrFind(queuedRun());
+
+    const result = await createExecuteWorkoutRun(dependencies)({ runId: RUN_ID, workerId: "worker:one", leaseExpiresAt: "2026-08-07T10:10:00.000Z" });
+
+    expect(result.status).toBe("completed");
+    expect(dependencies.composer.compose).toHaveBeenCalledOnce();
+    const provenance = await dependencies.repository.getProvenance(RUN_ID, "coach:one", "member:one");
+    expect(provenance?.review).toMatchObject({ outcome: "ignored", recompositionCount: 0, defects: [] });
+    expect(provenance?.review?.ignoredReason).toBe("invalid-structured-output");
   });
 });

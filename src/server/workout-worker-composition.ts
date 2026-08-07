@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createGateway } from "ai";
 import { createAiSdkWorkoutComposer } from "../agents/workout/ai-sdk-composer";
+import { createAiSdkWorkoutReviewer } from "../agents/workout/ai-sdk-reviewer";
 import { InMemoryCatalogSafetySessionStore } from "../application/ports/catalog-safety-sessions";
 import type { WorkerAuthorizationPort } from "../application/ports/worker-authorization";
 import type { WorkoutRunRepository } from "../application/ports/workout-run-repository";
@@ -640,6 +641,7 @@ export function createCanonicalWorkoutRuntimeDependencies(
     findSubstitutes: (request) => findMovementSubstitutes(infrastructure.movement, request),
     validateCandidates,
     composer: createAiSdkWorkoutComposer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
+    reviewer: createAiSdkWorkoutReviewer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
     now,
     createId: (kind) => `${kind}:${randomUUID()}`,
   };

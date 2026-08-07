@@ -42,5 +42,9 @@ export type WorkoutComposerResult =
   | { readonly status: "failed"; readonly reason: "unavailable" | "timeout" | "invalid-structured-output" };
 
 export interface WorkoutComposer {
-  compose(input: Readonly<WorkoutComposerInput>, options?: { readonly signal?: AbortSignal }): Promise<WorkoutComposerResult>;
+  compose(input: Readonly<WorkoutComposerInput>, options?: {
+    readonly signal?: AbortSignal;
+    /** Allowlisted non-authoritative quality hints from the critic. */
+    readonly qualityFeedback?: readonly ("dose-imbalance" | "section-coverage" | "redundant-pattern" | "rationale-quality")[];
+  }): Promise<WorkoutComposerResult>;
 }
