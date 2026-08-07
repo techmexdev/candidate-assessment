@@ -27,6 +27,7 @@ export type DashboardAdapter = {
   initialState: DashboardLoadState<CoachDashboardViewModel>;
   load: () => Promise<DashboardLoadState<CoachDashboardViewModel>>;
   capabilities: {
+    session?: DashboardSessionCapability;
     startNewDraft: StartNewDraftCapability;
     workoutGeneration?:
       | { available: false; reason: string }
@@ -36,6 +37,23 @@ export type DashboardAdapter = {
       | { available: false; reason: string }
       | { available: true; client: DashboardConversationClient };
   };
+};
+
+export type DashboardSession = {
+  readonly coachId: string;
+  readonly memberIds: readonly string[];
+  readonly expiresAt: string;
+};
+
+export type DashboardSessionClient = {
+  readonly current: (input?: { readonly signal?: AbortSignal }) => Promise<DashboardSession | null>;
+  readonly signIn: (input?: { readonly signal?: AbortSignal }) => Promise<DashboardSession>;
+  readonly signOut: (input?: { readonly signal?: AbortSignal }) => Promise<void>;
+};
+
+export type DashboardSessionCapability = {
+  readonly available: boolean;
+  readonly client: DashboardSessionClient;
 };
 
 export type DashboardCopilotControls = {

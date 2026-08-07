@@ -68,6 +68,7 @@ describe("Copilot route", () => {
       now: () => "2026-08-07T10:00:00.000Z",
       localCoachId: "coach:casey",
       localMemberIds: ["mbr_01HX9JORDAN"],
+      testBypass: true,
     });
     const resolved = await authority.resolveSession(request(validBody));
     expect(resolved).toMatchObject({ status: "authorized", coachId: "coach:casey", entitledMemberIds: ["mbr_01HX9JORDAN"] });

@@ -29,6 +29,8 @@ import type {
   DashboardCopilotControls,
   DashboardCopilotOutcome,
   DashboardCopilotRequest,
+  DashboardSession,
+  DashboardSessionClient,
 } from "./dashboard-contract";
 
 const retryControls = Object.freeze({ retry: true, refresh: false, keepLastReadyAnswer: true });
@@ -410,6 +412,47 @@ export function createFetchDashboardCopilotClient(fetcher: typeof fetch = fetch)
       } catch {
         return input.signal?.aborted ? cancelled(input.requestId) : unavailable(input.requestId);
       }
+    },
+  };
+}
+
+function decodeSession(value: unknown): DashboardSession | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (body.status !== "authenticated" || typeof body.coachId !== "string" || !Array.isArray(body.memberIds)
+    || !body.memberIds.every((memberId) => typeof memberId === "string") || typeof body.expiresAt !== "string") return null;
+  return { coachId: body.coachId, memberIds: [...body.memberIds] as string[], expiresAt: body.expiresAt };
+}
+
+/** Explicit mock-session client. Cookies remain HttpOnly and are never projected into JS. */
+export function createFetchDashboardSessionClient(fetcher: typeof fetch = fetch): DashboardSessionClient {
+  return {
+    async current(input) {
+      try {
+        const response = await fetcher("/api/session", { headers: { accept: "application/json" }, credentials: "same-origin", ...(input?.signal ? { signal: input.signal } : {}) });
+        return decodeSession(await response.json());
+      } catch { return null; }
+    },
+    async signIn(input) {
+      const response = await fetcher("/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        credentials: "same-origin",
+        body: "{}",
+        ...(input?.signal ? { signal: input.signal } : {}),
+      });
+      const session = decodeSession(await response.json());
+      if (!response.ok || !session) throw new Error("Mock coach sign-in unavailable.");
+      return session;
+    },
+    async signOut(input) {
+      const response = await fetcher("/api/session", {
+        method: "DELETE",
+        headers: { accept: "application/json" },
+        credentials: "same-origin",
+        ...(input?.signal ? { signal: input.signal } : {}),
+      });
+      if (!response.ok) throw new Error("Mock coach sign-out unavailable.");
     },
   };
 }

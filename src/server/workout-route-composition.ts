@@ -24,6 +24,16 @@ import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../graph/schema/movement-schema";
 import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-run";
 import { createProtectedWorkoutInputVault } from "./workout-protected-input";
 import { SYNTHETIC_MEMBER_ASSET_ALLOWLIST } from "./member-context-assets";
+import {
+  DEFAULT_MOCK_COACH_ID,
+  DEFAULT_MOCK_MEMBER_IDS,
+  MOCK_COACH_SESSION_TTL_MS,
+  mockCoachSessionClaims,
+  parseMockCoachSession,
+  readMockCoachSessionCookie,
+  sealMockCoachSession,
+  type MockCoachSessionClaims,
+} from "./auth/mock-coach-session";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -50,12 +60,6 @@ export type WorkoutRouteComposition = {
   readonly retry: ReturnType<typeof createRetryWorkoutRun>;
 };
 
-type SessionPayload = {
-  readonly coachId: string;
-  readonly memberIds: readonly string[];
-  readonly expiresAt: string;
-};
-
 type GrantPayload = {
   readonly coachId: string;
   readonly memberId: string;
@@ -64,7 +68,6 @@ type GrantPayload = {
 };
 
 const LOCAL_SECRET = "axon-local-workout-route-secret-change-before-production";
-const SESSION_COOKIE = "axon_coach_session";
 const MAX_ID_LENGTH = 200;
 
 function signature(secret: string, encoded: string): Buffer {
@@ -89,38 +92,32 @@ function unseal<Payload extends object>(secret: string, token: string): Payload 
   } catch { return undefined; }
 }
 
-function cookie(request: Request, name: string): string | undefined {
-  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
-    const separator = part.indexOf("=");
-    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
-    try { return decodeURIComponent(part.slice(separator + 1).trim()); } catch { return undefined; }
-  }
-  return undefined;
-}
-
 function validId(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
-function validSessionPayload(value: SessionPayload | undefined): value is SessionPayload {
+function validSessionPayload(value: MockCoachSessionClaims | undefined, now = Date.now()): value is MockCoachSessionClaims {
   return Boolean(value
     && validId(value.coachId)
+    && validId(value.sessionId)
     && Array.isArray(value.memberIds)
     && value.memberIds.length > 0
     && value.memberIds.length <= 100
     && value.memberIds.every(validId)
+    && Number.isFinite(Date.parse(value.issuedAt))
     && Number.isFinite(Date.parse(value.expiresAt))
-    && Date.parse(value.expiresAt) > Date.now());
+    && Date.parse(value.issuedAt) < Date.parse(value.expiresAt)
+    && Date.parse(value.expiresAt) > now);
 }
 
-function sessionAuthorization(secret: string, payload: SessionPayload): string {
-  return `route-scope:${seal(secret, payload)}`;
+function sessionAuthorization(secret: string, payload: MockCoachSessionClaims): string {
+  return `route-scope:${sealMockCoachSession(secret, payload)}`;
 }
 
-function openSessionAuthorization(secret: string, authorizationId: string): SessionPayload | undefined {
+function openSessionAuthorization(secret: string, authorizationId: string): MockCoachSessionClaims | undefined {
   const prefix = "route-scope:";
   if (!authorizationId.startsWith(prefix)) return undefined;
-  const payload = unseal<SessionPayload>(secret, authorizationId.slice(prefix.length));
+  const payload = parseMockCoachSession(secret, authorizationId.slice(prefix.length));
   return validSessionPayload(payload) ? payload : undefined;
 }
 
@@ -131,29 +128,19 @@ export function workoutRouteSecret(environment: string, configured?: string): st
   throw new Error("WORKOUT_ROUTE_SECRET must contain at least 32 bytes");
 }
 
-function createSessionResolver(secret: string, environment: string): WorkoutRouteComposition["resolveSession"] {
+function createSessionResolver(secret: string, environment: string, testBypass = false): WorkoutRouteComposition["resolveSession"] {
   return async (request) => {
-    const token = cookie(request, SESSION_COOKIE);
-    if (!token && (environment === "development" || environment === "test" || environment === "local")) {
-      const coachId = process.env.WORKOUT_LOCAL_COACH_ID?.trim() || "coach:local";
-      const memberIds = (process.env.WORKOUT_LOCAL_MEMBER_IDS ?? "mbr_01HX9JORDAN,mbr_02HX9AVERY,mbr_03HX9MORGAN")
-        .split(",")
-        .map((memberId) => memberId.trim())
-        .filter(Boolean);
-      const payload = {
-        coachId,
-        memberIds,
-        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1_000).toISOString(),
-      };
-      if (!validSessionPayload(payload)) return { status: "unavailable" };
-      return {
-        status: "authorized",
-        coachId,
-        authorizationId: sessionAuthorization(secret, payload),
-      };
+    const token = readMockCoachSessionCookie(request);
+    let payload = token ? parseMockCoachSession(secret, token) : undefined;
+    if (!payload && testBypass && environment !== "production" && !token) {
+      payload = mockCoachSessionClaims({
+        now: new Date().toISOString(),
+        sessionId: "mock-session:test-bypass",
+        coachId: process.env.WORKOUT_LOCAL_COACH_ID?.trim() || DEFAULT_MOCK_COACH_ID,
+        memberIds: (process.env.WORKOUT_LOCAL_MEMBER_IDS ?? DEFAULT_MOCK_MEMBER_IDS.join(",")).split(",").map((memberId) => memberId.trim()).filter(Boolean),
+        ttlMs: MOCK_COACH_SESSION_TTL_MS,
+      });
     }
-    if (!token) return { status: "unauthorized" };
-    const payload = unseal<SessionPayload>(secret, token);
     if (!validSessionPayload(payload)) return { status: "unauthorized" };
     return {
       status: "authorized",
@@ -240,7 +227,8 @@ export function createConfiguredWorkoutServerInfrastructure(
 }
 
 export function createConfiguredWorkoutRouteComposition(): WorkoutRouteComposition {
-  const { environment, secret, client, repository, authorization, movement, memberContext, protectedInput } = createConfiguredWorkoutServerInfrastructure(process.env);
+  const configuredEnvironment = process.env;
+  const { environment, secret, client, repository, authorization, movement, memberContext, protectedInput } = createConfiguredWorkoutServerInfrastructure(configuredEnvironment);
   const retrieveMemberContext = createRetrieveMemberContext({
     memberContext,
     authorizeMemberContext: ({ coachId, memberId, authorizationId }) => {
@@ -331,7 +319,7 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
   });
 
   return Object.freeze({
-    resolveSession: createSessionResolver(secret, environment),
+    resolveSession: createSessionResolver(secret, environment, configuredEnvironment.WORKOUT_TEST_BYPASS === "1"),
     submit: createSubmitWorkoutRun({
       repository,
       authorization,

@@ -104,6 +104,7 @@ export type DashboardState = {
 };
 
 export type DashboardAction =
+  | { type: "reset-session" }
   | { type: "initialize-date"; date: string }
   | { type: "select-date"; date: string }
   | { type: "set-all-athletes-expanded"; expanded: boolean }
@@ -283,6 +284,8 @@ function addVersion(
 
 export function dashboardReducer(state: DashboardState, action: DashboardAction): DashboardState {
   switch (action.type) {
+    case "reset-session":
+      return createInitialDashboardState();
     case "initialize-date":
       return state.selectedDate ? state : { ...state, selectedDate: action.date };
     case "select-date":

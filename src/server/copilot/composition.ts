@@ -93,6 +93,7 @@ export function createConfiguredCopilotComposition(
       ?.split(",")
       .map((memberId) => memberId.trim())
       .filter(Boolean),
+    testBypass: environment.WORKOUT_TEST_BYPASS === "1",
   });
   const client = createNeo4jClient({
     environment: runtimeEnvironment,

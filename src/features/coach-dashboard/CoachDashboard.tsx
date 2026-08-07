@@ -55,6 +55,9 @@ function useDashboardViewModel() {
 export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const [state, dispatch] = useReducer(dashboardReducer, initialDashboardState);
   const [loadState, setLoadState] = useState(adapter.initialState);
+  const [sessionState, setSessionState] = useState<"checking-session" | "signed-out" | "signing-in" | "authenticated" | "expired" | "unavailable">(
+    adapter.capabilities.session?.available ? "checking-session" : "authenticated",
+  );
   const [adapterAnnouncement, setAdapterAnnouncement] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
   const loadRequest = useRef(0);
@@ -68,6 +71,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const returnFocus = useRef<HTMLElement | null>(null);
   const returnFocusKey = useRef<string | null>(null);
   const focusFrame = useRef<number | null>(null);
+  const sessionAbort = useRef<AbortController | null>(null);
   const suppressRouteFocusRestore = useRef(false);
   const dialogWasOpen = useRef(false);
   const previousRoutes = useRef<AthleteRoute[]>([]);
@@ -110,6 +114,45 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     }
   }, [adapter]);
 
+  const checkSession = useCallback(async () => {
+    const capability = adapter.capabilities.session;
+    if (!capability?.available) {
+      setSessionState("authenticated");
+      return;
+    }
+    sessionAbort.current?.abort();
+    const controller = new AbortController();
+    sessionAbort.current = controller;
+    setSessionState("checking-session");
+    try {
+      const session = await capability.client.current({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setSessionState(session ? "authenticated" : "signed-out");
+    } catch {
+      if (!controller.signal.aborted) setSessionState("unavailable");
+    } finally {
+      if (sessionAbort.current === controller) sessionAbort.current = null;
+    }
+  }, [adapter]);
+
+  const signIn = useCallback(async () => {
+    const capability = adapter.capabilities.session;
+    if (!capability?.available) {
+      setSessionState("authenticated");
+      return;
+    }
+    setSessionState("signing-in");
+    try {
+      const session = await capability.client.signIn();
+      if (!session) throw new Error("Session unavailable");
+      dispatch({ type: "reset-session" });
+      setLoadState({ status: "loading" });
+      setSessionState("authenticated");
+    } catch {
+      setSessionState("unavailable");
+    }
+  }, [adapter]);
+
   function captureReturnFocus(fallback: string): string;
   function captureReturnFocus(fallback?: null): string | null;
   function captureReturnFocus(fallback: string | null = null) {
@@ -142,6 +185,19 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const clearOperationTimers = () => {
     if (adjustmentTimer.current !== null) window.clearTimeout(adjustmentTimer.current);
     adjustmentTimer.current = null;
+  };
+
+  const signOut = async () => {
+    const capability = adapter.capabilities.session;
+    sessionAbort.current?.abort();
+    generationAbort.current?.abort();
+    copilotAbort.current?.abort();
+    conversationAbort.current?.abort();
+    clearOperationTimers();
+    try { await capability?.client.signOut(); } catch { /* local state still clears */ }
+    dispatch({ type: "reset-session" });
+    setLoadState(adapter.initialState);
+    setSessionState("signed-out");
   };
 
   const stopCopilot = () => {
@@ -288,6 +344,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   }, [activeWorkflow, adapter.capabilities.copilot, currentRoute?.id, state.activeMemberId, submitCopilot]);
 
   useEffect(() => {
+    if (sessionState !== "authenticated") return;
     let active = true;
     queueMicrotask(() => {
       if (active) void load();
@@ -296,7 +353,12 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       active = false;
       loadRequest.current += 1;
     };
-  }, [load]);
+  }, [load, sessionState]);
+
+  useEffect(() => {
+    queueMicrotask(() => void checkSession());
+    return () => sessionAbort.current?.abort();
+  }, [checkSession]);
 
   useEffect(() => {
     if (workspace) dispatch({ type: "initialize-date", date: workspace.coachDayDate });
@@ -367,6 +429,10 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     dialogWasOpen.current = dialogOpen;
   }, [dialogOpen]);
 
+  if (sessionState !== "authenticated") {
+    return <SessionGate status={sessionState} onSignIn={signIn} onRetry={checkSession} />;
+  }
+
   if (loadState.status !== "ready") {
     return (
       <main className={styles.desk}>
@@ -422,7 +488,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
             <div className={styles.desktopLayout} data-testid="desktop-dashboard">
               <div className={styles.desktopNavRow}>
                 <DashboardNavigation state={state} onSelect={selectDestination} disabled={dialogOpen} />
-                <div className={styles.desktopNavMeta}>AXON COACH WORKSPACE · LOCAL DEMO</div>
+                <div className={styles.desktopNavMeta}>AXON COACH WORKSPACE · LOCAL DEMO <button className={styles.inlineButton} type="button" onClick={() => void signOut}>Sign out</button></div>
               </div>
               <div className={styles.desktopMain}>
                 <section className={styles.desktopContent} aria-label="Coach dashboard content">{dashboardContent}</section>
@@ -441,6 +507,39 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
         </div>
       </main>
     </DashboardViewModelContext.Provider>
+  );
+}
+
+function SessionGate({
+  status,
+  onSignIn,
+  onRetry,
+}: {
+  status: "checking-session" | "signed-out" | "signing-in" | "authenticated" | "expired" | "unavailable";
+  onSignIn: () => void;
+  onRetry: () => void;
+}) {
+  const checking = status === "checking-session" || status === "signing-in";
+  const unavailable = status === "unavailable";
+  return (
+    <main className={styles.desk}>
+      <section className={`${styles.app} ${styles.loadPanel}`} data-testid="coach-session-gate" aria-labelledby="coach-session-title">
+        <div className={styles.micro}>AXON COACH WORKSPACE · MOCK AUTH</div>
+        <h1 id="coach-session-title" className={styles.heroTitle}>
+          {checking ? "Checking coach session…" : unavailable ? "Coach session is unavailable" : status === "expired" ? "Your session expired" : "Sign in to continue"}
+        </h1>
+        <p className={styles.bodyCopy}>
+          {checking ? "Your browser session is being verified." : unavailable ? "The local session service did not respond. Try again when it is available." : "Use the explicit local demo coach session to open Jordan’s connected workspace."}
+        </p>
+        {checking ? <div className={styles.srOnly} role="status" aria-live="polite">Checking session.</div> : unavailable ? (
+          <button className={styles.secondaryButton} type="button" onClick={onRetry}>Retry session check</button>
+        ) : (
+          <button className={styles.primaryButton} type="button" onClick={() => void onSignIn()} autoFocus>
+            Continue as demo coach
+          </button>
+        )}
+      </section>
+    </main>
   );
 }
 
