@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic home equipment illustration</title>
+  <desc id="desc">A synthetic illustration of dumbbells, a kettlebell, and a yoga mat.</desc>
+  <rect width="800" height="480" rx="28" fill="#e9edf3"/>
+  <rect x="80" y="320" width="640" height="48" rx="24" fill="#b9c3cf"/>
+  <rect x="150" y="260" width="190" height="32" rx="16" fill="#253247"/>
+  <rect x="212" y="208" width="66" height="136" rx="18" fill="#5b6f86"/>
+  <rect x="460" y="238" width="96" height="94" rx="46" fill="#33455d"/>
+  <path d="M480 240c10-64 90-64 100 0" fill="none" stroke="#33455d" stroke-width="26" stroke-linecap="round"/>
+  <rect x="590" y="170" width="70" height="180" rx="18" fill="#cf8b45"/>
+  <text x="400" y="100" fill="#253247" font-family="sans-serif" font-size="32" text-anchor="middle">Synthetic home setup</text>
+</svg>

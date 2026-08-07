@@ -32,6 +32,9 @@ export type DashboardAdapter = {
       | { available: false; reason: string }
       | { available: true; runtime: import("./runtime-adapter").DashboardWorkoutRuntime };
     copilot?: DashboardCopilotCapability;
+    conversation?:
+      | { available: false; reason: string }
+      | { available: true; client: DashboardConversationClient };
   };
 };
 
@@ -63,6 +66,14 @@ export type DashboardCopilotCapability =
       readonly client: DashboardCopilotClient;
       readonly supportsMember: (memberId: string) => boolean;
     };
+
+export type DashboardConversationClient = {
+  readonly load: (input: {
+    readonly memberId: string;
+    readonly contextRevisionId?: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<import("../../application/use-cases/retrieve-member-conversation").MemberConversationTimeline>;
+};
 
 export type CoachContext = { name: string };
 export type CoachAsOfDate = { weekday: string; monthDay: string };

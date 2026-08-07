@@ -62,6 +62,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const copilotAbort = useRef<AbortController | null>(null);
   const copilotRequest = useRef(0);
   const generationAbort = useRef<AbortController | null>(null);
+  const conversationAbort = useRef<AbortController | null>(null);
   const generationInput = useRef(new Map<string, { prompt: string; durationMinutes: number; idempotencyKey: string }>());
   const generationRequest = useRef(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -153,10 +154,16 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     generationAbort.current = null;
   };
 
+  const stopConversation = () => {
+    conversationAbort.current?.abort();
+    conversationAbort.current = null;
+  };
+
   const selectAthlete = (memberId: string) => {
     clearOperationTimers();
     stopCopilot();
     stopGeneration();
+    stopConversation();
     dispatch({ type: "select-athlete", memberId, focusKey: captureReturnFocus(`today-row-athlete-${memberId}`) });
   };
 
@@ -164,6 +171,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     clearOperationTimers();
     stopCopilot();
     stopGeneration();
+    stopConversation();
     suppressRouteFocusRestore.current = true;
     dispatch({ type: "select-destination", destination });
     window.requestAnimationFrame(() => {
@@ -174,6 +182,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const popRoute = () => {
     clearOperationTimers();
     stopCopilot();
+    stopConversation();
     dispatch({ type: "pop-route" });
   };
 
@@ -268,6 +277,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     if (focusFrame.current !== null) window.cancelAnimationFrame(focusFrame.current);
     generationAbort.current?.abort();
     copilotAbort.current?.abort();
+    conversationAbort.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -291,6 +301,24 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   useEffect(() => {
     if (workspace) dispatch({ type: "initialize-date", date: workspace.coachDayDate });
   }, [workspace]);
+
+  useEffect(() => {
+    const capability = adapter.capabilities.conversation;
+    const memberId = state.activeMemberId;
+    const workflow = memberId ? state.athleteStates[memberId] : null;
+    if (!capability?.available || !memberId || currentRoute?.id !== "history" || !workflow || workflow.conversation.status === "loading" || workflow.conversation.status === "ready") return;
+    const controller = new AbortController();
+    conversationAbort.current = controller;
+    dispatch({ type: "request-conversation", memberId });
+    void capability.client.load({ memberId, signal: controller.signal })
+      .then((timeline) => dispatch({ type: "complete-conversation", memberId, status: "ready", timeline, message: "Conversation history ready." }))
+      .catch(() => {
+        if (!controller.signal.aborted) dispatch({ type: "complete-conversation", memberId, status: "error", message: "Conversation history is unavailable." });
+      })
+      .finally(() => {
+        if (conversationAbort.current === controller) conversationAbort.current = null;
+      });
+  }, [adapter, currentRoute?.id, state.activeMemberId, state.athleteStates]);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
@@ -380,6 +408,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           workoutGenerationAvailable={adapter.capabilities.workoutGeneration?.available === true}
           generateWorkout={generateWorkout}
           retryWorkoutGeneration={retryWorkoutGeneration}
+          conversationAvailable={adapter.capabilities.conversation?.available === true}
           copilotAvailable={adapter.capabilities.copilot?.available === true && adapter.capabilities.copilot.supportsMember(state.activeMemberId!)}
         />
       )
@@ -611,7 +640,7 @@ function CoachScreen({ workspace }: { workspace: CoachDashboardWorkspace }) {
   </section>;
 }
 
-function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable }: {
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable }: {
   route: AthleteRoute;
   workflow: AthleteWorkflowState;
   selectedDate: string;
@@ -628,12 +657,13 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   generateWorkout: (prompt: string, durationMinutes: number) => void;
   retryWorkoutGeneration: () => void;
   copilotAvailable: boolean;
+  conversationAvailable: boolean;
 }) {
   if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
   if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen /></>;
-  if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} /></>;
+  if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} /></>;
   if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} />;
   if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
   if (route.id === "insight") return <InsightScreen detailId={route.detailId} state={workflow} onBack={onBack} />;
@@ -1067,7 +1097,7 @@ function PacketChart({ chart }: { chart: NonNullable<NonNullable<AthleteWorkflow
   return <div className={styles.chartWrap}><div className={styles.barChart} role="img" aria-label={chart.textSummary}>{chart.points.map((point) => <div aria-hidden="true" className={styles.barColumn} key={point.pointId}><div className={styles.barFill} data-chart-value={point.value} style={{ height: point.value === 0 ? "0%" : `${Math.max(8, (Math.abs(point.value) / max) * 100)}%` }} /><div className={styles.barLabel}>{point.label}<br />{point.value} {chart.unit}</div></div>)}</div><p className={styles.chartSummary}>{chart.textSummary}</p></div>;
 }
 
-function HistoryScreen({ state }: { state: AthleteWorkflowState }) {
+function HistoryScreen({ state, conversationAvailable }: { state: AthleteWorkflowState; conversationAvailable: boolean }) {
   const fixture = useDashboardViewModel();
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="History">
@@ -1084,8 +1114,29 @@ function HistoryScreen({ state }: { state: AthleteWorkflowState }) {
       {state.publicationEvents.map((event) => <div className={styles.publicationCard} key={event.id}><div className={styles.micro}>LOCAL PUBLICATION EVENT · {event.time}</div><div className={styles.bodyStrong}>Exact {event.workoutVersionId.replace("workout-", "")} recorded for the fixture demo</div><div className={styles.bodyCopy}>Approved by {event.actor}. No external delivery or new content version occurred.</div></div>)}
       <div className={styles.sectionLabel}>RECENT SESSIONS</div>
       {fixture.history.map((workout) => <div className={styles.card} key={workout.date}><div className={styles.workoutTopline}><div className={styles.bodyStrong}>{workout.title}</div><span className={styles.statusPill}>{workout.completed ? "COMPLETED" : "MISSED"}</span></div><div className={styles.bodyCopy}>{workout.date} · {workout.completed ? `${workout.duration_min} min · RPE ${workout.rpe}` : "planned session"}</div></div>)}
+      <div className={styles.sectionLabel}>CONVERSATION</div>
+      {!conversationAvailable && <div className={styles.card}><div className={styles.bodyStrong}>Conversation history unavailable</div><div className={styles.bodyCopy}>The connected member-context service is not configured.</div></div>}
+      {conversationAvailable && state.conversation.status === "loading" && <div className={styles.card} aria-busy="true"><div className={styles.bodyStrong}>Loading revision-pinned conversation…</div></div>}
+      {conversationAvailable && state.conversation.status === "error" && <div className={styles.card} role="status"><div className={styles.bodyStrong}>Conversation history unavailable</div><div className={styles.bodyCopy}>{state.conversation.message}</div></div>}
+      {conversationAvailable && state.conversation.status === "ready" && state.conversation.timeline && <ConversationTimeline timeline={state.conversation.timeline} />}
     </section>
   );
+}
+
+function ConversationTimeline({ timeline }: { timeline: NonNullable<AthleteWorkflowState["conversation"]["timeline"]> }) {
+  return <div className={styles.timelineWrap} aria-label="Conversation timeline">
+    {timeline.messages.map((message) => <article className={styles.card} key={message.evidenceId}>
+      <div className={styles.workoutTopline}><span className={styles.statusPill}>{message.senderRole === "member" ? "MEMBER" : "COACH"}</span><span className={styles.micro}>{message.temporal.precision === "exact-timestamp" ? message.temporal.effectiveAt : message.evidenceId}</span></div>
+      <div className={styles.bodyCopy}>{message.text}</div>
+      {message.attachments.map((attachment) => <div className={styles.card} key={attachment.evidenceId}>
+        {attachment.asset.status === "available" && attachment.asset.path
+          ? <img src={attachment.asset.path} alt={attachment.caption} style={{ width: "100%", borderRadius: 12, display: "block" }} />
+          : <div className={styles.capabilityNote}><strong>Synthetic image unavailable</strong><span>{attachment.caption}</span></div>}
+        <div className={styles.micro}>SYNTHETIC ASSET · NOT ANALYZED · {attachment.caption}</div>
+      </div>)}
+      <div className={styles.source}>REVISION · {timeline.contextRevisionId} · SOURCE · {message.evidenceId}</div>
+    </article>)}
+  </div>;
 }
 
 function ScreenHeader({ title, kicker, onBack }: { title: string; kicker: string; onBack: () => void }) {

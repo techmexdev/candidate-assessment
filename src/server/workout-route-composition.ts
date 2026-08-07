@@ -6,6 +6,7 @@ import { createReplayWorkoutRunEvents, createRetrieveWorkoutRun } from "../appli
 import { createRetryWorkoutRun } from "../application/use-cases/retry-workout-run";
 import { createSubmitWorkoutRun } from "../application/use-cases/submit-workout-run";
 import { createSubmitWorkoutAdjustment } from "../application/use-cases/submit-workout-adjustment";
+import { createRetrieveMemberConversation, type RetrieveMemberConversationResult } from "../application/use-cases/retrieve-member-conversation";
 import { createVerifyHistoricalWorkoutTrace } from "../application/use-cases/verify-historical-workout-trace";
 import type { WorkerAuthorizationPort } from "../application/ports/worker-authorization";
 import { createNeo4jClient } from "../graph/neo4j/client";
@@ -22,6 +23,7 @@ import { MEMBER_CONTEXT_QUERY_MAXIMA } from "../graph/repositories/member-contex
 import { MOVEMENT_GRAPH_QUERY_LIMITS } from "../graph/schema/movement-schema";
 import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-run";
 import { createProtectedWorkoutInputVault } from "./workout-protected-input";
+import { SYNTHETIC_MEMBER_ASSET_ALLOWLIST } from "./member-context-assets";
 
 type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -31,6 +33,16 @@ export type WorkoutRouteComposition = {
   readonly resolveSession: (request: Request) => Promise<WorkoutRouteSession>;
   readonly submit: ReturnType<typeof createSubmitWorkoutRun>;
   readonly adjust?: ReturnType<typeof createSubmitWorkoutAdjustment>;
+  readonly conversation?: (input: {
+    readonly coachId: string;
+    readonly memberId: string;
+    readonly sessionAuthorizationId: string;
+    readonly contextRevisionId?: string;
+    readonly conversationId?: string;
+    readonly fromInclusive: string;
+    readonly toExclusive: string;
+    readonly cursor?: string;
+  }) => Promise<RetrieveMemberConversationResult>;
   readonly retrieve: ReturnType<typeof createRetrieveWorkoutRun>;
   readonly cancel: ReturnType<typeof createCancelWorkoutRun>;
   readonly replay: ReturnType<typeof createReplayWorkoutRunEvents>;
@@ -355,6 +367,10 @@ export function createConfiguredWorkoutRouteComposition(): WorkoutRouteCompositi
       modelConfigurationId,
       policyRevision,
     }),
+    conversation: createRetrieveMemberConversation({
+      retrieveMemberContext,
+      assetAllowlist: SYNTHETIC_MEMBER_ASSET_ALLOWLIST,
+    }),
     retrieve: createRetrieveWorkoutRun({ repository, authorization, verifyHistoricalTrace }),
     cancel: createCancelWorkoutRun({ repository, authorization, now }),
     replay: createReplayWorkoutRunEvents({ repository, authorization }),
@@ -388,6 +404,13 @@ export const configuredWorkoutRouteComposition: WorkoutRouteComposition = {
   },
   adjust: async (input) => {
     try { return await composition().adjust!(input); } catch { return { status: "canonical-state-unavailable" }; }
+  },
+  conversation: async (input) => {
+    try {
+      return await composition().conversation!(input);
+    } catch {
+      return { status: "unavailable", message: "Member context is unavailable." };
+    }
   },
   retrieve: async (input) => {
     try { return await composition().retrieve(input); } catch { return { status: "integrity-failure" }; }

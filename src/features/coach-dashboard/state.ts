@@ -1,6 +1,7 @@
 import type { CopilotAnswerPacket, CopilotPin, CopilotQuestionInput, SignedCopilotContinuation } from "../../domain/contracts/copilot";
 import type { DashboardCopilotOutcome, DashboardDecisionId, DashboardInsightId } from "./dashboard-contract";
 import type { DashboardRuntimeWorkoutProjection, DashboardWorkoutRuntimeUpdate } from "./runtime-adapter";
+import type { MemberConversationTimeline } from "../../application/use-cases/retrieve-member-conversation";
 
 export type DashboardDestination = "today" | "coach";
 export type DashboardDialog = "adjustment" | "override";
@@ -67,6 +68,12 @@ export type DashboardCopilotState = {
   readonly pins: readonly CopilotPin[];
 };
 
+export type DashboardConversationState = {
+  readonly status: "idle" | "loading" | "ready" | "error";
+  readonly timeline: MemberConversationTimeline | null;
+  readonly message: string;
+};
+
 export type AthleteWorkflowState = {
   pendingPrompt: QuickPromptId | null;
   feed: QuickPromptId[];
@@ -81,6 +88,7 @@ export type AthleteWorkflowState = {
   publicationEvents: PublicationEvent[];
   runtimeGeneration: RuntimeGenerationState;
   runtimeWorkout: DashboardRuntimeWorkoutProjection | null;
+  conversation: DashboardConversationState;
   copilot: DashboardCopilotState;
 };
 
@@ -133,6 +141,8 @@ export type DashboardAction =
       requestId: string;
       projection: DashboardRuntimeWorkoutProjection;
     }
+  | { type: "request-conversation"; memberId: string }
+  | { type: "complete-conversation"; memberId: string; status: "ready" | "error"; timeline?: MemberConversationTimeline; message: string }
   | { type: "toggle-pin"; insightId: InsightId };
 
 const generatedVersion: WorkoutVersion = {
@@ -167,6 +177,7 @@ function createAthleteWorkflowState(): AthleteWorkflowState {
     publicationEvents: [],
     runtimeGeneration: { status: "idle", requestId: null, runId: null, message: "" },
     runtimeWorkout: null,
+    conversation: { status: "idle", timeline: null, message: "" },
     copilot: { pending: null, lastRequest: null, outcome: null, answers: [], lastReadyAnswer: null, pins: [] },
   };
 }
@@ -582,6 +593,26 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
           : [...current.contentVersions, version],
       }));
       return { ...updated, announcement: "Generated workout and decision trace ready." };
+    }
+    case "request-conversation": {
+      if (action.memberId !== state.activeMemberId) return state;
+      const updated = updateAthlete(state, action.memberId, (current) => ({
+        ...current,
+        conversation: { ...current.conversation, status: "loading", message: "Loading revision-pinned conversation…" },
+      }));
+      return { ...updated, announcement: "Loading conversation history…" };
+    }
+    case "complete-conversation": {
+      if (action.memberId !== state.activeMemberId) return state;
+      const updated = updateAthlete(state, action.memberId, (current) => ({
+        ...current,
+        conversation: {
+          status: action.status,
+          timeline: action.timeline ?? current.conversation.timeline,
+          message: action.message,
+        },
+      }));
+      return { ...updated, announcement: action.message };
     }
     case "toggle-pin": {
       const workflow = selectActiveAthleteState(state);

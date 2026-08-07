@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { CoachDashboard } from "./CoachDashboard";
 import type { DashboardAdapter } from "./dashboard-contract";
 import { createFetchDashboardCopilotClient } from "./production-adapter";
+import { createFetchDashboardConversationClient } from "./conversation-adapter";
 import { createDashboardWorkoutRuntime, createFetchDashboardWorkoutRuntimeClient } from "./runtime-adapter";
 import { syntheticDashboardBase } from "./synthetic-dashboard-base";
 
@@ -20,6 +21,7 @@ export function createProductionDashboardAdapter(): DashboardAdapter {
         client: createFetchDashboardCopilotClient(),
         supportsMember: (memberId) => memberId === syntheticDashboardBase.member.id,
       },
+      conversation: { available: true, client: createFetchDashboardConversationClient() },
     },
   };
 }
