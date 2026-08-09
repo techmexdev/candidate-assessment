@@ -981,6 +981,81 @@
   box-shadow: var(--ax-shadow-card);
 }
 
+.copilotWorkbenchCard {
+  gap: 14px;
+}
+
+.copilotPrimaryMeta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.copilotFreshness {
+  color: var(--ax-ink-3);
+  font-size: 12px;
+}
+
+.copilotPrimaryContent {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.copilotRiskHeadline,
+.copilotNextAction {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ax-signal-soft);
+}
+
+.copilotNextAction {
+  background: var(--ax-bg);
+  border: 1px solid var(--ax-line-2);
+}
+
+.copilotDisclosure {
+  min-width: 0;
+  border-top: 1px solid var(--ax-line-2);
+}
+
+.copilotDisclosure summary {
+  min-height: 48px;
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ax-ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.copilotDisclosure summary::-webkit-details-marker { display: none; }
+.copilotDisclosure summary::after { content: "+"; color: var(--ax-ink-3); font-size: 18px; font-weight: 400; }
+.copilotDisclosure[open] summary::after { content: "−"; }
+
+.copilotDisclosureMeta {
+  min-width: 0;
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  font-weight: 400;
+  letter-spacing: var(--ax-track-micro);
+  text-align: right;
+}
+
+.copilotDisclosureContent {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+
 .cardTop {
   display: flex;
   justify-content: space-between;

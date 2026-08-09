@@ -143,14 +143,18 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   await expect(page.getByText(/fixture demo/i)).toHaveCount(0);
   await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
   await expect(page.getByText(/Latest recorded.*June 4/)).toBeVisible();
-  const morningBrief = page.locator('[data-answer-id="answer:1"]');
-  await expect(morningBrief.getByRole("region", { name: "Deterministic derived churn" })).toContainText("METHOD · churn-v1");
-  await expect(morningBrief.getByRole("region", { name: "Deterministic derived churn" })).toContainText("planned-workout-missed-1");
-  await expect(morningBrief.getByRole("region", { name: "Deterministic derived churn" })).toContainText("Evidence · Synthetic source");
-  await expect(morningBrief.getByRole("region", { name: "Source-provided churn assessment" })).toContainText("Coach-entered cancellation concern.");
-  await expect(morningBrief.getByRole("region", { name: "Source-provided churn assessment" })).toContainText("Inferred login frequency decline.");
-  await expect(morningBrief.getByRole("region", { name: "Excluded unsupported-source churn reasons" })).toContainText("unsupported-source-risk");
   await page.getByRole("button", { name: /Copilot context/ }).click();
+  const morningBrief = page.locator('[data-answer-id="answer:1"]');
+  await expect(morningBrief.getByText("grounded answer answer:1")).toBeVisible();
+  const morningRisk = morningBrief.getByTestId("copilot-disclosure-risk");
+  await expect(morningRisk).not.toHaveAttribute("open", "");
+  await expect(morningRisk.getByText("planned-workout-missed-1")).toBeHidden();
+  await morningRisk.locator("summary").click();
+  await expect(morningRisk.getByText("METHOD · churn-v1")).toBeVisible();
+  await expect(morningRisk.getByText("planned-workout-missed-1")).toBeVisible();
+  await expect(morningRisk.getByText("Coach-entered cancellation concern.")).toBeVisible();
+  await expect(morningRisk.getByText("Inferred login frequency decline.")).toBeVisible();
+  await expect(morningRisk.getByText("unsupported-source-risk")).toBeVisible();
 
   for (const [label, promptId] of [
     ["Adherence", "adherence"],
@@ -178,9 +182,11 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   }
 
   const churnRisk = page.locator('[data-answer-id="answer:5"]');
-  await expect(churnRisk.getByRole("region", { name: "Deterministic derived churn" })).toContainText("Level · watch");
-  await expect(churnRisk.getByRole("region", { name: "Source-provided churn assessment" })).toContainText("Level · high");
-  await expect(churnRisk.getByRole("region", { name: "Excluded unsupported-source churn reasons" })).toContainText("not used in the derived assessment");
+  const churnRiskDisclosure = churnRisk.getByTestId("copilot-disclosure-risk");
+  await churnRiskDisclosure.locator("summary").click();
+  await expect(churnRiskDisclosure).toContainText("Level · watch");
+  await expect(churnRiskDisclosure).toContainText("Level · high");
+  await expect(churnRiskDisclosure).toContainText("not used in the derived assessment");
 
   const input = page.getByRole("textbox", { name: "Ask about Jordan Rivera" });
   await input.fill("How should I follow up?");
@@ -197,7 +203,9 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   const requestIds = new Set(seen.map(({ requestId }) => requestId));
   expect(requestIds.size).toBe(seen.length);
 
-  const chart = page.getByRole("img", { name: "Jun 4: 50 percent." }).first();
+  const latestAnswer = page.locator('[data-answer-id="answer:6"]');
+  await latestAnswer.getByTestId("copilot-disclosure-trend").locator("summary").click();
+  const chart = latestAnswer.getByRole("img", { name: "Jun 4: 50 percent." });
   await expect(chart).toBeVisible();
   await expect(chart.locator("xpath=..")).toContainText("Jun 4: 50 percent.");
 });
@@ -270,6 +278,7 @@ test("a cited conversation anchor opens revision-pinned secondary context and re
   await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
   await page.getByRole("button", { name: /Copilot context/ }).click();
   const citation = page.getByRole("button", { name: /Member check-in.*Inspect context/ });
+  await page.getByTestId("copilot-disclosure-sources").locator("summary").click();
   await expect(citation).toBeVisible();
   await citation.click();
 
@@ -281,6 +290,7 @@ test("a cited conversation anchor opens revision-pinned secondary context and re
   expect(seen).toHaveLength(1);
 
   await page.getByRole("button", { name: "Go back" }).click();
+  await page.getByTestId("copilot-disclosure-sources").locator("summary").click();
   await expect(page.getByRole("button", { name: /Member check-in.*Inspect context/ })).toBeVisible();
 });
 
@@ -298,7 +308,9 @@ test("all-zero chart packets render every bar at zero height", async ({ page }) 
   await page.getByRole("button", { name: /Copilot context/ }).click();
   await page.getByRole("button", { name: "Adherence", exact: true }).click();
 
-  const chart = page.getByRole("img", { name: "May 28: 0 percent. Jun 4: 0 percent." });
+  const answerCard = page.locator('[data-copilot-presentation="workbench"]');
+  await answerCard.getByTestId("copilot-disclosure-trend").locator("summary").click();
+  const chart = answerCard.getByRole("img", { name: "May 28: 0 percent. Jun 4: 0 percent." });
   await expect(chart).toBeVisible();
   const zeroBars = chart.locator('[data-chart-value="0"]');
   await expect(zeroBars).toHaveCount(2);
@@ -408,8 +420,11 @@ test("expired continuation preserves the answer and refreshes the same request w
   expect(seen[2].requestId).not.toBe(seen[1].requestId);
   expect(seen[2]).not.toHaveProperty("continuation");
   await expect(page.locator('[data-answer-id="answer:refreshed"]')).toHaveAttribute("data-revision-id", REVISION_TWO);
-  await expect(page.getByText(/grounded answer answer:ready/)).toBeVisible();
   await expect(page.getByText(/grounded answer answer:refreshed/)).toBeVisible();
+  const previousResults = page.getByTestId("copilot-disclosure-previous-results");
+  await expect(previousResults).not.toHaveAttribute("open", "");
+  await previousResults.locator(":scope > summary").click();
+  await expect(previousResults.locator('[data-answer-id="answer:ready"]').getByText(/grounded answer answer:ready/)).toBeVisible();
   await expect(refresh).toHaveCount(0);
 
   const input = page.getByRole("textbox", { name: "Ask about Jordan Rivera" });

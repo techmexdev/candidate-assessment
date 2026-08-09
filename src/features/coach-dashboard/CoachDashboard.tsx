@@ -30,6 +30,12 @@ import {
   type QuickPromptId,
   type WorkoutVersion,
 } from "./state";
+import {
+  buildCopilotAnswerViewModel,
+  buildCopilotWorkbenchViewModel,
+  type CopilotAnswerViewModel,
+  type CopilotPresentationGroup,
+} from "./copilot-view-model";
 import styles from "./dashboard.module.css";
 import { FullGraphExplorer } from "./FullGraphExplorer";
 
@@ -1360,7 +1366,14 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
   const captureScope = capture.scope;
   const captureDraftActive = captureScope?.routeId === "voice" || captureScope?.routeId === "copilot";
   const question = captureDraftActive ? capture.transcript : draftQuestion;
+  const workbenchAnswers = state.copilot.answers.length > 0
+    ? state.copilot.answers
+    : state.copilot.lastReadyAnswer
+      ? [state.copilot.lastReadyAnswer]
+      : [];
+  const workbench = buildCopilotWorkbenchViewModel(workbenchAnswers);
   const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? state.copilot.lastReadyAnswer;
+  const primaryFreshness = workbench.primary?.freshness ?? briefAnswer?.briefFreshness;
   const voiceCaptureActive = capture.scope?.routeId === "copilot"
     && capture.status !== "idle"
     && capture.status !== "cancelled";
@@ -1395,9 +1408,23 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
       : { kind: "quick-prompt", promptId: "morning-brief" };
     submit(input, task.text, continuation ? { continuation } : {});
   };
-  const freshness = briefAnswer?.briefFreshness
-    ? `${briefAnswer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(briefAnswer.briefFreshness.generatedFor)}`
+  const freshness = primaryFreshness
+    ? `${primaryFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(primaryFreshness.generatedFor)}`
     : "Awaiting fresh context";
+  const renderWorkbenchAnswer = (viewModel: CopilotAnswerViewModel) => {
+    const answer = viewModel.answer;
+    const section = viewModel.primarySections[0] ?? answer.sections.find((candidate) => candidate.clauses.length > 0);
+    const pinId = `${answer.answerId}:${section?.sectionId ?? "answer"}`;
+    const pinned = state.copilot.pins.some((pin) => pin.pinId === pinId);
+    return <CopilotAnswerCard
+      answer={answer}
+      key={answer.answerId}
+      presentation="workbench"
+      viewModel={viewModel}
+      onOpenContext={openSupportingContext}
+      actions={section ? <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-copilot-pin", pin: createCopilotPin({ pinId, answer, sectionId: section.sectionId, createdAt: new Date().toISOString() }) })}>{pinned ? "PINNED ✓" : "PIN TO TODAY"}</button> : null}
+    />;
+  };
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="Copilot">
       <div>
@@ -1436,12 +1463,11 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
       </div>
       {!copilotAvailable && <CopilotUnavailable memberName={fixture.member.name} />}
       {pending && <div className={styles.card} aria-busy="true"><SignalKicker data-testid="copilot-motion-signal" working>Retrieving {pending.promptLabel}…</SignalKicker></div>}
-      {state.copilot.answers.map((answer) => {
-        const section = answer.sections.find((candidate) => candidate.sectionId === "answer") ?? answer.sections[0];
-        const pinId = `${answer.answerId}:${section?.sectionId ?? "answer"}`;
-        const pinned = state.copilot.pins.some((pin) => pin.pinId === pinId);
-        return <CopilotAnswerCard answer={answer} key={answer.answerId} onOpenContext={openSupportingContext} actions={section ? <button className={styles.textButton} type="button" onClick={() => dispatch({ type: "toggle-copilot-pin", pin: createCopilotPin({ pinId, answer, sectionId: section.sectionId, createdAt: new Date().toISOString() }) })}>{pinned ? "PINNED ✓" : "PIN TO TODAY"}</button> : null} />;
-      })}
+      {workbench.primary && renderWorkbenchAnswer(workbench.primary)}
+      {workbench.previous.length > 0 && <details className={styles.copilotDisclosure} data-testid="copilot-disclosure-previous-results">
+        <summary><span>Previous results</span><span className={styles.copilotDisclosureMeta}>{workbench.previous.length} {workbench.previous.length === 1 ? "result" : "results"}</span></summary>
+        <div className={styles.copilotDisclosureContent}>{workbench.previous.map(renderWorkbenchAnswer)}</div>
+      </details>}
       {state.copilot.outcome && state.copilot.outcome.status !== "ready" && state.copilot.outcome.status !== "cancelled" && <CopilotOutcomeNotice outcome={state.copilot.outcome} />}
       {state.copilot.outcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={retry}>Retry</button>}
       {state.copilot.outcome?.controls.refresh && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={refresh}>Refresh active revision</button>}
@@ -1484,7 +1510,17 @@ function CopilotOutcomeNotice({ outcome }: { outcome: NonNullable<AthleteWorkflo
   return <div className={styles.capabilityNote} role="status" data-copilot-status={outcome.status}><strong>{labels[outcome.status]}</strong><span>{message}</span></div>;
 }
 
-function CopilotAnswerCard({ answer, compact = false, actions = null, onOpenContext }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>; compact?: boolean; actions?: React.ReactNode; onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void }) {
+function CopilotAnswerCard({ answer, compact = false, actions = null, onOpenContext, presentation = "full", viewModel }: {
+  answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]>;
+  compact?: boolean;
+  actions?: React.ReactNode;
+  onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void;
+  presentation?: "full" | "workbench";
+  viewModel?: CopilotAnswerViewModel;
+}) {
+  if (presentation === "workbench") {
+    return <CopilotWorkbenchAnswerCard answer={answer} viewModel={viewModel ?? buildCopilotAnswerViewModel(answer)} actions={actions} onOpenContext={onOpenContext} />;
+  }
   const freshness = answer.briefFreshness
     ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
     : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
@@ -1502,6 +1538,87 @@ function CopilotAnswerCard({ answer, compact = false, actions = null, onOpenCont
     })}</div>
     <div className={styles.micro}>REVISION · {answer.contextRevisionId}</div>
   </article>;
+}
+
+const copilotSectionLabels: Readonly<Record<string, string>> = {
+  answer: "Summary",
+  limitation: "Limitation",
+  "next-action": "Next action",
+  "recent-facts": "Recent facts",
+  trend: "Trend",
+  "stable-context": "Stable context",
+  "morning-brief": "Morning brief",
+};
+
+function readableCopilotLabel(value: string): string {
+  return value
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function CopilotPresentationSection({ section, primary = false }: { section: CopilotAnswerViewModel["primarySections"][number]; primary?: boolean }) {
+  const label = copilotSectionLabels[section.sectionId] ?? readableCopilotLabel(section.sectionId);
+  return <section className={section.sectionId === "next-action" ? styles.copilotNextAction : styles.answerSection} data-copilot-section={section.sectionId} aria-label={label}>
+    <div className={styles.dataLabel}>{label}</div>
+    {section.clauses.map((clause) => <p className={primary && section.sectionId === "answer" ? styles.copilotTitle : styles.bodyCopy} key={clause.clauseId}>{clause.text}</p>)}
+  </section>;
+}
+
+function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext }: {
+  answer: CopilotAnswerPacket;
+  viewModel: CopilotAnswerViewModel;
+  actions: React.ReactNode;
+  onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void;
+}) {
+  const freshness = answer.briefFreshness
+    ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
+    : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
+  const riskLabel = viewModel.headlineRisk ? readableCopilotLabel(viewModel.headlineRisk) : null;
+  return <article className={`${styles.copilotCard} ${styles.copilotWorkbenchCard}`} data-answer-id={answer.answerId} data-revision-id={answer.contextRevisionId} data-copilot-presentation="workbench">
+    <div className={styles.cardTop}>
+      <div className={styles.copilotPrimaryMeta}>
+        <span className={styles.signalKicker}>{readableCopilotLabel(answer.intentId)}</span>
+        <span className={styles.copilotFreshness}>{freshness}</span>
+      </div>
+      {actions}
+    </div>
+    <div className={styles.copilotPrimaryContent}>
+      {viewModel.primarySections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} primary />)}
+      {riskLabel && <div className={styles.copilotRiskHeadline}><span className={styles.dataLabel}>Risk signal</span><strong>{riskLabel}</strong></div>}
+      {viewModel.nextAction && <CopilotPresentationSection section={viewModel.nextAction} />}
+    </div>
+    {viewModel.groups.map((group) => <CopilotDisclosure key={group.id} group={group} answer={answer} onOpenContext={onOpenContext} />)}
+  </article>;
+}
+
+function CopilotDisclosure({ group, answer, onOpenContext }: { group: CopilotPresentationGroup; answer: CopilotAnswerPacket; onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void }) {
+  return <details className={styles.copilotDisclosure} data-testid={`copilot-disclosure-${group.id}`}>
+    <summary><span>{group.label}</span><span className={styles.copilotDisclosureMeta}>{group.itemCount} {group.itemCount === 1 ? "item" : "items"}</span></summary>
+    <div className={styles.copilotDisclosureContent}>
+      {group.sections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} />)}
+      {group.id === "trend" && group.chart && <PacketChart chart={group.chart} />}
+      {group.id === "risk" && group.churn && <CopilotChurnAssessment answer={answer} />}
+      {group.id === "sources" && <CopilotSources answer={answer} citations={group.citations} includeRevision onOpenContext={onOpenContext} />}
+    </div>
+  </details>;
+}
+
+function CopilotSources({ answer, citations, includeRevision = false, onOpenContext }: {
+  answer: CopilotAnswerPacket;
+  citations: CopilotAnswerPacket["citations"];
+  includeRevision?: boolean;
+  onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void;
+}) {
+  return <>
+    <div className={styles.sources}>{citations.map((citation) => {
+      const atom = answer.evidence.atoms.find((candidate) => candidate.evidenceId === citation.evidenceId);
+      const supporting = atom?.evidenceKind === "message" || atom?.evidenceKind === "media-attachment";
+      return supporting && onOpenContext
+        ? <button className={styles.sourceButton} data-focus-key={`supporting-context-${citation.evidenceId}`} type="button" key={citation.citationId} onClick={() => onOpenContext(answer, citation.evidenceId)}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""} · Inspect context →</button>
+        : <span className={styles.sourceChip} key={citation.citationId}>{citation.label} · {citation.temporal.precision}{"effectiveOn" in citation.temporal ? ` · ${citation.temporal.effectiveOn}` : ""}</span>;
+    })}</div>
+    {includeRevision && <div className={styles.micro}>REVISION · {answer.contextRevisionId} · EVIDENCE AS OF · {answer.evidenceAsOf}</div>}
+  </>;
 }
 
 function CopilotChurnAssessment({ answer }: { answer: NonNullable<AthleteWorkflowState["copilot"]["lastReadyAnswer"]> }) {
