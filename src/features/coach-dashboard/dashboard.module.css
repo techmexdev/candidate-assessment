@@ -983,6 +983,7 @@
 
 .copilotWorkbenchCard {
   gap: 14px;
+  overflow-wrap: anywhere;
 }
 
 .copilotPrimaryMeta {
@@ -992,7 +993,7 @@
 }
 
 .copilotFreshness {
-  color: var(--ax-ink-3);
+  color: var(--ax-color-text-micro);
   font-size: 12px;
 }
 
@@ -1042,7 +1043,7 @@
 
 .copilotDisclosureMeta {
   min-width: 0;
-  color: var(--ax-ink-3);
+  color: var(--ax-color-text-micro);
   font: var(--ax-type-micro);
   font-weight: 400;
   letter-spacing: var(--ax-track-micro);

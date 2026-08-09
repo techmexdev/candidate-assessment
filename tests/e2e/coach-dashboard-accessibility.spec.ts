@@ -1,5 +1,16 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import { installRichCopilotRoute } from "./copilot-test-support";
+
+async function focusDisclosureWithKeyboard(page: Page, summary: Locator): Promise<void> {
+  await page.getByRole("button", { name: "Morning brief", exact: true }).focus();
+  for (let step = 0; step < 20; step += 1) {
+    if (await summary.evaluate((element) => element.matches(":focus-visible"))) return;
+    await page.keyboard.press("Tab");
+  }
+  throw new Error("Disclosure summary was not reachable with keyboard focus.");
+}
 
 test("@a11y supports keyboard selection from the Today athlete disclosure", async ({ page }) => {
   await page.goto("/");
@@ -145,4 +156,59 @@ test("@a11y labels the microphone, exposes disclosure status, and keeps typed re
   await expect(input).toBeEnabled();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
+});
+
+test("@a11y keeps Copilot detail disclosures native, keyboard-operable, and complete", async ({ page }) => {
+  let copilotRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/copilot") && request.method() === "POST") copilotRequests += 1;
+  });
+
+  await installRichCopilotRoute(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+
+  const answer = page.locator('[data-copilot-presentation="workbench"]');
+  await expect(answer).toBeVisible();
+  await expect(answer.getByText(/member is progressing/i)).toBeVisible();
+  const disclosures = answer.locator("details");
+  await expect(disclosures).not.toHaveCount(0);
+  const initialRequestCount = copilotRequests;
+  const disclosureCount = await disclosures.count();
+
+  for (let index = 0; index < disclosureCount; index += 1) {
+    const disclosure = disclosures.nth(index);
+    const summary = disclosure.locator(":scope > summary");
+    await expect(summary).toHaveJSProperty("tagName", "SUMMARY");
+    await expect(disclosure).not.toHaveAttribute("open", "");
+    await focusDisclosureWithKeyboard(page, summary);
+    await expect(summary).toBeFocused();
+    await expect(summary).toHaveCSS("outline-style", "solid");
+
+    await page.keyboard.press("Enter");
+    await expect(disclosure).toHaveAttribute("open", "");
+    await expect(summary).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(disclosure).not.toHaveAttribute("open", "");
+    await expect(summary).toBeFocused();
+  }
+
+  const collapsedResults = await new AxeBuilder({ page }).analyze();
+  expect(collapsedResults.violations).toEqual([]);
+
+  for (let index = 0; index < disclosureCount; index += 1) {
+    const disclosure = disclosures.nth(index);
+    await disclosure.locator(":scope > summary").click();
+    await expect(disclosure).toHaveAttribute("open", "");
+  }
+
+  const trend = answer.getByTestId("copilot-disclosure-trend");
+  if (await trend.count() > 0) {
+    await expect(trend.getByRole("img")).toBeVisible();
+    await expect(trend.locator("p").filter({ hasText: /percent/i })).toBeVisible();
+  }
+  const expandedResults = await new AxeBuilder({ page }).analyze();
+  expect(expandedResults.violations).toEqual([]);
+  expect(copilotRequests).toBe(initialRequestCount);
 });
