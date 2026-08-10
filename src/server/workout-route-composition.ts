@@ -26,6 +26,7 @@ import type { WorkoutRevisionSealArtifact } from "../domain/contracts/workout-ru
 import type { CopilotContinuationClaims, CopilotSupportingContextReference, SignedCopilotContinuation } from "../domain/contracts/copilot";
 import { createProtectedWorkoutInputVault } from "./workout-protected-input";
 import { SYNTHETIC_MEMBER_ASSET_ALLOWLIST } from "./member-context-assets";
+import { resolveDeploymentProfile } from "./deployment-profile";
 import {
   DEFAULT_MOCK_COACH_ID,
   DEFAULT_MOCK_MEMBER_IDS,
@@ -122,6 +123,14 @@ function validSessionPayload(value: MockCoachSessionClaims | undefined, now = Da
     && Date.parse(value.expiresAt) > now);
 }
 
+function isLoopbackRequest(request: Request) {
+  try {
+    return ["localhost", "127.0.0.1", "::1"].includes(new URL(request.url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function sessionAuthorization(secret: string, payload: MockCoachSessionClaims): string {
   return `route-scope:${sealMockCoachSession(secret, payload)}`;
 }
@@ -144,7 +153,7 @@ function createSessionResolver(secret: string, environment: string, testBypass =
   return async (request) => {
     const token = readMockCoachSessionCookie(request);
     let payload = token ? parseMockCoachSession(secret, token) : undefined;
-    if (!payload && testBypass && environment !== "production" && !token) {
+    if (!payload && testBypass && environment !== "production" && !token && isLoopbackRequest(request)) {
       payload = mockCoachSessionClaims({
         now: new Date().toISOString(),
         sessionId: "mock-session:test-bypass",
@@ -217,9 +226,13 @@ export function createConfiguredWorkoutServerInfrastructure(
   configuredEnvironment: Readonly<Record<string, string | undefined>> = process.env,
 ): WorkoutServerInfrastructure {
   const environment = configuredEnvironment.NODE_ENV ?? "production";
+  const deploymentProfile = resolveDeploymentProfile(configuredEnvironment);
   const secret = workoutRouteSecret(environment, configuredEnvironment.WORKOUT_ROUTE_SECRET);
   const client = createNeo4jClient({
     environment,
+    runtimeProfile: deploymentProfile.name,
+    allowInsecureRailway: deploymentProfile.allowInsecureRailway,
+    expectedPrivateDomain: configuredEnvironment.NEO4J_PRIVATE_DOMAIN,
     ...(configuredEnvironment.NEO4J_URI ? { uri: configuredEnvironment.NEO4J_URI } : {}),
     ...(configuredEnvironment.NEO4J_USERNAME ? { username: configuredEnvironment.NEO4J_USERNAME } : {}),
     ...(configuredEnvironment.NEO4J_PASSWORD ? { password: configuredEnvironment.NEO4J_PASSWORD } : {}),

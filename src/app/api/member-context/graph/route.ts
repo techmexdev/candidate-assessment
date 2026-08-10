@@ -1,4 +1,8 @@
-import type { FullGraphReadResult } from "../../../../domain/contracts/full-graph-view";
+import type {
+  FullGraphReadResult,
+} from "../../../../domain/contracts/full-graph-view";
+import type { RetrieveFullGraph } from "../../../../application/use-cases/retrieve-full-graph";
+import { parseFullGraphQueryParams } from "../../full-graph-query";
 import { configuredWorkoutRouteComposition } from "../../../../server/workout-route-composition";
 
 type Session = Awaited<ReturnType<typeof configuredWorkoutRouteComposition.resolveSession>>;
@@ -39,12 +43,7 @@ function externalResult(result: FullGraphReadResult): { readonly body: FullGraph
 
 export function createMemberContextGraphHandler(dependencies: {
   readonly resolveSession: (request: Request) => Promise<Session>;
-  readonly readMemberContext: (input: {
-    readonly coachId: string;
-    readonly memberId: string;
-    readonly authorizationId: string;
-    readonly contextRevisionId?: string;
-  }) => Promise<FullGraphReadResult>;
+  readonly readMemberContext: RetrieveFullGraph["readMemberContext"];
 }) {
   return async (request: Request): Promise<Response> => {
     let session: Session;
@@ -67,12 +66,18 @@ export function createMemberContextGraphHandler(dependencies: {
       || (contextRevisionId !== null && (contextRevisionId.length === 0 || contextRevisionId.length > 200))) {
       return response(invalidResult(), 400);
     }
+    const query = parseFullGraphQueryParams(params);
+    if (!query) return response(invalidResult(), 400);
     try {
       const result = await dependencies.readMemberContext({
         coachId: session.coachId,
         memberId,
         authorizationId: session.authorizationId,
         ...(contextRevisionId === null ? {} : { contextRevisionId }),
+        ...(query.entityId === undefined ? {} : {
+          inspection: { entityId: query.entityId, entityKind: query.entityKind },
+        }),
+        ...(query.page === undefined ? {} : { page: query.page }),
       });
       const external = externalResult(result);
       return response(external.body, external.status);

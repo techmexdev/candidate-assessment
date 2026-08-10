@@ -1,4 +1,3 @@
-import { createGateway } from "ai";
 import { createAiSdkCopilotModel } from "../../agents/copilot/ai-sdk-model";
 import { createCopilotRuntime } from "../../agents/copilot-runtime";
 import { createMemberContextRetrieval } from "../../agents/tools/member-context-retrieval";
@@ -19,6 +18,8 @@ import {
   copilotContinuationSecret,
   createCopilotContinuationAuthority,
 } from "./continuation-token";
+import { configuredAiApiKey, createConfiguredLanguageModel, resolveAiProvider } from "../configured-language-model";
+import { resolveDeploymentProfile } from "../deployment-profile";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -37,7 +38,7 @@ export type CopilotApplicationDependencies = {
   readonly runtimeDeadlineMs?: number;
 };
 
-/** Canonical application composition. Tests inject graph/model ports; production supplies Neo4j and AI Gateway. */
+/** Canonical application composition. Tests inject graph/model ports; production supplies Neo4j and a configured AI provider. */
 export function createCopilotApplication(dependencies: CopilotApplicationDependencies) {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const runtime = createCopilotRuntime({
@@ -66,14 +67,15 @@ export function createCopilotApplication(dependencies: CopilotApplicationDepende
 
 function configuredModel(environment: Environment): CopilotModel {
   const modelId = environment.COPILOT_MODEL_ID?.trim();
-  const apiKey = environment.AI_GATEWAY_API_KEY?.trim();
+  const provider = resolveAiProvider(environment);
+  const apiKey = configuredAiApiKey(environment, provider);
   if (!modelId || !apiKey) {
     return Object.freeze({
       select: async () => ({ status: "failed" as const, reason: "unavailable" as const }),
     });
   }
   return createAiSdkCopilotModel({
-    model: createGateway({ apiKey })(modelId),
+    model: createConfiguredLanguageModel({ modelId, provider, apiKey }),
     timeoutMs: 1_500,
   });
 }
@@ -82,6 +84,7 @@ export function createConfiguredCopilotComposition(
   environment: Environment = process.env,
 ): CopilotComposition {
   const runtimeEnvironment = environment.NODE_ENV ?? "production";
+  const deploymentProfile = resolveDeploymentProfile(environment);
   const secret = copilotContinuationSecret(runtimeEnvironment, environment.COPILOT_CONTINUATION_SECRET);
   const now = () => new Date().toISOString();
   const sessionAuthority = createMockCoachSessionAuthority({
@@ -97,6 +100,9 @@ export function createConfiguredCopilotComposition(
   });
   const client = createNeo4jClient({
     environment: runtimeEnvironment,
+    runtimeProfile: deploymentProfile.name,
+    allowInsecureRailway: deploymentProfile.allowInsecureRailway,
+    expectedPrivateDomain: environment.NEO4J_PRIVATE_DOMAIN,
     ...(environment.NEO4J_URI ? { uri: environment.NEO4J_URI } : {}),
     ...(environment.NEO4J_USERNAME ? { username: environment.NEO4J_USERNAME } : {}),
     ...(environment.NEO4J_PASSWORD ? { password: environment.NEO4J_PASSWORD } : {}),

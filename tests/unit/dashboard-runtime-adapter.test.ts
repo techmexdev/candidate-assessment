@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkoutRunResource } from "../../src/application/use-cases/retrieve-workout-run";
+import { FULL_GRAPH_PAGE_LIMITS } from "../../src/domain/contracts/full-graph-view";
 import {
   createDashboardWorkoutRuntime,
   createFetchDashboardWorkoutRuntimeClient,
@@ -252,6 +253,218 @@ describe("dashboard full graph adapter", () => {
 
     expect(result).toMatchObject({ status: "ready", data: { counts: { nodes: 2, relationships: 1 }, revisionId: "movement:one" } });
     expect(fetcher).toHaveBeenCalledWith("/api/movement-graph?revisionId=movement%3Aone", expect.anything());
+
+    await expect(client.read({
+      domain: "movement-clinical",
+      revisionId: "movement:one",
+      entityId: "exercise:squat",
+      entityKind: "node",
+    })).resolves.toMatchObject({ status: "ready" });
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/movement-graph?revisionId=movement%3Aone&entityId=exercise%3Asquat&entityKind=node", expect.anything());
+  });
+
+  it("accepts bounded graph pages with cross-page relationship endpoints and accumulates them progressively", async () => {
+    const node = (id: string, label: string) => ({
+      id,
+      kind: "exercise",
+      label,
+      category: "domain",
+      revisionId: "movement:pages",
+      detail: [],
+      provenance: { directAssertion: "present", assertionId: `assertion:${id}`, lineageIds: [] },
+    });
+    const relationship = (id: string, fromId: string, toId: string) => ({
+      id,
+      kind: "targets",
+      fromId,
+      toId,
+      revisionId: "movement:pages",
+      detail: [],
+      provenance: { directAssertion: "present", assertionId: id, lineageIds: [] },
+    });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        status: "ready",
+        data: {
+          domain: "movement-clinical",
+          revisionId: "movement:pages",
+          authority: "canonical",
+          counts: { nodes: 2, relationships: 2 },
+          nodes: [node("exercise:one", "One")],
+          relationships: [relationship("assertion:one", "exercise:one", "exercise:two")],
+          page: { nodeOffset: 0, relationshipOffset: 0, pageSize: 1, hasMoreNodes: true, hasMoreRelationships: true },
+        },
+      }))
+      .mockResolvedValueOnce(Response.json({
+        status: "ready",
+        data: {
+          domain: "movement-clinical",
+          revisionId: "movement:pages",
+          authority: "canonical",
+          counts: { nodes: 2, relationships: 2 },
+          nodes: [node("exercise:two", "Two")],
+          relationships: [relationship("assertion:two", "exercise:two", "exercise:one")],
+          page: { nodeOffset: 1, relationshipOffset: 1, pageSize: 1, hasMoreNodes: false, hasMoreRelationships: false },
+        },
+      }));
+    const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+    const progress: number[] = [];
+
+    const result = await client.readProgressively?.(
+      { domain: "movement-clinical" },
+      (next) => { if (next.status === "ready") progress.push(next.data.nodes.length); },
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      data: { counts: { nodes: 2, relationships: 2 }, nodes: [{ id: "exercise:one" }, { id: "exercise:two" }] },
+    });
+    expect(progress).toEqual([1, 2]);
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/movement-graph?pageSize=24&nodeOffset=0&relationshipOffset=0", expect.anything());
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/movement-graph?revisionId=movement%3Apages&pageSize=1&nodeOffset=1&relationshipOffset=1", expect.anything());
+  });
+
+  it("coalesces progress near the graph paging limit while returning the complete projection", async () => {
+    const nodeCount = FULL_GRAPH_PAGE_LIMITS.maxOffset;
+    const pageSize = FULL_GRAPH_PAGE_LIMITS.defaultPageSize;
+    const fetcher = vi.fn(async (url: string) => {
+      const request = new URL(url, "https://dashboard.test");
+      const nodeOffset = Number(request.searchParams.get("nodeOffset"));
+      const relationshipOffset = Number(request.searchParams.get("relationshipOffset"));
+      const requestedPageSize = Number(request.searchParams.get("pageSize"));
+      const nodes = Array.from(
+        { length: Math.min(requestedPageSize, nodeCount - nodeOffset) },
+        (_, index) => ({
+          id: `exercise:${nodeOffset + index}`,
+          kind: "exercise",
+          label: `Exercise ${nodeOffset + index}`,
+          category: "domain",
+          revisionId: "movement:near-limit",
+          detail: [],
+          provenance: { directAssertion: "present", assertionId: `assertion:${nodeOffset + index}`, lineageIds: [] },
+        }),
+      );
+      return Response.json({
+        status: "ready",
+        data: {
+          domain: "movement-clinical",
+          revisionId: "movement:near-limit",
+          authority: "canonical",
+          counts: { nodes: nodeCount, relationships: 0 },
+          nodes,
+          relationships: [],
+          page: {
+            nodeOffset,
+            relationshipOffset,
+            pageSize: requestedPageSize,
+            hasMoreNodes: nodeOffset + nodes.length < nodeCount,
+            hasMoreRelationships: false,
+          },
+        },
+      });
+    });
+    const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+    const progress: number[] = [];
+
+    const result = await client.readProgressively?.(
+      { domain: "movement-clinical" },
+      (next) => { if (next.status === "ready") progress.push(next.data.nodes.length); },
+    );
+
+    const pageCount = Math.ceil(nodeCount / pageSize);
+    expect(fetcher).toHaveBeenCalledTimes(pageCount);
+    expect(progress.length).toBeLessThanOrEqual(Math.ceil(pageCount / 8) + 1);
+    expect(progress[0]).toBe(pageSize);
+    expect(progress[1]).toBe(pageSize * 8);
+    expect(progress.at(-1)).toBe(nodeCount);
+    expect(result).toMatchObject({ status: "ready", data: { counts: { nodes: nodeCount, relationships: 0 } } });
+    expect(result?.status === "ready" && result.data.nodes[0]?.id).toBe("exercise:0");
+    expect(result?.status === "ready" && result.data.nodes.at(-1)?.id).toBe(`exercise:${nodeCount - 1}`);
+    expect(result?.status === "ready" && new Set(result.data.nodes.map((node) => node.id)).size).toBe(nodeCount);
+  });
+
+  it("preserves message-less stale responses from the graph routes", async () => {
+    const fetcher = vi.fn(async (url: string) => Response.json({
+      status: "stale",
+      domain: url.startsWith("/api/member-context") ? "member-context" : "movement-clinical",
+      requestedRevisionId: "revision:old",
+      activeRevisionId: "revision:new",
+    }, { status: 409 }));
+    const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+
+    await expect(client.read({ domain: "movement-clinical", revisionId: "revision:old" })).resolves.toEqual({
+      status: "stale",
+      domain: "movement-clinical",
+      requestedRevisionId: "revision:old",
+      activeRevisionId: "revision:new",
+    });
+    await expect(client.read({ domain: "member-context", memberId: "member:one", revisionId: "revision:old" })).resolves.toEqual({
+      status: "stale",
+      domain: "member-context",
+      requestedRevisionId: "revision:old",
+      activeRevisionId: "revision:new",
+    });
+  });
+
+  it("turns a never-settling graph fetch into an unavailable result at the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      }));
+      const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+      const pending = client.read({ domain: "movement-clinical" });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(pending).resolves.toEqual({
+        status: "unavailable",
+        domain: "movement-clinical",
+        message: "Movement graph is unavailable.",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows a cold-start graph response to finish before failing closed", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(Response.json({
+          status: "ready",
+          data: {
+            domain: "movement-clinical",
+            revisionId: "movement:cold-start",
+            authority: "canonical",
+            counts: { nodes: 1, relationships: 0 },
+            nodes: [{
+              id: "exercise:cold-start",
+              kind: "exercise",
+              label: "Cold-start exercise",
+              category: "domain",
+              revisionId: "movement:cold-start",
+              detail: [],
+              provenance: { directAssertion: "present", assertionId: "assertion:cold-start", lineageIds: [] },
+            }],
+            relationships: [],
+          },
+        })), 26_000);
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        }, { once: true });
+      }));
+      const client = createFetchDashboardFullGraphClient(fetcher as typeof fetch);
+      const pending = client.read({ domain: "movement-clinical" });
+
+      await vi.advanceTimersByTimeAsync(26_000);
+      await expect(pending).resolves.toMatchObject({
+        status: "ready",
+        data: { revisionId: "movement:cold-start" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails closed when a projection is truncated or has a dangling edge", async () => {

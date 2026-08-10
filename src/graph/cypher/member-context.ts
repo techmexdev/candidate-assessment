@@ -48,6 +48,7 @@ export const MEMBER_CONTEXT_CYPHER = Object.freeze({
     MATCH (fact:MemberContextFact {memberId: $memberId, contextRevisionId: $contextRevisionId})
     RETURN fact.payload AS payload
     ORDER BY fact.recordOrder, fact.semanticId
+    SKIP $offset
     LIMIT $limit
   `,
   readRelationships: `
@@ -56,7 +57,36 @@ export const MEMBER_CONTEXT_CYPHER = Object.freeze({
       (:MemberContextFact {memberId: $memberId, contextRevisionId: $contextRevisionId})
     RETURN relationship.payload AS payload
     ORDER BY relationship.recordOrder, relationship.assertionId
+    SKIP $offset
     LIMIT $limit
+  `,
+  readPage: `
+    MATCH (seal:MemberContextRevisionSeal {memberId: $memberId, contextRevisionId: $contextRevisionId})
+      -[:MEMBER_CONTEXT_SEALS_REVISION]->
+      (revision:MemberContextRevision {memberId: $memberId, contextRevisionId: $contextRevisionId})
+    CALL {
+      MATCH (fact:MemberContextFact {memberId: $memberId, contextRevisionId: $contextRevisionId})
+      WITH fact ORDER BY fact.recordOrder, fact.semanticId
+      SKIP $nodeOffset
+      LIMIT $limit
+      RETURN collect(fact.payload) AS nodePayloads
+    }
+    CALL {
+      MATCH (:MemberContextFact {memberId: $memberId, contextRevisionId: $contextRevisionId})
+        -[relationship:MEMBER_CONTEXT_RELATIONSHIP {memberId: $memberId, contextRevisionId: $contextRevisionId}]->
+        (:MemberContextFact {memberId: $memberId, contextRevisionId: $contextRevisionId})
+      WITH relationship ORDER BY relationship.recordOrder, relationship.assertionId
+      SKIP $relationshipOffset
+      LIMIT $limit
+      RETURN collect(relationship.payload) AS relationshipPayloads
+    }
+    RETURN revision.contextRevisionId AS contextRevisionId,
+      revision.sourceArtifactDigest AS sourceArtifactDigest,
+      seal.canonicalDigest AS canonicalDigest,
+      seal.nodeCount AS nodeCount,
+      seal.relationshipCount AS relationshipCount,
+      nodePayloads, relationshipPayloads
+    LIMIT 1
   `,
   findAttempt: `
     MATCH (attempt:MemberContextPublicationAttempt {attemptId: $attemptId})
@@ -135,7 +165,9 @@ export const MEMBER_CONTEXT_CYPHER = Object.freeze({
     RETURN catalog.activeRevisionId AS activeRevisionId,
       revision.contextRevisionId AS contextRevisionId,
       attempt.attemptId AS attemptId, attempt.state AS attemptState,
-      attempt.validationErrors AS validationErrors, seal.sealId AS sealId
+      attempt.validationErrors AS validationErrors, seal.sealId AS sealId,
+      seal.canonicalDigest AS canonicalDigest, seal.nodeCount AS nodeCount,
+      seal.relationshipCount AS relationshipCount
     ORDER BY attempt.attemptId
     LIMIT 1
   `,

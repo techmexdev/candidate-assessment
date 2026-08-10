@@ -18,6 +18,8 @@ const SYSTEM_INSTRUCTIONS = [
   "Compose exactly one workout from the supplied canonical candidates.",
   "Candidate eligibility and safety status are authoritative and cannot be changed.",
   "Return warm-up, main, and cool-down sections only.",
+  "The timingBudget in the input is authoritative: calculate work plus between-set rest for every item, then adjust sets and durations until totalSeconds is within the target, allowing at most 60 seconds of underfill and no overflow.",
+  "Use each candidate only in an allowed section, stay within its dose and rest bounds, and do not repeat an exercise across sections.",
   "Each item must cite one or more opaque citation references supplied on that exact candidate.",
   "Do not infer member facts, graph facts, exclusions, identities, or authorization data.",
 ].join(" ");
@@ -32,10 +34,18 @@ export function createAiSdkWorkoutComposer(options: AiSdkWorkoutComposerOptions)
         const abortSignal = composeOptions?.signal
           ? AbortSignal.any([composeOptions.signal, timeoutSignal])
           : timeoutSignal;
+        const agentInput = createWorkoutComposerAgentInput(input);
         const result = await generateText({
           model: options.model,
           system: SYSTEM_INSTRUCTIONS,
-          prompt: JSON.stringify(createWorkoutComposerAgentInput(input)),
+          prompt: JSON.stringify({
+            ...agentInput,
+            timingBudget: {
+              targetSeconds: input.canonicalIntent.requestedDurationMinutes * 60,
+              maxUnderfillSeconds: 60,
+              maxOverflowSeconds: 0,
+            },
+          }),
           output: Output.object({
             name: "workout_proposal",
             description: "A workout composed only from the supplied eligible candidates.",

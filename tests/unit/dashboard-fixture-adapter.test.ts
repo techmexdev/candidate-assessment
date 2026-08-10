@@ -81,18 +81,16 @@ describe("dashboard fixture adapter", () => {
       ? fixtureDashboardAdapter.initialState.data.workspace.athletes.map((athlete) => athlete.id)
       : [];
     expect(memberIds).toHaveLength(3);
-    const jordanId = fixtureDashboardAdapter.initialState.status === "ready"
-      ? fixtureDashboardAdapter.initialState.data.member.id
-      : "";
-    expect(capability.supports({ domain: "member-context", memberId: jordanId })).toBe(true);
-    const member = await capability.client.read({ domain: "member-context", memberId: jordanId });
-    expect(member).toMatchObject({ status: "ready", data: { domain: "member-context", memberId: jordanId, authority: "fixture" } });
-    if (member.status !== "ready") throw new Error("Expected member fixture graph");
-    expect(member.data.nodes).toHaveLength(member.data.counts.nodes);
-    expect(member.data.relationships).toHaveLength(member.data.counts.relationships);
-    expect(member.data.nodes.find((node) => node.kind === "member")?.provenance.directAssertion).toBe("none");
-    expect(member.data.nodes.find((node) => node.kind === "member-profile")?.provenance.source?.artifactDigest).toMatch(/^sha256:/);
-    expect(memberIds.filter((memberId) => memberId !== jordanId).every((memberId) => !capability.supports({ domain: "member-context", memberId }))).toBe(true);
+    for (const memberId of memberIds) {
+      expect(capability.supports({ domain: "member-context", memberId })).toBe(true);
+      const member = await capability.client.read({ domain: "member-context", memberId });
+      expect(member).toMatchObject({ status: "ready", data: { domain: "member-context", memberId, authority: "fixture" } });
+      if (member.status !== "ready") throw new Error("Expected member fixture graph");
+      expect(member.data.nodes).toHaveLength(member.data.counts.nodes);
+      expect(member.data.relationships).toHaveLength(member.data.counts.relationships);
+      expect(member.data.nodes.find((node) => node.kind === "member")?.provenance.directAssertion).toBe("none");
+      expect(member.data.nodes.find((node) => node.kind === "member-profile")?.provenance.source?.artifactDigest).toMatch(/^sha256:/);
+    }
     expect(capability.supports({ domain: "member-context", memberId: "member:unknown" })).toBe(false);
   });
 

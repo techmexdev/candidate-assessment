@@ -57,10 +57,18 @@ function run(command: string, args: readonly string[], environment: NodeJS.Proce
   });
 }
 
-function parseJsonLine(output: string): Record<string, unknown> | undefined {
-  for (const line of output.trim().split("\n").reverse()) {
+function parseJsonOutput(output: string): Record<string, unknown> | undefined {
+  const trimmed = output.trim();
+  const lines = trimmed.split("\n");
+  const candidates = [trimmed];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (line === "{" || line.startsWith("{\"") || line === "[") candidates.push(lines.slice(index).join("\n"));
+    if (line.startsWith("{") && line.endsWith("}")) candidates.push(line);
+  }
+  for (const candidate of candidates) {
     try {
-      const value: unknown = JSON.parse(line);
+      const value: unknown = JSON.parse(candidate);
       if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
     } catch { /* inspect output can include package-manager noise */ }
   }
@@ -70,12 +78,12 @@ function parseJsonLine(output: string): Record<string, unknown> | undefined {
 async function seedCanonicalGraphs(environment: NodeJS.ProcessEnv) {
   const movementDryRun = await run("pnpm", ["graph:seed", "--", "--dry-run"], environment);
   if (movementDryRun.code !== 0) throw new Error("Movement graph validation failed.");
-  const movement = parseJsonLine(movementDryRun.output);
+  const movement = parseJsonOutput(movementDryRun.output);
   const movementRevision = typeof movement?.graphRevisionId === "string" ? movement.graphRevisionId : undefined;
   if (!movementRevision) throw new Error("Movement graph dry-run did not return a revision.");
   const movementInspect = await run("pnpm", ["graph:inspect"], environment);
   if (movementInspect.code !== 0) throw new Error("Movement graph inspection failed.");
-  const movementActive = parseJsonLine(movementInspect.output)?.activeRevisionId;
+  const movementActive = parseJsonOutput(movementInspect.output)?.activeRevisionId;
   if (typeof movementActive === "string" && movementActive !== movementRevision) {
     throw new Error("A different active movement graph revision is present; inspect/recover it before replacing the demo graph.");
   }
@@ -86,14 +94,22 @@ async function seedCanonicalGraphs(environment: NodeJS.ProcessEnv) {
 
   const memberInspect = await run("pnpm", ["graph:seed:member", "--", "--inspect"], environment);
   if (memberInspect.code !== 0) throw new Error("Member Context inspection failed.");
-  const member = parseJsonLine(memberInspect.output);
-  const memberRevision = typeof member?.contextRevisionId === "string" ? member.contextRevisionId : undefined;
-  const memberActive = member?.activeRevisionBefore;
-  if (!memberRevision) throw new Error("Member Context inspection did not return a revision.");
-  if (typeof memberActive === "string" && memberActive !== memberRevision) {
-    throw new Error("A different active Member Context revision is present; inspect/recover it before replacing the demo context.");
+  const member = parseJsonOutput(memberInspect.output);
+  const memberReports = Array.isArray(member?.reports)
+    ? member.reports.filter((report): report is Record<string, unknown> => Boolean(report && typeof report === "object" && !Array.isArray(report)))
+    : member ? [member] : [];
+  if (memberReports.length !== 3) throw new Error("Member Context inspection did not return all roster members.");
+  let memberNeedsActivation = false;
+  for (const report of memberReports) {
+    const memberRevision = typeof report.contextRevisionId === "string" ? report.contextRevisionId : undefined;
+    const memberActive = report.activeRevisionBefore;
+    if (!memberRevision) throw new Error("Member Context inspection did not return a revision for every roster member.");
+    if (typeof memberActive === "string" && memberActive !== memberRevision) {
+      throw new Error("A different active Member Context revision is present; inspect/recover it before replacing the demo context.");
+    }
+    if (memberActive !== memberRevision) memberNeedsActivation = true;
   }
-  if (memberActive !== memberRevision) {
+  if (memberNeedsActivation) {
     const activated = await run("pnpm", ["graph:seed:member"], environment);
     if (activated.code !== 0) throw new Error("Member Context activation failed.");
   }
@@ -146,7 +162,7 @@ async function main() {
     const healthy = await run("docker", ["compose", "ps", "--status", "running", "neo4j"], environment);
     if (healthy.code !== 0) throw new Error("Neo4j container is not running.");
     await seedCanonicalGraphs(environment);
-    children.push(child("pnpm", ["dev", "--", "-p", String(WEB_PORT)], environment));
+    children.push(child(process.execPath, ["--import", "./scripts/load-dotenv.mjs", "node_modules/next/dist/bin/next", "dev", "-p", String(WEB_PORT)], environment));
     children.push(child("pnpm", ["worker:workout-run", "--", "--poll"], environment));
     await waitForWeb(`http://127.0.0.1:${WEB_PORT}`);
     process.stdout.write(`READY http://127.0.0.1:${WEB_PORT} mode=deterministic worker=queue\n`);

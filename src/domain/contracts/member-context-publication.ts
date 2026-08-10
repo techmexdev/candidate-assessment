@@ -69,6 +69,10 @@ export type MemberContextPublicationInspection = {
   readonly activeRevisionId: string | null;
   readonly contextRevisionId?: string;
   readonly publicationAttemptId?: string;
+  readonly sealId?: string;
+  readonly canonicalDigest?: string;
+  readonly nodeCount?: number;
+  readonly relationshipCount?: number;
   readonly state: "active" | "sealed" | "staged" | "rejected" | "abandoned" | "missing";
   readonly validationErrors: readonly string[];
 };

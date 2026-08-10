@@ -6,6 +6,7 @@ import { asWorkoutInputRevisionId, asWorkoutRunId } from "../../src/domain/contr
 import { InMemoryWorkoutRunRepository } from "../../src/graph/repositories/workout-runs";
 import {
   createWorkoutWorkerComposition,
+  createConfiguredWorkoutModel,
   createConfiguredWorkoutGatewayModel,
   createCanonicalWorkoutRuntimeDependencies,
   readConfiguredWorkoutWorkerOptions,
@@ -239,6 +240,40 @@ describe("workout worker production composition", () => {
     })).toMatchObject({ mode: "deterministic", modelId: "demo:deterministic" });
   });
 
+  it("allows deterministic queue mode only for the explicit Railway production profile", () => {
+    expect(readConfiguredWorkoutWorkerOptions({
+      NODE_ENV: "production",
+      AXON_RUNTIME_PROFILE: "railway-demo",
+      NEO4J_ALLOW_INSECURE_RAILWAY: "1",
+      NEO4J_PRIVATE_DOMAIN: "neo4j.railway.internal",
+      NEO4J_URI: "bolt://neo4j.railway.internal:7687",
+      NEO4J_USERNAME: "neo4j",
+      NEO4J_PASSWORD: "Q7v!pR2#nL8@xZ4$",
+      WORKOUT_DEMO_MODE: "deterministic",
+      WORKOUT_ROUTE_SECRET: "x".repeat(32),
+      WORKOUT_WORKER_ID: "worker:railway-demo",
+    })).toMatchObject({ mode: "deterministic", modelId: "demo:deterministic" });
+
+    expect(() => readConfiguredWorkoutWorkerOptions({
+      NODE_ENV: "production",
+      WORKOUT_DEMO_MODE: "deterministic",
+      WORKOUT_ROUTE_SECRET: "x".repeat(32),
+      WORKOUT_WORKER_ID: "worker:production",
+      NEO4J_URI: "neo4j+s://graph.example.com:7687",
+      NEO4J_USERNAME: "neo4j",
+      NEO4J_PASSWORD: "a-real-production-password",
+    })).toThrow(/railway-demo/i);
+  });
+
+  it("rejects unknown workout modes instead of silently selecting provider mode", () => {
+    expect(() => readConfiguredWorkoutWorkerOptions({
+      NODE_ENV: "development",
+      WORKOUT_DEMO_MODE: "surprise",
+      WORKOUT_ROUTE_SECRET: "x".repeat(32),
+      WORKOUT_WORKER_ID: "worker:test",
+    })).toThrow(/unsupported/i);
+  });
+
   it("instantiates the configured model through the AI Gateway provider", () => {
     const model = createConfiguredWorkoutGatewayModel({
       gatewayApiKey: "gateway-test-key",
@@ -246,6 +281,22 @@ describe("workout worker production composition", () => {
     });
 
     expect(model).toMatchObject({ provider: "gateway", modelId: "openai/gpt-5-mini" });
+    expect(model.doGenerate).toBeTypeOf("function");
+  });
+
+  it("selects the direct OpenAI provider when an OpenAI key is configured", () => {
+    const options = readConfiguredWorkoutWorkerOptions({
+      NODE_ENV: "development",
+      WORKOUT_DEMO_MODE: "provider",
+      WORKOUT_ROUTE_SECRET: "x".repeat(32),
+      WORKOUT_WORKER_ID: "worker:openai",
+      WORKOUT_MODEL_ID: "gpt-4o-mini",
+      OPENAI_API_KEY: "openai-test-key",
+    });
+
+    expect(options).toMatchObject({ provider: "openai", providerApiKey: "openai-test-key" });
+    const model = createConfiguredWorkoutModel(options);
+    expect(model).toMatchObject({ provider: "openai.responses", modelId: "gpt-4o-mini" });
     expect(model.doGenerate).toBeTypeOf("function");
   });
 

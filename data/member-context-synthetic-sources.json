@@ -6,6 +6,18 @@
       "member_id": "mbr_01HX9JORDAN",
       "coach_id": "coach_01HXSAM",
       "synthetic_note": "Synthetic, fictional sample member for the take-home. No real person or PHI. Use only as seed data."
+    },
+    {
+      "fixture_id": "avery",
+      "member_id": "mbr_02HX9AVERY",
+      "coach_id": "coach_01HXSAM",
+      "synthetic_note": "Synthetic, fictional sample member for the take-home. No real person or PHI. Use only as seed data."
+    },
+    {
+      "fixture_id": "morgan",
+      "member_id": "mbr_03HX9MORGAN",
+      "coach_id": "coach_01HXSAM",
+      "synthetic_note": "Synthetic, fictional sample member. No real person or PHI."
     }
   ]
 }

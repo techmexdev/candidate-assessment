@@ -61,9 +61,9 @@ describe("explicit mock coach session", () => {
     const secret = "axon-local-workout-route-secret-change-before-production";
     const expired = mockCoachSessionClaims({ now: new Date(Date.now() - 2_000).toISOString(), ttlMs: 1_000 });
     expect(expired).toBeDefined();
-    const missing = await GET(request("/api/session"));
-    const tampered = await GET(request("/api/session", { headers: { cookie: "axon_coach_session=tampered" } }));
-    const expiredResponse = await GET(request("/api/session", { headers: { cookie: `axon_coach_session=${sealMockCoachSession(secret, expired!)}` } }));
+    const missing = await GET(new Request("http://localhost/api/session"));
+    const tampered = await GET(new Request("http://localhost/api/session", { headers: { cookie: "axon_coach_session=tampered" } }));
+    const expiredResponse = await GET(new Request("http://localhost/api/session", { headers: { cookie: `axon_coach_session=${sealMockCoachSession(secret, expired!)}` } }));
     expect(await missing.json()).toMatchObject({ status: "authenticated" });
     expect(await tampered.json()).toEqual({ status: "signed_out" });
     expect(await expiredResponse.json()).toEqual({ status: "signed_out" });
@@ -72,6 +72,12 @@ describe("explicit mock coach session", () => {
   it("requires same-origin mutation and keeps test bypass explicit and production-inert", async () => {
     environment.NODE_ENV = "test";
     expect((await POST(new Request("https://axon.test/api/session", { method: "POST", body: "{}" }))).status).toBe(403);
+    const browserCompatible = await POST(new Request("https://axon.test/api/session", {
+      method: "POST",
+      body: "{}",
+      headers: { "content-type": "application/json", referer: "https://axon.test/" },
+    }));
+    expect(browserCompatible.status).toBe(200);
     const secret = "mock-session-authority-secret-with-more-than-32-bytes";
     const noBypass = createMockCoachSessionAuthority({ secret, environment: "development" });
     expect(await noBypass.resolveSession(new Request("http://localhost/api"))).toEqual({ status: "unauthorized" });

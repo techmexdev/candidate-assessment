@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MovementGraphPublisher } from "../../src/domain/contracts/movement-graph-publication";
-import { prepareMovementGraphSeed, runMovementGraphSeedCli } from "../../scripts/seed-movement-graph";
+import { movementGraphNeo4jClientConfig, prepareMovementGraphSeed, runMovementGraphSeedCli } from "../../scripts/seed-movement-graph";
 
 describe("movement graph seed CLI", () => {
+  it("maps Railway environment values explicitly", () => {
+    expect(movementGraphNeo4jClientConfig({
+      NODE_ENV: "production",
+      AXON_RUNTIME_PROFILE: "railway-demo",
+      NEO4J_ALLOW_INSECURE_RAILWAY: "1",
+      NEO4J_PRIVATE_DOMAIN: "neo4j.railway.internal",
+      NEO4J_URI: "bolt://neo4j.railway.internal:7687",
+      NEO4J_USERNAME: "neo4j",
+      NEO4J_PASSWORD: "Q7v!pR2#nL8@xZ4$",
+      NEO4J_DATABASE: "neo4j",
+    })).toMatchObject({ runtimeProfile: "railway-demo", allowInsecureRailway: true });
+  });
+
   it("returns an invalid seed result for malformed source manifests", () => {
     expect(() => prepareMovementGraphSeed({ sourceReviews: null })).not.toThrow();
     expect(prepareMovementGraphSeed({ sourceReviews: null })).toMatchObject({

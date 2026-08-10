@@ -38,13 +38,41 @@ export const MOVEMENT_CYPHER = Object.freeze({
     MATCH (concept:MovementConcept {graphRevisionId: $revisionId})
     RETURN concept.payload AS payload
     ORDER BY concept.assertionId
+    SKIP $offset
     LIMIT $limit
   `,
   readEdges: `
     MATCH (:MovementConcept {graphRevisionId: $revisionId})-[edge:MOVEMENT_EDGE {graphRevisionId: $revisionId}]->(:MovementConcept {graphRevisionId: $revisionId})
     RETURN edge.payload AS payload
     ORDER BY edge.assertionId
+    SKIP $offset
     LIMIT $limit
+  `,
+  readPage: `
+    MATCH (seal:RevisionSeal)-[:SEALS_REVISION]->
+      (revision:MovementRevision {revisionId: $revisionId})
+    CALL {
+      MATCH (concept:MovementConcept {graphRevisionId: $revisionId})
+      WITH concept ORDER BY concept.assertionId
+      SKIP $nodeOffset
+      LIMIT $limit
+      RETURN collect(concept.payload) AS nodePayloads
+    }
+    CALL {
+      MATCH (:MovementConcept {graphRevisionId: $revisionId})
+        -[edge:MOVEMENT_EDGE {graphRevisionId: $revisionId}]->
+        (:MovementConcept {graphRevisionId: $revisionId})
+      WITH edge ORDER BY edge.assertionId
+      SKIP $relationshipOffset
+      LIMIT $limit
+      RETURN collect(edge.payload) AS relationshipPayloads
+    }
+    RETURN revision.revisionId AS revisionId,
+      seal.canonicalDigest AS canonicalDigest,
+      seal.nodeCount AS nodeCount,
+      seal.edgeCount AS edgeCount,
+      nodePayloads, relationshipPayloads
+    LIMIT 1
   `,
   findAttempt: `
     MATCH (attempt:PublicationAttempt {attemptId: $attemptId})
@@ -104,7 +132,9 @@ export const MOVEMENT_CYPHER = Object.freeze({
     OPTIONAL MATCH (seal:RevisionSeal {graphRevisionId: $revisionId})
     RETURN catalog.activeRevisionId AS activeRevisionId, revision.revisionId AS revisionId,
       attempt.attemptId AS attemptId, attempt.state AS attemptState,
-      attempt.validationErrors AS validationErrors, seal.sealId AS sealId
+      attempt.validationErrors AS validationErrors, seal.sealId AS sealId,
+      seal.canonicalDigest AS canonicalDigest, seal.nodeCount AS nodeCount,
+      seal.edgeCount AS edgeCount
     ORDER BY attempt.attemptId
     LIMIT 1
   `,

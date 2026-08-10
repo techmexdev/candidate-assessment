@@ -82,6 +82,6 @@ test("projects the authoritative workout and stored trace after bounded progress
   await expect(page.getByText("3×8 · 75 sec rest", { exact: true })).toBeVisible();
   await expect(page.getByText("exercise:split-squat", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Decision path" }).last().click();
-  await expect(page.getByText("path:injured-joint", { exact: true })).toBeVisible();
-  await expect(page.getByText("movement:7 · member:4", { exact: true })).toBeVisible();
+  await expect(page.getByText("path:injured-joint", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("movement:7 · member:4", { exact: true }).first()).toBeVisible();
 });

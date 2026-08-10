@@ -10,7 +10,10 @@ import type {
 } from "../../domain/contracts/member-context-queries";
 import {
   FullGraphProjectionError,
+  isValidFullGraphPageRequest,
+  projectMemberContextGraphPage,
   projectMemberContextGraphSnapshot,
+  type FullGraphPageRequest,
   type FullGraphReadResult,
   type MemberContextFullReadProvider,
 } from "../../domain/contracts/full-graph-view";
@@ -40,11 +43,13 @@ export async function readCanonicalMemberContextSnapshot(
   const nodes = await transaction.run(MEMBER_CONTEXT_CYPHER.readNodes, {
     memberId,
     contextRevisionId,
+    offset: neo4j.int(0),
     limit: neo4j.int(MEMBER_CONTEXT_NEO4J_LIMITS.maxNodesPerRevision + 1),
   });
   const relationships = await transaction.run(MEMBER_CONTEXT_CYPHER.readRelationships, {
     memberId,
     contextRevisionId,
+    offset: neo4j.int(0),
     limit: neo4j.int(MEMBER_CONTEXT_NEO4J_LIMITS.maxRelationshipsPerRevision + 1),
   });
   if (nodes.records.length > MEMBER_CONTEXT_NEO4J_LIMITS.maxNodesPerRevision
@@ -63,6 +68,59 @@ export async function readCanonicalMemberContextSnapshot(
     nodes: nodes.records.map((record) => parse<MemberContextGraphNode>(record)),
     relationships: relationships.records.map((record) => parse<MemberContextGraphRelationship>(record)),
   });
+}
+
+export async function readCanonicalMemberContextPage(
+  transaction: Neo4jTransaction,
+  memberId: string,
+  contextRevisionId: string,
+  page: FullGraphPageRequest,
+): Promise<{
+  readonly snapshot: MemberContextGraphSnapshot;
+  readonly page: FullGraphPageRequest & { readonly hasMoreNodes: boolean; readonly hasMoreRelationships: boolean };
+  readonly seal: { readonly canonicalDigest: string; readonly nodeCount: number; readonly relationshipCount: number };
+} | undefined> {
+  const result = await transaction.run(MEMBER_CONTEXT_CYPHER.readPage, {
+    memberId,
+    contextRevisionId,
+    nodeOffset: neo4j.int(page.nodeOffset),
+    relationshipOffset: neo4j.int(page.relationshipOffset),
+    limit: neo4j.int(page.pageSize + 1),
+  });
+  const record = result.records[0];
+  const sourceArtifactDigest = text(record?.get("sourceArtifactDigest"));
+  const resultRevisionId = text(record?.get("contextRevisionId"));
+  const canonicalDigest = text(record?.get("canonicalDigest"));
+  const nodeCount = Number(record?.get("nodeCount"));
+  const relationshipCount = Number(record?.get("relationshipCount"));
+  if (!record || !sourceArtifactDigest || resultRevisionId !== contextRevisionId || !canonicalDigest
+    || !Number.isSafeInteger(nodeCount) || nodeCount < 0
+    || !Number.isSafeInteger(relationshipCount) || relationshipCount < 0) return undefined;
+  const parsePayloads = <T>(value: unknown): T[] => {
+    if (!Array.isArray(value)) throw new Error("Stored member context page has no canonical payload list");
+    return value.map((payload) => {
+      const textPayload = text(payload);
+      if (!textPayload) throw new Error("Stored member context record has no canonical payload");
+      return JSON.parse(textPayload) as T;
+    });
+  };
+  const nodePayloads = parsePayloads<MemberContextGraphNode>(record.get("nodePayloads"));
+  const relationshipPayloads = parsePayloads<MemberContextGraphRelationship>(record.get("relationshipPayloads"));
+  return {
+    snapshot: deepFreeze({
+      memberId,
+      contextRevisionId,
+      sourceArtifactDigest,
+      nodes: nodePayloads.slice(0, page.pageSize),
+      relationships: relationshipPayloads.slice(0, page.pageSize),
+    }),
+    page: {
+      ...page,
+      hasMoreNodes: nodePayloads.length > page.pageSize,
+      hasMoreRelationships: relationshipPayloads.length > page.pageSize,
+    },
+    seal: { canonicalDigest, nodeCount, relationshipCount },
+  };
 }
 
 type SealMetadata = {
@@ -134,15 +192,16 @@ class Neo4jMemberContextReadProvider implements MemberContextFullReadProvider {
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", domain: "member-context", message: genericMessage };
     try {
-      const contextRevisionId = await this.client.executeRead(async (transaction) => {
-        const result = await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, { memberId: claims.memberId });
-        return text(result.records[0]?.get("activeRevisionId"));
+      return await this.client.executeRead(async (transaction) => {
+        const contextRevisionId = text((await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, { memberId: claims.memberId })).records[0]?.get("activeRevisionId"));
+        return contextRevisionId
+          ? this.readFullRevisionInTransaction(transaction, claims.memberId, contextRevisionId, contextRevisionId)
+          : { status: "empty", domain: "member-context", message: genericMessage };
       });
-      return contextRevisionId
-        ? this.readFullRevision(scope, contextRevisionId)
-        : { status: "empty", domain: "member-context", message: genericMessage };
-    } catch {
-      return { status: "unavailable", domain: "member-context", message: genericMessage };
+    } catch (error) {
+      return error instanceof FullGraphProjectionError
+        ? { status: "invalid", domain: "member-context", message: "Member context failed integrity validation." }
+        : { status: "unavailable", domain: "member-context", message: genericMessage };
     }
   }
 
@@ -153,47 +212,123 @@ class Neo4jMemberContextReadProvider implements MemberContextFullReadProvider {
     const claims = inspectAuthorizedMemberContextScope(scope);
     if (!claims) return { status: "denied", domain: "member-context", message: genericMessage };
     try {
-      const opened = await this.client.executeRead<OpenedRevision>(async (transaction) => {
+      return await this.client.executeRead(async (transaction) => {
         const activeRevisionId = text((await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, {
           memberId: claims.memberId,
         })).records[0]?.get("activeRevisionId")) ?? null;
-        const sealResult = await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
-          memberId: claims.memberId,
-          contextRevisionId,
-        });
-        const seal = sealMetadata(sealResult.records[0]);
-        if (!seal) return { activeRevisionId };
-        const snapshot = await readCanonicalMemberContextSnapshot(transaction, claims.memberId, contextRevisionId);
-        return snapshot ? { activeRevisionId, seal, snapshot } : { activeRevisionId };
+        return this.readFullRevisionInTransaction(transaction, claims.memberId, contextRevisionId, activeRevisionId);
       });
-      if (opened.activeRevisionId !== contextRevisionId) {
-        return {
-          status: "stale",
-          domain: "member-context",
-          requestedRevisionId: contextRevisionId,
-          activeRevisionId: opened.activeRevisionId,
-        };
-      }
-      if (!("snapshot" in opened)) {
-        return {
-          status: "stale",
-          domain: "member-context",
-          requestedRevisionId: contextRevisionId,
-          activeRevisionId: opened.activeRevisionId,
-        };
-      }
-      if (opened.snapshot.memberId !== claims.memberId
-        || opened.snapshot.nodes.length !== opened.seal.nodeCount
-        || opened.snapshot.relationships.length !== opened.seal.relationshipCount
-        || canonicalMemberContextDigest(opened.snapshot) !== opened.seal.canonicalDigest
-        || !validateMemberContextGraph(opened.snapshot).valid) {
-        return { status: "unavailable", domain: "member-context", message: genericMessage };
-      }
-      return { status: "ready", data: projectMemberContextGraphSnapshot(opened.snapshot, "canonical") };
     } catch (error) {
       const message = error instanceof FullGraphProjectionError ? "Member context failed integrity validation." : genericMessage;
       return { status: "invalid", domain: "member-context", message };
     }
+  }
+
+  async readFullPage(
+    scope: AuthorizedMemberContextScope,
+    page: FullGraphPageRequest,
+    contextRevisionId?: string,
+  ): Promise<FullGraphReadResult> {
+    const claims = inspectAuthorizedMemberContextScope(scope);
+    if (!claims) return { status: "denied", domain: "member-context", message: genericMessage };
+    if (!isValidFullGraphPageRequest(page)) {
+      return { status: "invalid", domain: "member-context", message: "Invalid full graph page request." };
+    }
+    try {
+      return await this.client.executeRead(async (transaction) => {
+        const activeRevisionId = text((await transaction.run(MEMBER_CONTEXT_CYPHER.readActiveRevision, {
+          memberId: claims.memberId,
+        })).records[0]?.get("activeRevisionId")) ?? null;
+        const requestedRevisionId = contextRevisionId ?? activeRevisionId;
+        return requestedRevisionId
+          ? this.readFullPageInTransaction(transaction, claims.memberId, requestedRevisionId, activeRevisionId, page)
+          : { status: "empty", domain: "member-context", message: genericMessage };
+      });
+    } catch (error) {
+      return error instanceof FullGraphProjectionError
+        ? { status: "invalid", domain: "member-context", message: "Member context failed integrity validation." }
+        : { status: "unavailable", domain: "member-context", message: genericMessage };
+    }
+  }
+
+  private async readFullRevisionInTransaction(
+    transaction: Neo4jTransaction,
+    memberId: string,
+    contextRevisionId: string,
+    activeRevisionId: string | null,
+  ): Promise<FullGraphReadResult> {
+    if (activeRevisionId !== contextRevisionId) {
+      return {
+        status: "stale",
+        domain: "member-context",
+        requestedRevisionId: contextRevisionId,
+        activeRevisionId,
+      };
+    }
+    const sealResult = await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
+      memberId,
+      contextRevisionId,
+    });
+    const seal = sealMetadata(sealResult.records[0]);
+    if (!seal) return { status: "empty", domain: "member-context", message: genericMessage };
+    const snapshot = await readCanonicalMemberContextSnapshot(transaction, memberId, contextRevisionId);
+    if (!snapshot) return { status: "empty", domain: "member-context", message: genericMessage };
+    if (snapshot.memberId !== memberId
+      || snapshot.nodes.length !== seal.nodeCount
+      || snapshot.relationships.length !== seal.relationshipCount
+      || canonicalMemberContextDigest(snapshot) !== seal.canonicalDigest
+      || !validateMemberContextGraph(snapshot).valid) {
+      return { status: "unavailable", domain: "member-context", message: genericMessage };
+    }
+    return { status: "ready", data: projectMemberContextGraphSnapshot(snapshot, "canonical") };
+  }
+
+  private async readFullPageInTransaction(
+    transaction: Neo4jTransaction,
+    memberId: string,
+    contextRevisionId: string,
+    activeRevisionId: string | null,
+    page: FullGraphPageRequest,
+  ): Promise<FullGraphReadResult> {
+    if (activeRevisionId !== contextRevisionId) {
+      return {
+        status: "stale",
+        domain: "member-context",
+        requestedRevisionId: contextRevisionId,
+        activeRevisionId,
+      };
+    }
+    const sealResult = await transaction.run(MEMBER_CONTEXT_CYPHER.readSealedRevision, {
+      memberId,
+      contextRevisionId,
+    });
+    const seal = sealMetadata(sealResult.records[0]);
+    if (!seal) return { status: "empty", domain: "member-context", message: genericMessage };
+    const snapshot = await readCanonicalMemberContextSnapshot(transaction, memberId, contextRevisionId);
+    if (!snapshot
+      || snapshot.memberId !== memberId
+      || snapshot.nodes.length !== seal.nodeCount
+      || snapshot.relationships.length !== seal.relationshipCount
+      || canonicalMemberContextDigest(snapshot) !== seal.canonicalDigest
+      || !validateMemberContextGraph(snapshot).valid) {
+      return { status: "unavailable", domain: "member-context", message: genericMessage };
+    }
+    const pageSnapshot = await readCanonicalMemberContextPage(transaction, memberId, contextRevisionId, page);
+    if (!pageSnapshot) return { status: "empty", domain: "member-context", message: genericMessage };
+    if (pageSnapshot.seal.canonicalDigest !== seal.canonicalDigest
+      || pageSnapshot.seal.nodeCount !== seal.nodeCount
+      || pageSnapshot.seal.relationshipCount !== seal.relationshipCount) {
+      return { status: "unavailable", domain: "member-context", message: genericMessage };
+    }
+    return {
+      status: "ready",
+      data: projectMemberContextGraphPage(
+        pageSnapshot.snapshot,
+        "canonical",
+        { nodes: pageSnapshot.seal.nodeCount, relationships: pageSnapshot.seal.relationshipCount },
+        pageSnapshot.page,
+      ),
+    };
   }
 
   private async openClaimsRevision(

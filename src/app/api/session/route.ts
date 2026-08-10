@@ -8,6 +8,7 @@ import {
   readMockCoachSessionCookie,
   sealMockCoachSession,
 } from "../../../server/auth/mock-coach-session";
+import { isSameOriginMutation } from "../../../server/http/same-origin";
 import { workoutRouteSecret } from "../../../server/workout-route-composition";
 
 const MAX_BODY_BYTES = 4_096;
@@ -30,18 +31,20 @@ function response(value: unknown, status = 200, extra: Record<string, string> = 
   return Response.json(value, { status, headers: { ...noStoreHeaders, ...extra } });
 }
 
-function sameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
-}
-
 function secureCookie(request: Request) {
   try {
     const url = new URL(request.url);
     const localHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
     return !localHttp;
   } catch { return true; }
+}
+
+function isLoopbackRequest(request: Request) {
+  try {
+    return ["localhost", "127.0.0.1", "::1"].includes(new URL(request.url).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function cookieHeader(request: Request, token: string, maxAge: number) {
@@ -78,7 +81,7 @@ async function readBody(request: Request): Promise<Record<string, unknown> | und
 function currentSession(request: Request) {
   const token = readMockCoachSessionCookie(request);
   let claims = token ? parseMockCoachSession(secret(), token) : undefined;
-  if (!claims && !token && process.env.WORKOUT_TEST_BYPASS === "1" && environment() !== "production") {
+  if (!claims && !token && isLoopbackRequest(request) && process.env.WORKOUT_TEST_BYPASS === "1" && environment() !== "production") {
     const configured = roster();
     claims = mockCoachSessionClaims({
       now: new Date().toISOString(),
@@ -99,7 +102,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!sameOrigin(request)) return response({ status: "forbidden" }, 403);
+  if (!isSameOriginMutation(request)) return response({ status: "forbidden" }, 403);
   const body = await readBody(request);
   if (!body || Object.keys(body).some((key) => key !== "coachId")
     || (body.coachId !== undefined && typeof body.coachId !== "string")) {
@@ -123,6 +126,6 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!sameOrigin(request)) return response({ status: "forbidden" }, 403);
+  if (!isSameOriginMutation(request)) return response({ status: "forbidden" }, 403);
   return response({ status: "signed_out" }, 200, { "set-cookie": clearCookie(request) });
 }

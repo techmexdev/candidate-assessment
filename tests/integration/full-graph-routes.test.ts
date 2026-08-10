@@ -103,6 +103,21 @@ describe("full graph route integration", () => {
     expect(memberData.relationships.every((relationship) => memberNodeIds.has(relationship.fromId) && memberNodeIds.has(relationship.toId))).toBe(true);
   });
 
+  it("serves a bounded movement page with canonical totals and continuation metadata", async () => {
+    const handler = createMovementGraphHandler({
+      resolveSession: async () => ({ status: "authorized", coachId: COACH_ID, authorizationId: AUTHORIZATION_ID }),
+      readMovement: retrieve.readMovement,
+    });
+
+    const page = ready(await handler(request("/api/movement-graph?pageSize=2&nodeOffset=0&relationshipOffset=0"))
+      .then(async (response) => response.json() as Promise<FullGraphReadResult>));
+
+    expect(page.page).toMatchObject({ pageSize: 2, nodeOffset: 0, relationshipOffset: 0 });
+    expect(page.nodes.length).toBeLessThanOrEqual(2);
+    expect(page.relationships.length).toBeLessThanOrEqual(2);
+    expect(page.counts).toEqual({ nodes: movementSnapshot.nodes.length, relationships: movementSnapshot.edges.length });
+  });
+
   it("rejects a cross-member read and reports a pinned member revision as stale", async () => {
     const handler = createMemberContextGraphHandler({
       resolveSession: async () => ({ status: "authorized", coachId: COACH_ID, authorizationId: AUTHORIZATION_ID }),

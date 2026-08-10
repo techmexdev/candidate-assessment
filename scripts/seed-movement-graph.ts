@@ -12,6 +12,7 @@ import { setupMovementNeo4jSchema } from "../src/graph/neo4j/movement-schema";
 import { createNeo4jMovementPublisher } from "../src/graph/publication/neo4j-movement-publisher";
 import { canonicalJson, sha256 } from "../src/graph/revisions/movement-graph";
 import { validateMovementGraph } from "../src/graph/validation/movement-graph";
+import { resolveDeploymentProfile } from "../src/server/deployment-profile";
 
 type SourceDigests = Readonly<Record<string, string>>;
 
@@ -247,13 +248,19 @@ function argumentValue(args: readonly string[], name: string) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-function clientConfig(): Neo4jClientConfig {
+export function movementGraphNeo4jClientConfig(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Neo4jClientConfig {
+  const deploymentProfile = resolveDeploymentProfile(environment);
   return {
-    uri: process.env.NEO4J_URI,
-    username: process.env.NEO4J_USERNAME,
-    password: process.env.NEO4J_PASSWORD,
-    database: process.env.NEO4J_DATABASE,
-    environment: process.env.NODE_ENV ?? "development",
+    uri: environment.NEO4J_URI,
+    username: environment.NEO4J_USERNAME,
+    password: environment.NEO4J_PASSWORD,
+    database: environment.NEO4J_DATABASE,
+    environment: environment.NODE_ENV ?? "development",
+    runtimeProfile: deploymentProfile.name,
+    allowInsecureRailway: deploymentProfile.allowInsecureRailway,
+    expectedPrivateDomain: environment.NEO4J_PRIVATE_DOMAIN,
   };
 }
 
@@ -270,7 +277,7 @@ export type MovementGraphSeedCliDependencies = {
 };
 
 async function openMovementGraphSeedPublisher(): Promise<MovementGraphSeedCliPublisherSession> {
-  const client = createNeo4jClient(clientConfig());
+  const client = createNeo4jClient(movementGraphNeo4jClientConfig());
   try {
     await client.verifyConnectivity();
     await setupMovementNeo4jSchema(client);
@@ -304,6 +311,10 @@ export async function runMovementGraphSeedCli(
             validationStatus: inspection.data.state,
             activeRevisionId: inspection.data.activeRevisionId,
             ...(inspection.data.revisionId ? { graphRevisionId: inspection.data.revisionId } : {}),
+            ...(inspection.data.sealId ? { sealId: inspection.data.sealId } : {}),
+            ...(inspection.data.canonicalDigest ? { canonicalDigest: inspection.data.canonicalDigest } : {}),
+            ...(inspection.data.nodeCount !== undefined ? { nodeCount: inspection.data.nodeCount } : {}),
+            ...(inspection.data.edgeCount !== undefined ? { edgeCount: inspection.data.edgeCount } : {}),
           }
         : { validationStatus: "failed", failureCode: inspection.failure.code };
       writeOutput(`${JSON.stringify(safeOutput)}\n`);

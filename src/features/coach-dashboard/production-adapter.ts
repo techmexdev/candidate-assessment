@@ -21,13 +21,19 @@ import {
   type SignedCopilotContinuation,
 } from "../../domain/contracts/copilot";
 import {
+  FULL_GRAPH_PAGE_LIMITS,
   type FullGraphDomain,
   type FullGraphDetailField,
+  type FullGraphEntityKind,
+  type FullGraphPage,
+  type FullGraphPageRequest,
   type FullGraphNode,
   type FullGraphProjection,
   type FullGraphProvenance,
   type FullGraphReadResult,
   type FullGraphRelationship,
+  isValidFullGraphPageRequest,
+  relinkFullGraphProjection,
 } from "../../domain/contracts/full-graph-view";
 import {
   MEMBER_CONTEXT_NODE_KINDS,
@@ -61,6 +67,7 @@ const assertionClassifications = [
 ] as const satisfies readonly AssertionClassification[];
 const chartPrecisions = ["exact-timestamp", "date", "relative-order", "unknown"] as const;
 const churnLevels = ["low", "watch", "elevated", "insufficient-evidence"] as const;
+const FULL_GRAPH_PROGRESS_PAGE_INTERVAL = 8;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -185,6 +192,33 @@ function decodeFullGraphRelationship(value: unknown, domain: FullGraphDomain, re
   };
 }
 
+function decodeFullGraphPage(value: unknown): FullGraphPage | null {
+  const nodeOffset = record(value) ? value.nodeOffset : undefined;
+  const relationshipOffset = record(value) ? value.relationshipOffset : undefined;
+  const pageSize = record(value) ? value.pageSize : undefined;
+  if (!record(value)
+    || !Number.isSafeInteger(nodeOffset)
+    || !Number.isSafeInteger(relationshipOffset)
+    || !Number.isSafeInteger(pageSize)
+    || (nodeOffset as number) < 0
+    || (relationshipOffset as number) < 0
+    || (pageSize as number) < 1
+    || (pageSize as number) > FULL_GRAPH_PAGE_LIMITS.maxPageSize
+    || typeof value.hasMoreNodes !== "boolean"
+    || typeof value.hasMoreRelationships !== "boolean") return null;
+  const pageRequest = {
+    nodeOffset: nodeOffset as number,
+    relationshipOffset: relationshipOffset as number,
+    pageSize: pageSize as number,
+  };
+  if (!isValidFullGraphPageRequest(pageRequest)) return null;
+  return {
+    ...pageRequest,
+    hasMoreNodes: value.hasMoreNodes,
+    hasMoreRelationships: value.hasMoreRelationships,
+  };
+}
+
 function decodeFullGraphProjection(value: unknown, expectedDomain: FullGraphDomain, expectedMemberId?: string): FullGraphProjection | null {
   const counts = record(value) && record(value.counts)
     ? { nodes: value.counts.nodes, relationships: value.counts.relationships }
@@ -208,7 +242,16 @@ function decodeFullGraphProjection(value: unknown, expectedDomain: FullGraphDoma
   const relationshipCount = counts.relationships as number;
   const nodes = decodedArray(value.nodes, (node) => decodeFullGraphNode(node, expectedDomain, value.revisionId as string));
   const relationships = decodedArray(value.relationships, (relationship) => decodeFullGraphRelationship(relationship, expectedDomain, value.revisionId as string));
-  if (!nodes || !relationships || nodes.length !== nodeCount || relationships.length !== relationshipCount) return null;
+  const page = value.page === undefined ? undefined : decodeFullGraphPage(value.page);
+  if (!nodes || !relationships || (value.page !== undefined && !page)) return null;
+  if (!page && (nodes.length !== nodeCount || relationships.length !== relationshipCount)) return null;
+  if (page && (page.nodeOffset > nodeCount || page.relationshipOffset > relationshipCount
+    || nodes.length > page.pageSize
+    || relationships.length > page.pageSize
+    || (page.hasMoreNodes && page.nodeOffset + nodes.length >= nodeCount)
+    || (!page.hasMoreNodes && page.nodeOffset + nodes.length < nodeCount)
+    || (page.hasMoreRelationships && page.relationshipOffset + relationships.length >= relationshipCount)
+    || (!page.hasMoreRelationships && page.relationshipOffset + relationships.length < relationshipCount))) return null;
   const nodeIds = new Set<string>();
   for (const node of nodes) {
     if (nodeIds.has(node.id)) return null;
@@ -216,7 +259,7 @@ function decodeFullGraphProjection(value: unknown, expectedDomain: FullGraphDoma
   }
   const relationshipIds = new Set<string>();
   for (const relationship of relationships) {
-    if (relationshipIds.has(relationship.id) || !nodeIds.has(relationship.fromId) || !nodeIds.has(relationship.toId)) return null;
+    if (relationshipIds.has(relationship.id) || (!page && (!nodeIds.has(relationship.fromId) || !nodeIds.has(relationship.toId)))) return null;
     relationshipIds.add(relationship.id);
   }
   return {
@@ -228,21 +271,28 @@ function decodeFullGraphProjection(value: unknown, expectedDomain: FullGraphDoma
     counts: { nodes: nodeCount, relationships: relationshipCount },
     nodes,
     relationships,
+    ...(page ? { page } : {}),
   };
 }
 
-function decodeFullGraphResult(value: unknown, input: { readonly domain: FullGraphDomain; readonly memberId?: string }): FullGraphReadResult | null {
+function decodeFullGraphResult(value: unknown, input: { readonly domain: FullGraphDomain; readonly memberId?: string; readonly entityId?: string; readonly entityKind?: FullGraphEntityKind }): FullGraphReadResult | null {
   if (!record(value) || typeof value.status !== "string") return null;
   if (value.status === "ready") {
     const data = decodeFullGraphProjection(value.data, input.domain, input.memberId);
-    return data ? { status: "ready", data } : null;
+    if (!data) return null;
+    if (input.entityId) {
+      const collection = input.entityKind === "node" ? data.nodes : data.relationships;
+      if (!collection.some((entity) => entity.id === input.entityId)) return null;
+    }
+    return { status: "ready", data };
   }
-  if (value.domain !== input.domain || typeof value.message !== "string") return null;
   if (value.status === "stale") {
+    if (value.domain !== input.domain) return null;
     if (typeof value.requestedRevisionId !== "string"
       || (value.activeRevisionId !== null && typeof value.activeRevisionId !== "string")) return null;
     return { status: "stale", domain: input.domain, requestedRevisionId: value.requestedRevisionId, activeRevisionId: value.activeRevisionId };
   }
+  if (value.domain !== input.domain || typeof value.message !== "string") return null;
   if (value.status === "empty" || value.status === "denied" || value.status === "invalid" || value.status === "unavailable") {
     return { status: value.status, domain: input.domain, message: value.message };
   }
@@ -253,28 +303,140 @@ function unavailableFullGraph(domain: FullGraphDomain): FullGraphReadResult {
   return { status: "unavailable", domain, message: domain === "member-context" ? "Member context is unavailable." : "Movement graph is unavailable." };
 }
 
-export function createFetchDashboardFullGraphClient(fetcher: typeof fetch = fetch): import("./dashboard-contract").DashboardFullGraphClient {
+// The first local Neo4j read can include dev-server compilation and driver
+// connection setup. Keep the fail-closed guard, but allow that cold start to
+// finish before presenting an unavailable graph to the coach.
+const FULL_GRAPH_REQUEST_TIMEOUT_MS = 30_000;
+
+function composeFullGraphRequestSignal(inputSignal?: AbortSignal): { readonly signal: AbortSignal; readonly dispose: () => void } {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FULL_GRAPH_REQUEST_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (inputSignal?.aborted) controller.abort();
+  else inputSignal?.addEventListener("abort", onAbort, { once: true });
   return {
-    async read(input) {
-      if ((input.domain === "member-context" && (!input.memberId || input.memberId.length > 200))
-        || (input.domain === "movement-clinical" && input.memberId !== undefined)
-        || (input.revisionId !== undefined && (input.revisionId.length === 0 || input.revisionId.length > 200))) {
-        return { status: "invalid", domain: input.domain, message: "Invalid full graph request." };
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timeout);
+      inputSignal?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+export function createFetchDashboardFullGraphClient(fetcher: typeof fetch = fetch): import("./dashboard-contract").DashboardFullGraphClient {
+  const validateInput = (input: import("./dashboard-contract").DashboardFullGraphRequest): FullGraphReadResult | null => {
+    if ((input.domain === "member-context" && (!input.memberId || input.memberId.length > 200))
+      || (input.domain === "movement-clinical" && input.memberId !== undefined)
+      || (input.revisionId !== undefined && (input.revisionId.length === 0 || input.revisionId.length > 200))
+      || (input.entityId !== undefined && (input.entityId.length === 0 || input.entityId.length > 200
+        || (input.entityKind !== "node" && input.entityKind !== "relationship")))
+      || (input.entityId === undefined && input.entityKind !== undefined)) {
+      return { status: "invalid", domain: input.domain, message: "Invalid full graph request." };
+    }
+    return null;
+  };
+
+  const readRequest = async (
+    input: import("./dashboard-contract").DashboardFullGraphRequest,
+    page?: FullGraphPageRequest,
+  ): Promise<FullGraphReadResult> => {
+    const invalid = validateInput(input);
+    if (invalid) return invalid;
+    const params = new URLSearchParams();
+    if (input.domain === "member-context") params.set("memberId", input.memberId!);
+    if (input.revisionId) params.set(input.domain === "member-context" ? "contextRevisionId" : "revisionId", input.revisionId);
+    if (input.entityId) {
+      params.set("entityId", input.entityId);
+      params.set("entityKind", input.entityKind!);
+    }
+    if (page) {
+      params.set("pageSize", String(page.pageSize));
+      params.set("nodeOffset", String(page.nodeOffset));
+      params.set("relationshipOffset", String(page.relationshipOffset));
+    }
+    const path = input.domain === "member-context" ? "/api/member-context/graph" : "/api/movement-graph";
+    const requestSignal = composeFullGraphRequestSignal(input.signal);
+    try {
+      const response = await fetcher(`${path}?${params.toString()}`, {
+        headers: { accept: "application/json" },
+        signal: requestSignal.signal,
+      });
+      const decoded = decodeFullGraphResult(await response.json(), input);
+      return decoded ?? unavailableFullGraph(input.domain);
+    } catch {
+      return unavailableFullGraph(input.domain);
+    } finally {
+      requestSignal.dispose();
+    }
+  };
+
+  const readPage = (input: import("./dashboard-contract").DashboardFullGraphPageRequest) => readRequest(input, input.page);
+
+  return {
+    read: (input) => readRequest(input),
+    readPage,
+    async readProgressively(input, onProgress) {
+      let accumulated: FullGraphReadResult | undefined;
+      let latestProjection: FullGraphProjection | undefined;
+      const nodesById = new Map<string, FullGraphNode>();
+      const relationshipsById = new Map<string, FullGraphRelationship>();
+      const retain = (next: FullGraphProjection) => {
+        latestProjection = next;
+        for (const node of next.nodes) nodesById.set(node.id, node);
+        for (const relationship of next.relationships) relationshipsById.set(relationship.id, relationship);
+      };
+      const materialize = (): FullGraphReadResult => {
+        if (!latestProjection) return unavailableFullGraph(input.domain);
+        return {
+          status: "ready",
+          data: relinkFullGraphProjection({
+            ...latestProjection,
+            nodes: [...nodesById.values()],
+            relationships: [...relationshipsById.values()],
+          }),
+        };
+      };
+      const publish = () => {
+        accumulated = materialize();
+        onProgress(accumulated);
+        return accumulated;
+      };
+      let pinnedInput = input;
+      let page: FullGraphPageRequest = {
+        nodeOffset: 0,
+        relationshipOffset: 0,
+        pageSize: FULL_GRAPH_PAGE_LIMITS.defaultPageSize,
+      };
+      for (let requestCount = 0; requestCount < 1_000; requestCount += 1) {
+        if (input.signal?.aborted) return latestProjection ? materialize() : unavailableFullGraph(input.domain);
+        const next = await readPage({ ...pinnedInput, page });
+        if (next.status !== "ready") return next;
+        if (!next.data.page) {
+          accumulated = next;
+          onProgress(accumulated);
+          return accumulated;
+        }
+        retain(next.data);
+        const completedPageCount = requestCount + 1;
+        const isComplete = !next.data.page.hasMoreNodes && !next.data.page.hasMoreRelationships;
+        if (completedPageCount === 1
+          || completedPageCount % FULL_GRAPH_PROGRESS_PAGE_INTERVAL === 0
+          || isComplete) publish();
+        pinnedInput = { ...pinnedInput, revisionId: next.data.revisionId };
+        const nodeOffset = next.data.page.nodeOffset + next.data.nodes.length;
+        const relationshipOffset = next.data.page.relationshipOffset + next.data.relationships.length;
+        if (isComplete) return accumulated!;
+        if ((next.data.page.hasMoreNodes && nodeOffset <= next.data.page.nodeOffset)
+          || (next.data.page.hasMoreRelationships && relationshipOffset <= next.data.page.relationshipOffset)) {
+          return publish();
+        }
+        page = {
+          nodeOffset,
+          relationshipOffset,
+          pageSize: next.data.page.pageSize,
+        };
       }
-      const params = new URLSearchParams();
-      if (input.domain === "member-context") params.set("memberId", input.memberId!);
-      if (input.revisionId) params.set(input.domain === "member-context" ? "contextRevisionId" : "revisionId", input.revisionId);
-      const path = input.domain === "member-context" ? "/api/member-context/graph" : "/api/movement-graph";
-      try {
-        const response = await fetcher(`${path}?${params.toString()}`, {
-          headers: { accept: "application/json" },
-          ...(input.signal ? { signal: input.signal } : {}),
-        });
-        const decoded = decodeFullGraphResult(await response.json(), input);
-        return decoded ?? unavailableFullGraph(input.domain);
-      } catch {
-        return unavailableFullGraph(input.domain);
-      }
+      return latestProjection ? publish() : unavailableFullGraph(input.domain);
     },
   };
 }

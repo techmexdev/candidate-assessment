@@ -119,4 +119,94 @@ describe("retrieve full graph", () => {
     });
     expect(readFullRevision).toHaveBeenCalledWith("movement:one");
   });
+
+  it("revalidates the selected entity against the pinned projection", async () => {
+    const selectedProjection: FullGraphProjection = {
+      ...movementProjection,
+      nodes: [{
+        id: "exercise:squat",
+        kind: "exercise",
+        label: "Squat",
+        category: "domain",
+        revisionId: "movement:one",
+        detail: [],
+        provenance: { directAssertion: "present", assertionId: "assertion:squat", lineageIds: [], },
+      }],
+      counts: { nodes: 1, relationships: 0 },
+    };
+    const retrieve = createRetrieveFullGraph({
+      movement: {
+        readFullActive: vi.fn(async () => ({ status: "ready" as const, data: selectedProjection })),
+        readFullRevision: vi.fn(async () => ({ status: "ready" as const, data: selectedProjection })),
+      },
+      memberContext: {
+        readFullActive: vi.fn(async () => memberUnavailable),
+        readFullRevision: vi.fn(async () => memberUnavailable),
+      },
+      authorizeMemberContext: vi.fn(),
+    });
+
+    await expect(retrieve.readMovement({
+      revisionId: "movement:one",
+      inspection: { entityId: "exercise:squat", entityKind: "node" },
+    })).resolves.toMatchObject({ status: "ready" });
+    await expect(retrieve.readMovement({
+      revisionId: "movement:one",
+      inspection: { entityId: "exercise:missing", entityKind: "node" },
+    })).resolves.toEqual({
+      status: "invalid",
+      domain: "movement-clinical",
+      message: "Requested graph entity is unavailable.",
+    });
+  });
+
+  it("slices a complete provider response when a test or fixture provider has no page-native reader", async () => {
+    const pagedProjection: FullGraphProjection = {
+      ...movementProjection,
+      counts: { nodes: 2, relationships: 0 },
+      nodes: [
+        {
+          id: "exercise:one",
+          kind: "exercise",
+          label: "One",
+          category: "domain",
+          revisionId: "movement:one",
+          detail: [],
+          provenance: { directAssertion: "present", assertionId: "assertion:one", lineageIds: [] },
+        },
+        {
+          id: "exercise:two",
+          kind: "exercise",
+          label: "Two",
+          category: "domain",
+          revisionId: "movement:one",
+          detail: [],
+          provenance: { directAssertion: "present", assertionId: "assertion:two", lineageIds: [] },
+        },
+      ],
+      relationships: [],
+    };
+    const readFullActive = vi.fn(async () => ({ status: "ready" as const, data: pagedProjection }));
+    const retrieve = createRetrieveFullGraph({
+      movement: {
+        readFullActive,
+        readFullRevision: vi.fn(async () => ({ status: "ready" as const, data: pagedProjection })),
+      },
+      memberContext: {
+        readFullActive: vi.fn(async () => memberUnavailable),
+        readFullRevision: vi.fn(async () => memberUnavailable),
+      },
+      authorizeMemberContext: vi.fn(),
+    });
+
+    await expect(retrieve.readMovement({ page: { nodeOffset: 1, relationshipOffset: 0, pageSize: 1 } })).resolves.toMatchObject({
+      status: "ready",
+      data: {
+        counts: { nodes: 2, relationships: 0 },
+        nodes: [{ id: "exercise:two" }],
+        page: { nodeOffset: 1, hasMoreNodes: false, hasMoreRelationships: false },
+      },
+    });
+    expect(readFullActive).toHaveBeenCalledOnce();
+  });
 });

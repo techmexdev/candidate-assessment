@@ -239,7 +239,7 @@ describe.skipIf(!enabled)("connected production workout acceptance", () => {
           body: JSON.stringify({ memberId, prompt: scenario.prompt, durationMinutes: 45, idempotencyKey: `connected-acceptance-${Date.now()}-${scenario.scenarioId}-${index}` }),
         }));
         const submission = await submitted.json() as { status?: string; runId?: string };
-        expect(submitted.status).toBe(202);
+        expect(submitted.status, JSON.stringify(submission)).toBe(202);
         expect(submission.status).toBe("created");
         if (typeof submission.runId !== "string") throw new Error("[ASSERTION] Connected submit did not return a run ID.");
         const terminal = await waitForTerminal(cookie, submission.runId);

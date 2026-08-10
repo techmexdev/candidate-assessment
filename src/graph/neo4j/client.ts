@@ -1,4 +1,5 @@
 import neo4j, { type BookmarkManager, type Driver, type ManagedTransaction } from "neo4j-driver";
+import { isDemoPlaceholder, isRailwayPrivateDomain, RAILWAY_DEMO_PROFILE } from "../../server/deployment-profile";
 
 export const LOCAL_NEO4J_DEFAULTS = Object.freeze({
   uri: "neo4j://127.0.0.1:7687",
@@ -39,6 +40,9 @@ export type Neo4jClientConfig = {
   readonly password?: string;
   readonly database?: string;
   readonly environment?: string;
+  readonly runtimeProfile?: string;
+  readonly allowInsecureRailway?: boolean;
+  readonly expectedPrivateDomain?: string;
   readonly driverTimeouts?: Partial<Neo4jDriverTimeouts>;
 };
 
@@ -57,6 +61,27 @@ export type Neo4jClient = {
 
 function isLocalHost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+function acceptsRailwayPrivateBolt(
+  parsed: URL,
+  environment: string,
+  runtimeProfile: string | undefined,
+  allowInsecureRailway: boolean,
+  expectedPrivateDomain: string | undefined,
+) {
+  return environment === "production"
+    && runtimeProfile === RAILWAY_DEMO_PROFILE
+    && allowInsecureRailway
+    && isRailwayPrivateDomain(expectedPrivateDomain)
+    && parsed.protocol === "bolt:"
+    && parsed.hostname === expectedPrivateDomain.toLowerCase()
+    && parsed.port === "7687"
+    && !parsed.username
+    && !parsed.password
+    && parsed.pathname === ""
+    && parsed.search === ""
+    && parsed.hash === "";
 }
 
 function resolveTransactionTimeout(timeoutMs: number | undefined): number {
@@ -84,6 +109,13 @@ function resolveDriverTimeouts(overrides: Partial<Neo4jDriverTimeouts> | undefin
 
 function resolvedConfig(config: Neo4jClientConfig) {
   const environment = config.environment ?? process.env.NODE_ENV ?? "production";
+  const runtimeProfile = config.runtimeProfile?.trim() || undefined;
+  const expectedPrivateDomain = config.expectedPrivateDomain?.trim().toLowerCase() || undefined;
+  const allowInsecureRailway = config.allowInsecureRailway === true;
+  if (runtimeProfile && runtimeProfile !== RAILWAY_DEMO_PROFILE) throw new Error("Neo4j runtime profile is unsupported");
+  if (allowInsecureRailway && (environment !== "production" || runtimeProfile !== RAILWAY_DEMO_PROFILE)) {
+    throw new Error("Insecure Railway Neo4j access requires the production railway-demo profile");
+  }
   const allowsSyntheticDefaults = ["test", "development", "local"].includes(environment);
   const uri = config.uri ?? (allowsSyntheticDefaults ? LOCAL_NEO4J_DEFAULTS.uri : undefined);
   const username = config.username ?? (allowsSyntheticDefaults ? LOCAL_NEO4J_DEFAULTS.username : undefined);
@@ -91,10 +123,17 @@ function resolvedConfig(config: Neo4jClientConfig) {
   const database = config.database ?? LOCAL_NEO4J_DEFAULTS.database;
   if (!uri || !username || !password) throw new Error("Neo4j credentials and URI must be explicitly configured outside test/local environments");
   if (!allowsSyntheticDefaults && password === LOCAL_NEO4J_DEFAULTS.password) throw new Error("Synthetic local Neo4j credentials are forbidden outside test/local environments");
+  if (runtimeProfile === RAILWAY_DEMO_PROFILE && (password.length < 8 || isDemoPlaceholder(password))) {
+    throw new Error("Railway demo Neo4j password must be a non-placeholder password of at least 8 characters");
+  }
 
   let parsed: URL;
   try { parsed = new URL(uri); } catch { throw new Error("Neo4j URI is invalid"); }
-  if (!isLocalHost(parsed.hostname) && !["neo4j+s:", "bolt+s:"].includes(parsed.protocol)) {
+  const isAllowedRailwayBolt = acceptsRailwayPrivateBolt(parsed, environment, runtimeProfile, allowInsecureRailway, expectedPrivateDomain);
+  if (!isLocalHost(parsed.hostname) && !["neo4j+s:", "bolt+s:"].includes(parsed.protocol) && !isAllowedRailwayBolt) {
+    if (allowInsecureRailway && parsed.protocol === "bolt:") {
+      throw new Error("Railway demo Bolt URI must exactly target NEO4J_PRIVATE_DOMAIN on port 7687 without URI credentials or parameters");
+    }
     throw new Error("Non-local Neo4j hosts require an encrypted neo4j+s or bolt+s URI");
   }
   return { uri, username, password, database, driverTimeouts: resolveDriverTimeouts(config.driverTimeouts) };

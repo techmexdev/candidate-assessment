@@ -442,17 +442,28 @@ const dashboardWorkspace = buildCoachWorkspace([jordanFixture, averyFixture, noS
 function compileFixtureFullGraphs() {
   const movement = compileDefaultMovementGraph();
   if (movement.status !== "valid") throw new Error(JSON.stringify(movement.report));
-  // Only Jordan has a registered checked-in source identity. Keep the other
-  // fixture profiles explicitly unavailable rather than presenting derived
-  // dashboard copy as graph evidence.
-  const jordanSnapshot = compileMemberContextGraph(memberContextData);
+  const memberSources = [
+    { source: memberContextData, sourceLocator: "data/member-context.json" },
+    { source: averyMemberContextData, sourceLocator: "data/member-context-avery.json" },
+    { source: morganMemberContextData, sourceLocator: "data/member-context-morgan.json" },
+  ] as const;
+  const memberSnapshots = memberSources.map(({ source, sourceLocator }) => (
+    compileMemberContextGraph(source, { sourceLocator })
+  ));
   return {
     movement: projectMovementGraphSnapshot(movement.snapshot, "fixture"),
-    members: new Map([[jordanSnapshot.memberId, projectMemberContextGraphSnapshot(jordanSnapshot, "fixture")]]),
+    members: new Map(memberSnapshots.map((snapshot) => [
+      snapshot.memberId,
+      projectMemberContextGraphSnapshot(snapshot, "fixture"),
+    ])),
   };
 }
 
-const fixtureFullGraphs = compileFixtureFullGraphs();
+let fixtureFullGraphs: ReturnType<typeof compileFixtureFullGraphs> | null = null;
+
+function getFixtureFullGraphs(): ReturnType<typeof compileFixtureFullGraphs> {
+  return fixtureFullGraphs ??= compileFixtureFullGraphs();
+}
 
 function fixtureFullGraphUnavailable(domain: DashboardFullGraphRequest["domain"]): FullGraphReadResult {
   return {
@@ -465,9 +476,10 @@ function fixtureFullGraphUnavailable(domain: DashboardFullGraphRequest["domain"]
 const fixtureFullGraphClient: DashboardFullGraphClient = {
   async read(input) {
     if (input.signal?.aborted) return fixtureFullGraphUnavailable(input.domain);
+    const graphs = getFixtureFullGraphs();
     const projection = input.domain === "movement-clinical"
-      ? fixtureFullGraphs.movement
-      : input.memberId ? fixtureFullGraphs.members.get(input.memberId) : undefined;
+      ? graphs.movement
+      : input.memberId ? graphs.members.get(input.memberId) : undefined;
     if (!projection) return fixtureFullGraphUnavailable(input.domain);
     if (input.revisionId && input.revisionId !== projection.revisionId) {
       return {
@@ -476,6 +488,12 @@ const fixtureFullGraphClient: DashboardFullGraphClient = {
         requestedRevisionId: input.revisionId,
         activeRevisionId: projection.revisionId,
       };
+    }
+    if (input.entityId) {
+      const collection = input.entityKind === "node" ? projection.nodes : projection.relationships;
+      if (!collection.some((entity) => entity.id === input.entityId)) {
+        return { status: "invalid", domain: input.domain, message: "Requested graph entity is unavailable." };
+      }
     }
     return { status: "ready", data: projection };
   },
@@ -501,7 +519,7 @@ export const fixtureDashboardAdapter: DashboardAdapter = {
       client: fixtureFullGraphClient,
       supports: (input) => input.domain === "movement-clinical"
         ? input.memberId === undefined
-        : typeof input.memberId === "string" && fixtureFullGraphs.members.has(input.memberId),
+        : typeof input.memberId === "string" && getFixtureFullGraphs().members.has(input.memberId),
     },
   },
 };

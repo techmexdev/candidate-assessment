@@ -23,6 +23,29 @@ export const FULL_GRAPH_DOMAINS = ["movement-clinical", "member-context"] as con
 export type FullGraphDomain = (typeof FULL_GRAPH_DOMAINS)[number];
 export type FullGraphAuthority = GraphAuthority | MemberContextAuthority;
 export type FullGraphNodeKind = MovementNodeKind | MemberContextNodeKind;
+export type FullGraphEntityKind = "node" | "relationship";
+
+export type FullGraphInspectionRequest = {
+  readonly entityId: string;
+  readonly entityKind: FullGraphEntityKind;
+};
+
+export const FULL_GRAPH_PAGE_LIMITS = Object.freeze({
+  defaultPageSize: 24,
+  maxPageSize: 40,
+  maxOffset: 10_000,
+});
+
+export type FullGraphPageRequest = {
+  readonly nodeOffset: number;
+  readonly relationshipOffset: number;
+  readonly pageSize: number;
+};
+
+export type FullGraphPage = FullGraphPageRequest & {
+  readonly hasMoreNodes: boolean;
+  readonly hasMoreRelationships: boolean;
+};
 
 export type FullGraphDetailValue = string | number | boolean | null;
 
@@ -78,6 +101,7 @@ export type FullGraphProjection = {
   };
   readonly nodes: readonly FullGraphNode[];
   readonly relationships: readonly FullGraphRelationship[];
+  readonly page?: FullGraphPage;
 };
 
 export type FullGraphReadResult =
@@ -96,6 +120,10 @@ export type FullGraphReadResult =
 export type MovementGraphFullReadProvider = MovementGraphReadProvider & {
   readonly readFullActive: () => Promise<FullGraphReadResult>;
   readonly readFullRevision: (revisionId: string) => Promise<FullGraphReadResult>;
+  readonly readFullPage?: (
+    page: FullGraphPageRequest,
+    revisionId?: string,
+  ) => Promise<FullGraphReadResult>;
 };
 
 export type MemberContextFullReadProvider = MemberContextReadProvider & {
@@ -103,6 +131,11 @@ export type MemberContextFullReadProvider = MemberContextReadProvider & {
   readonly readFullRevision: (
     scope: AuthorizedMemberContextScope,
     contextRevisionId: string,
+  ) => Promise<FullGraphReadResult>;
+  readonly readFullPage?: (
+    scope: AuthorizedMemberContextScope,
+    page: FullGraphPageRequest,
+    contextRevisionId?: string,
   ) => Promise<FullGraphReadResult>;
 };
 
@@ -150,11 +183,27 @@ function assertMovementIntegrity(snapshot: MovementGraphSnapshot): void {
   }
 }
 
-export function projectMovementGraphSnapshot(
+function assertMovementPageIntegrity(snapshot: MovementGraphSnapshot): void {
+  const nodeIds = new Set<string>();
+  const relationshipIds = new Set<string>();
+  for (const node of snapshot.nodes) {
+    if (node.graphRevisionId !== snapshot.graphRevisionId) throw new FullGraphProjectionError("mixed-revision");
+    if (nodeIds.has(node.conceptId)) throw new FullGraphProjectionError("duplicate-node");
+    nodeIds.add(node.conceptId);
+  }
+  for (const edge of snapshot.edges) {
+    if (edge.graphRevisionId !== snapshot.graphRevisionId) throw new FullGraphProjectionError("mixed-revision");
+    if (relationshipIds.has(edge.assertionId)) throw new FullGraphProjectionError("duplicate-relationship");
+    relationshipIds.add(edge.assertionId);
+  }
+}
+
+function movementProjectionParts(
   snapshot: MovementGraphSnapshot,
   authority: GraphAuthority,
+  counts: FullGraphProjection["counts"],
+  page?: FullGraphPage,
 ): FullGraphProjection {
-  assertMovementIntegrity(snapshot);
   const nodes = [...snapshot.nodes]
     .sort((left, right) => left.assertionId.localeCompare(right.assertionId))
     .map((node): FullGraphNode => ({
@@ -177,14 +226,76 @@ export function projectMovementGraphSnapshot(
       detail: primitiveDetail(edge as unknown as Record<string, unknown>),
       provenance: movementProvenance(edge),
     }));
+  const projection = attachLineageLinks(nodes, relationships);
   return {
     domain: "movement-clinical",
     revisionId: snapshot.graphRevisionId,
     authority,
-    counts: { nodes: nodes.length, relationships: relationships.length },
-    nodes,
-    relationships,
+    counts,
+    nodes: projection.nodes,
+    relationships: projection.relationships,
+    ...(page ? { page } : {}),
   };
+}
+
+function attachLineageLinks(
+  nodes: readonly FullGraphNode[],
+  relationships: readonly FullGraphRelationship[],
+): { readonly nodes: readonly FullGraphNode[]; readonly relationships: readonly FullGraphRelationship[] } {
+  const lineageNodeIds = new Set(nodes
+    .filter((node) => node.category === "lineage" || node.category === "publication")
+    .map((node) => node.id));
+  const lineageIdsByEntity = new Map<string, Set<string>>();
+  const addLink = (entityId: string, lineageId: string) => {
+    const links = lineageIdsByEntity.get(entityId) ?? new Set<string>();
+    links.add(lineageId);
+    lineageIdsByEntity.set(entityId, links);
+  };
+  for (const relationship of relationships) {
+    if (lineageNodeIds.has(relationship.fromId)) addLink(relationship.toId, relationship.fromId);
+    if (lineageNodeIds.has(relationship.toId)) addLink(relationship.fromId, relationship.toId);
+  }
+  const lineageIdsFor = (entityId: string): readonly string[] => [...(lineageIdsByEntity.get(entityId) ?? [])].sort();
+  return {
+    nodes: nodes.map((node) => ({ ...node, provenance: { ...node.provenance, lineageIds: lineageIdsFor(node.id) } })),
+    relationships: relationships.map((relationship) => ({
+      ...relationship,
+      provenance: {
+        ...relationship.provenance,
+        lineageIds: [...new Set([...lineageIdsFor(relationship.fromId), ...lineageIdsFor(relationship.toId)])].sort(),
+      },
+    })),
+  };
+}
+
+export function relinkFullGraphProjection(projection: FullGraphProjection): FullGraphProjection {
+  const linked = attachLineageLinks(projection.nodes, projection.relationships);
+  return {
+    ...projection,
+    nodes: linked.nodes,
+    relationships: linked.relationships,
+  };
+}
+
+export function projectMovementGraphSnapshot(
+  snapshot: MovementGraphSnapshot,
+  authority: GraphAuthority,
+): FullGraphProjection {
+  assertMovementIntegrity(snapshot);
+  return movementProjectionParts(snapshot, authority, {
+    nodes: snapshot.nodes.length,
+    relationships: snapshot.edges.length,
+  });
+}
+
+export function projectMovementGraphPage(
+  snapshot: MovementGraphSnapshot,
+  authority: GraphAuthority,
+  counts: FullGraphProjection["counts"],
+  page: FullGraphPage,
+): FullGraphProjection {
+  assertMovementPageIntegrity(snapshot);
+  return movementProjectionParts(snapshot, authority, counts, page);
 }
 
 const memberCategory = (kind: MemberContextNodeKind): FullGraphNode["category"] => {
@@ -243,11 +354,27 @@ function assertMemberIntegrity(snapshot: MemberContextGraphSnapshot): void {
   }
 }
 
-export function projectMemberContextGraphSnapshot(
+function assertMemberPageIntegrity(snapshot: MemberContextGraphSnapshot): void {
+  const nodeIds = new Set<string>();
+  const relationshipIds = new Set<string>();
+  for (const node of snapshot.nodes) {
+    if ("contextRevisionId" in node && node.contextRevisionId !== snapshot.contextRevisionId) throw new FullGraphProjectionError("mixed-revision");
+    if (nodeIds.has(node.semanticId)) throw new FullGraphProjectionError("duplicate-node");
+    nodeIds.add(node.semanticId);
+  }
+  for (const relationship of snapshot.relationships) {
+    if (relationship.contextRevisionId !== snapshot.contextRevisionId) throw new FullGraphProjectionError("mixed-revision");
+    if (relationshipIds.has(relationship.assertionId)) throw new FullGraphProjectionError("duplicate-relationship");
+    relationshipIds.add(relationship.assertionId);
+  }
+}
+
+function memberProjectionParts(
   snapshot: MemberContextGraphSnapshot,
   authority: MemberContextAuthority,
+  counts: FullGraphProjection["counts"],
+  page?: FullGraphPage,
 ): FullGraphProjection {
-  assertMemberIntegrity(snapshot);
   const nodes = [...snapshot.nodes]
     .sort((left, right) => left.semanticId.localeCompare(right.semanticId))
     .map((node): FullGraphNode => ({
@@ -277,14 +404,67 @@ export function projectMemberContextGraphSnapshot(
         lineageIds: [],
       },
     }));
+  const projection = attachLineageLinks(nodes, relationships);
   return {
     domain: "member-context",
     revisionId: snapshot.contextRevisionId,
     memberId: snapshot.memberId,
     sourceArtifactDigest: snapshot.sourceArtifactDigest,
     authority,
-    counts: { nodes: nodes.length, relationships: relationships.length },
+    counts,
+    nodes: projection.nodes,
+    relationships: projection.relationships,
+    ...(page ? { page } : {}),
+  };
+}
+
+export function projectMemberContextGraphSnapshot(
+  snapshot: MemberContextGraphSnapshot,
+  authority: MemberContextAuthority,
+): FullGraphProjection {
+  assertMemberIntegrity(snapshot);
+  return memberProjectionParts(snapshot, authority, {
+    nodes: snapshot.nodes.length,
+    relationships: snapshot.relationships.length,
+  });
+}
+
+export function projectMemberContextGraphPage(
+  snapshot: MemberContextGraphSnapshot,
+  authority: MemberContextAuthority,
+  counts: FullGraphProjection["counts"],
+  page: FullGraphPage,
+): FullGraphProjection {
+  assertMemberPageIntegrity(snapshot);
+  return memberProjectionParts(snapshot, authority, counts, page);
+}
+
+export function isValidFullGraphPageRequest(value: FullGraphPageRequest): boolean {
+  return Number.isSafeInteger(value.nodeOffset)
+    && value.nodeOffset >= 0
+    && value.nodeOffset <= FULL_GRAPH_PAGE_LIMITS.maxOffset
+    && Number.isSafeInteger(value.relationshipOffset)
+    && value.relationshipOffset >= 0
+    && value.relationshipOffset <= FULL_GRAPH_PAGE_LIMITS.maxOffset
+    && Number.isSafeInteger(value.pageSize)
+    && value.pageSize > 0
+    && value.pageSize <= FULL_GRAPH_PAGE_LIMITS.maxPageSize;
+}
+
+export function sliceFullGraphProjection(
+  projection: FullGraphProjection,
+  page: FullGraphPageRequest,
+): FullGraphProjection {
+  const nodes = projection.nodes.slice(page.nodeOffset, page.nodeOffset + page.pageSize);
+  const relationships = projection.relationships.slice(page.relationshipOffset, page.relationshipOffset + page.pageSize);
+  return {
+    ...projection,
     nodes,
     relationships,
+    page: {
+      ...page,
+      hasMoreNodes: page.nodeOffset + nodes.length < projection.counts.nodes,
+      hasMoreRelationships: page.relationshipOffset + relationships.length < projection.counts.relationships,
+    },
   };
 }

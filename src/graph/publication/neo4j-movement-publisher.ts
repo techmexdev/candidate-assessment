@@ -183,7 +183,24 @@ class Neo4jMovementPublisher implements MovementGraphPublisher {
         const attemptState = text(record?.get("attemptState"));
         const state: PublicationInspection["state"] = activeRevisionId === revisionId ? "active" : text(record?.get("sealId")) ? "sealed" : attemptState === "rejected" ? "rejected" : attemptState === "abandoned" ? "abandoned" : foundRevision ? "staged" : "missing";
         const validationErrors = Array.isArray(record?.get("validationErrors")) ? record!.get("validationErrors") as string[] : [];
-        return { status: "ok", data: { activeRevisionId, ...(foundRevision ? { revisionId: foundRevision } : {}), ...(text(record?.get("attemptId")) ? { publicationAttemptId: text(record?.get("attemptId"))! } : {}), state, validationErrors } };
+        const sealId = text(record?.get("sealId"));
+        const canonicalDigest = text(record?.get("canonicalDigest"));
+        const nodeCount = Number(record?.get("nodeCount"));
+        const edgeCount = Number(record?.get("edgeCount"));
+        return {
+          status: "ok",
+          data: {
+            activeRevisionId,
+            ...(foundRevision ? { revisionId: foundRevision } : {}),
+            ...(text(record?.get("attemptId")) ? { publicationAttemptId: text(record?.get("attemptId"))! } : {}),
+            ...(sealId ? { sealId } : {}),
+            ...(canonicalDigest ? { canonicalDigest } : {}),
+            ...(Number.isFinite(nodeCount) ? { nodeCount } : {}),
+            ...(Number.isFinite(edgeCount) ? { edgeCount } : {}),
+            state,
+            validationErrors,
+          },
+        };
       });
     } catch (error) { return unavailable(error); }
   }

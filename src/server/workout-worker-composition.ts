@@ -1,5 +1,4 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { createGateway } from "ai";
 import { createAiSdkWorkoutComposer } from "../agents/workout/ai-sdk-composer";
 import { createAiSdkWorkoutReviewer } from "../agents/workout/ai-sdk-reviewer";
 import { createDeterministicWorkoutComposer, createDeterministicWorkoutReviewer } from "../agents/workout/deterministic-agents";
@@ -39,6 +38,14 @@ import {
   workoutRouteSecret,
   type WorkoutServerInfrastructure,
 } from "./workout-route-composition";
+import {
+  aiApiKeyName,
+  configuredAiApiKey,
+  createConfiguredLanguageModel,
+  resolveAiProvider,
+  type AiProvider,
+} from "./configured-language-model";
+import { RAILWAY_DEMO_PROFILE, resolveDeploymentProfile } from "./deployment-profile";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -46,6 +53,8 @@ export type ConfiguredWorkoutWorkerOptions = {
   readonly workerId: string;
   readonly modelId: string;
   readonly gatewayApiKey: string;
+  readonly provider?: AiProvider;
+  readonly providerApiKey?: string;
   readonly leaseDurationMs: number;
   readonly heartbeatEveryMs: number;
   readonly executionTimeoutMs: number;
@@ -70,17 +79,30 @@ function positiveInteger(environment: Environment, name: string, fallback: numbe
 /** Validate all worker-specific configuration before opening a graph connection. */
 export function readConfiguredWorkoutWorkerOptions(environment: Environment = process.env): ConfiguredWorkoutWorkerOptions {
   const runtimeEnvironment = environment.NODE_ENV ?? "production";
-  const mode = environment.WORKOUT_DEMO_MODE === "deterministic" ? "deterministic" : "provider";
-  if (runtimeEnvironment === "production" && mode === "deterministic") throw new Error("WORKOUT_DEMO_MODE is development-only");
+  const rawMode = environment.WORKOUT_DEMO_MODE?.trim();
+  if (rawMode && rawMode !== "deterministic" && rawMode !== "provider") throw new Error("WORKOUT_DEMO_MODE is unsupported");
+  const mode = rawMode === "deterministic" ? "deterministic" : "provider";
+  const deploymentProfile = resolveDeploymentProfile(environment);
+  if (runtimeEnvironment === "production" && mode === "deterministic" && deploymentProfile.name !== RAILWAY_DEMO_PROFILE) {
+    throw new Error("WORKOUT_DEMO_MODE=deterministic is limited to the railway-demo profile in production");
+  }
   workoutRouteSecret(runtimeEnvironment, environment.WORKOUT_ROUTE_SECRET);
   if (runtimeEnvironment === "production") {
     required(environment, "NEO4J_URI");
     required(environment, "NEO4J_USERNAME");
     required(environment, "NEO4J_PASSWORD");
+    if (deploymentProfile.name === RAILWAY_DEMO_PROFILE) {
+      required(environment, "NEO4J_PRIVATE_DOMAIN");
+      if (!deploymentProfile.allowInsecureRailway) throw new Error("NEO4J_ALLOW_INSECURE_RAILWAY=1 is required for the Railway demo");
+    }
   }
   const workerId = required(environment, "WORKOUT_WORKER_ID");
   const modelId = mode === "deterministic" ? environment.WORKOUT_MODEL_ID?.trim() || "demo:deterministic" : required(environment, "WORKOUT_MODEL_ID");
-  const gatewayApiKey = mode === "deterministic" ? environment.AI_GATEWAY_API_KEY?.trim() || "demo:no-provider-key" : required(environment, "AI_GATEWAY_API_KEY");
+  const provider = resolveAiProvider(environment);
+  const providerApiKey = mode === "deterministic"
+    ? configuredAiApiKey(environment, provider) || "demo:no-provider-key"
+    : required(environment, aiApiKeyName(provider));
+  const gatewayApiKey = provider === "gateway" ? providerApiKey : "";
   const leaseDurationMs = positiveInteger(environment, "WORKOUT_LEASE_DURATION_MS", 60_000);
   const heartbeatEveryMs = positiveInteger(environment, "WORKOUT_HEARTBEAT_INTERVAL_MS", 15_000);
   const executionTimeoutMs = positiveInteger(environment, "WORKOUT_EXECUTION_TIMEOUT_MS", 45_000);
@@ -88,11 +110,21 @@ export function readConfiguredWorkoutWorkerOptions(environment: Environment = pr
   if (heartbeatEveryMs >= leaseDurationMs) {
     throw new Error("WORKOUT_HEARTBEAT_INTERVAL_MS must be shorter than WORKOUT_LEASE_DURATION_MS");
   }
-  return Object.freeze({ workerId, modelId, gatewayApiKey, leaseDurationMs, heartbeatEveryMs, executionTimeoutMs, providerTimeoutMs, mode });
+  return Object.freeze({ workerId, modelId, gatewayApiKey, provider, providerApiKey, leaseDurationMs, heartbeatEveryMs, executionTimeoutMs, providerTimeoutMs, mode });
 }
 
 export function createConfiguredWorkoutGatewayModel(options: Pick<ConfiguredWorkoutWorkerOptions, "gatewayApiKey" | "modelId">) {
-  return createGateway({ apiKey: options.gatewayApiKey })(options.modelId);
+  return createConfiguredLanguageModel({ provider: "gateway", apiKey: options.gatewayApiKey, modelId: options.modelId });
+}
+
+export function createConfiguredWorkoutModel(
+  options: Pick<ConfiguredWorkoutWorkerOptions, "modelId"> & Partial<Pick<ConfiguredWorkoutWorkerOptions, "gatewayApiKey" | "provider" | "providerApiKey">>,
+) {
+  return createConfiguredLanguageModel({
+    provider: options.provider ?? "gateway",
+    apiKey: options.providerApiKey || options.gatewayApiKey,
+    modelId: options.modelId,
+  });
 }
 
 export type WorkoutWorkerCompositionDependencies = {
@@ -701,10 +733,10 @@ export function createCanonicalWorkoutRuntimeDependencies(
     validateCandidates,
     composer: options.mode === "deterministic"
       ? createDeterministicWorkoutComposer()
-      : createAiSdkWorkoutComposer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
+      : createAiSdkWorkoutComposer({ model: createConfiguredWorkoutModel(options), timeoutMs: options.providerTimeoutMs }),
     reviewer: options.mode === "deterministic"
       ? createDeterministicWorkoutReviewer()
-      : createAiSdkWorkoutReviewer({ model: createConfiguredWorkoutGatewayModel(options), timeoutMs: options.providerTimeoutMs }),
+      : createAiSdkWorkoutReviewer({ model: createConfiguredWorkoutModel(options), timeoutMs: options.providerTimeoutMs }),
     now,
     createId: (kind) => `${kind}:${randomUUID()}`,
   };

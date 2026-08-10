@@ -31,7 +31,7 @@ async function rejectInvalidContinuation(route: Route, body: RequestBody): Promi
   return true;
 }
 
-async function answer(body: RequestBody, answerId: string, revision = REVISION_ONE, options: { allZeroChart?: boolean; includeConversation?: boolean } = {}) {
+async function answer(body: RequestBody, answerId: string, revision = REVISION_ONE, options: { allZeroChart?: boolean; includeConversation?: boolean; richMorning?: boolean; limitationOnly?: boolean } = {}) {
   const evidenceId = `evidence:${answerId}`;
   const intentId = body.input.kind === "quick-prompt" ? body.input.promptId : "adherence";
   const scope = { memberId: body.memberId, contextRevisionId: revision, authority: "canonical" as const };
@@ -71,15 +71,21 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
       memberTimezone: "America/Chicago",
       briefFreshness: intentId === "morning-brief" ? { status: "latest-recorded", generatedFor: "2026-06-04" } : null,
       evidence: { ...scope, atoms: [{ ...scope, atomKind: "fact", evidenceId, evidenceKind: "observation", source, classification: "observation", temporal, unit: "percent", value: 50 }, ...taskEvidence, ...conversationEvidence] },
-      sections: [
+      sections: options.limitationOnly ? [
+        { sectionId: "limitation", clauses: [{ clauseId: `limitation:${answerId}`, text: "Insufficient recorded history for a complete morning brief.", evidenceIds: [evidenceId] }] },
+      ] : [
         { sectionId: "answer", clauses: [{ clauseId: `clause:${answerId}`, text: `${intentId} grounded answer ${answerId}.`, evidenceIds: [evidenceId] }] },
         { sectionId: "next-action", clauses: [{ clauseId: `action:${answerId}`, text: "Review the supported evidence with the member.", evidenceIds: [evidenceId] }] },
+        ...(options.richMorning ? [
+          { sectionId: "recent-facts", clauses: [{ clauseId: `fact:${answerId}`, text: "Weekly completion reached 67 percent.", evidenceIds: [evidenceId] }] },
+          { sectionId: "trend", clauses: [{ clauseId: `trend:${answerId}`, text: "Adherence is steady across recent weeks.", evidenceIds: [evidenceId] }] },
+        ] : []),
       ],
       tasks: taskEvidence.length === 2 ? [
         { taskId: `${evidenceId}:task:celebrate`, taskType: "celebrate" as const, actionId: "celebrate-progress" as const, text: String(taskEvidence[0].value), evidenceIds: [taskEvidence[0].evidenceId], sourceOrder: 0 },
         { taskId: `${evidenceId}:task:risk`, taskType: "review_risk" as const, actionId: "review-churn-risk" as const, text: String(taskEvidence[1].value), evidenceIds: [taskEvidence[1].evidenceId], sourceOrder: 1 },
       ] : [],
-      chart: intentId === "sleep" || intentId === "adherence" ? {
+      chart: !options.limitationOnly && (intentId === "sleep" || intentId === "adherence" || options.richMorning) ? {
         ...scope,
         chartId: `chart:${answerId}`,
         recipeId: "deterministic-test",
@@ -95,12 +101,12 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
           : [{ pointId: `point:${answerId}`, label: "Jun 4", value: 50, evidenceIds: [evidenceId] }],
         textSummary: options.allZeroChart ? "May 28: 0 percent. Jun 4: 0 percent." : "Jun 4: 50 percent.",
       } : null,
-      citations: [
+      citations: options.limitationOnly ? [] : [
         { ...scope, citationId: `citation:${answerId}`, evidenceId, label: "Synthetic source", source, classification: "observation", temporal, unit: "percent" },
         ...conversationEvidence.map((atom) => ({ ...scope, citationId: `citation:${atom.evidenceId}`, evidenceId: atom.evidenceId, label: atom.evidenceKind === "message" ? "Member check-in" : "Home setup photo", source, classification: "source-statement" as const, temporal, unit: null })),
         ...taskEvidence.map((task) => ({ ...scope, citationId: `citation:${task.evidenceId}`, evidenceId: task.evidenceId, label: "Synthetic coach task", source, classification: "observation" as const, temporal, unit: null })),
       ],
-      churn: intentId === "morning-brief" || intentId === "churn-risk" ? {
+      churn: !options.limitationOnly && (intentId === "morning-brief" || intentId === "churn-risk") ? {
         derived: {
           ...scope,
           methodVersion: "churn-v1",
@@ -131,9 +137,121 @@ async function installReadyRoute(page: Page, seen: RequestBody[]) {
     if (await rejectInvalidContinuation(route, body)) return;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(await answer(body, `answer:${seen.length}`, REVISION_ONE, {
       includeConversation: body.input.kind === "quick-prompt" && body.input.promptId === "morning-brief",
+      richMorning: body.input.kind === "quick-prompt" && body.input.promptId === "morning-brief",
     })) });
   });
 }
+
+test("Today morning brief is concise by default and complete on demand", async ({ page }) => {
+  const seen: RequestBody[] = [];
+  await installReadyRoute(page, seen);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+
+  const brief = page.locator('[data-answer-id="answer:1"]');
+  await expect(brief).toHaveAttribute("data-copilot-presentation", "workbench");
+  await expect(brief.getByText(/Latest recorded.*June 4/)).toBeVisible();
+  await expect(brief.getByText("morning-brief grounded answer answer:1.")).toBeVisible();
+  await expect(brief.getByText("Watch", { exact: true })).toBeVisible();
+  await expect(brief.getByText("Review the supported evidence with the member.")).toBeVisible();
+
+  const disclosures = {
+    facts: brief.getByTestId("copilot-disclosure-facts"),
+    trend: brief.getByTestId("copilot-disclosure-trend"),
+    risk: brief.getByTestId("copilot-disclosure-risk"),
+    sources: brief.getByTestId("copilot-disclosure-sources"),
+  };
+  for (const disclosure of Object.values(disclosures)) await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(brief.getByText("Weekly completion reached 67 percent.")).toBeHidden();
+  await expect(brief.getByText("Adherence is steady across recent weeks.")).toBeHidden();
+  await expect(brief.getByText("planned-workout-missed-1")).toBeHidden();
+  await expect(brief.getByText(`REVISION · ${REVISION_ONE}`, { exact: false })).toBeHidden();
+
+  const requestCountBeforeDisclosure = seen.length;
+  for (const disclosure of Object.values(disclosures)) await disclosure.locator("summary").click();
+  await expect(disclosures.facts.getByText("Weekly completion reached 67 percent.")).toBeVisible();
+  await expect(disclosures.trend.getByText("Adherence is steady across recent weeks.")).toBeVisible();
+  await expect(disclosures.trend.getByRole("img", { name: "Jun 4: 50 percent." })).toBeVisible();
+  await expect(disclosures.risk.getByText("METHOD · churn-v1")).toBeVisible();
+  await expect(disclosures.risk.getByText("Coach-entered cancellation concern.")).toBeVisible();
+  await expect(disclosures.sources.getByText(`REVISION · ${REVISION_ONE}`, { exact: false })).toBeVisible();
+  await expect(brief.getByRole("button", { name: /Inspect context/ })).toHaveCount(0);
+  expect(seen).toHaveLength(requestCountBeforeDisclosure);
+
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+  const workbench = page.locator('[data-answer-id="answer:1"]');
+  await workbench.getByTestId("copilot-disclosure-sources").locator("summary").click();
+  await expect(workbench.getByRole("button", { name: /Member check-in.*Inspect context/ })).toBeVisible();
+});
+
+test("Today omits empty morning brief disclosures for a limitation-only packet", async ({ page }) => {
+  await page.route("**/api/copilot", async (route) => {
+    const body = route.request().postDataJSON() as RequestBody;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(await answer(body, "answer:limited", REVISION_ONE, { limitationOnly: true })) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+
+  const brief = page.locator('[data-answer-id="answer:limited"]');
+  await expect(brief.getByText("Insufficient recorded history for a complete morning brief.")).toBeVisible();
+  await expect(brief.getByTestId("copilot-disclosure-facts")).toHaveCount(0);
+  await expect(brief.getByTestId("copilot-disclosure-trend")).toHaveCount(0);
+  await expect(brief.getByTestId("copilot-disclosure-risk")).toHaveCount(0);
+  await expect(brief.getByTestId("copilot-disclosure-additional")).toHaveCount(0);
+  await expect(brief.getByTestId("copilot-disclosure-sources")).not.toHaveAttribute("open", "");
+});
+
+test("Today retains a ready morning brief while an update fails and allows retry", async ({ page }) => {
+  let count = 0;
+  let releaseUpdate: (() => void) | undefined;
+  let signalUpdate: (() => void) | undefined;
+  const updateStarted = new Promise<void>((resolve) => { signalUpdate = resolve; });
+  const updateReleased = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+  await page.route("**/api/copilot", async (route) => {
+    const body = route.request().postDataJSON() as RequestBody;
+    count += 1;
+    if (count === 2) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "model-error",
+          requestId: body.requestId,
+          code: "provider-unavailable",
+          retryable: true,
+          message: "Copilot model is temporarily unavailable.",
+          controls: { retry: true, refresh: false, keepLastReadyAnswer: true },
+        }),
+      });
+      return;
+    }
+    if (count === 3) {
+      signalUpdate?.();
+      await updateReleased;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(await answer(body, count === 1 ? "answer:ready" : "answer:retried", REVISION_ONE, { richMorning: true })) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
+  await expect(page.locator('[data-answer-id="answer:ready"]')).toBeVisible();
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+  await page.getByRole("button", { name: "Morning brief", exact: true }).click();
+  await expect(page.getByText("Copilot model unavailable", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Go back" }).click();
+
+  const retained = page.locator('[data-answer-id="answer:ready"]');
+  await expect(retained).toBeVisible();
+  await expect(retained.getByText(/Latest recorded.*June 4/)).toBeVisible();
+  await expect(page.getByText("Copilot model unavailable", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Retry morning brief", exact: true }).click();
+  await updateStarted;
+  await expect(page.getByRole("status").filter({ hasText: "Updating morning brief…" })).toBeVisible();
+  await expect(retained).toBeVisible();
+  releaseUpdate?.();
+  await expect(page.locator('[data-answer-id="answer:retried"]')).toBeVisible();
+  expect(count).toBe(3);
+});
 
 test("brief, prompts, free text and follow-up use route packets and one pinned revision", async ({ page }) => {
   const seen: RequestBody[] = [];
@@ -340,17 +458,23 @@ test("risk action stays disabled while the automatic morning brief is pending", 
   await expect(riskAction).toBeEnabled();
 });
 
-test("other athletes and voice fail truthfully without fixture answers", async ({ page }) => {
-  let requests = 0;
-  await page.route("**/api/copilot", async (route) => { requests += 1; await route.abort(); });
+test("every canonical roster member reaches graph Copilot without fixture fallback", async ({ page }) => {
+  const seen: RequestBody[] = [];
+  await installReadyRoute(page, seen);
   await page.goto("/");
   await page.waitForTimeout(200);
   await page.getByRole("button", { name: "Open Avery Chen morning brief", exact: true }).first().click();
-  await expect(page.getByRole("status").filter({ hasText: "Member context unavailable" })).toBeVisible();
-  await page.getByRole("button", { name: /Talk through today/ }).click();
-  await expect(page.getByText("Continue in text Copilot")).toBeVisible();
-  await expect(page.getByText(/Voice capture is disabled/i)).toBeVisible();
-  expect(requests).toBe(0);
+  await page.getByRole("button", { name: /Copilot context/ }).click();
+  await expect.poll(() => seen.length).toBe(1);
+  expect(seen[0]).toMatchObject({
+    schemaVersion: "copilot-request/v1",
+    memberId: "mbr_02HX9AVERY",
+    requestedFor: "2026-07-08",
+    input: { kind: "quick-prompt", promptId: "morning-brief" },
+  });
+  await expect(page.getByText(/grounded answer answer:1/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Morning brief", exact: true })).toBeEnabled();
+  await expect(page.getByRole("status").filter({ hasText: "Member context unavailable" })).toHaveCount(0);
 });
 
 test("typed failure controls preserve the ready answer and expose only allowed retry", async ({ page }) => {
@@ -378,6 +502,10 @@ test("typed failure controls preserve the ready answer and expose only allowed r
   await expect(page.getByText(/grounded answer answer:ready/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Refresh active revision/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Go back" }).click();
+  await expect(page.locator('[data-answer-id="answer:ready"]')).toBeVisible();
+  await expect(page.getByText("Copilot model unavailable", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry morning brief", exact: true })).toHaveCount(0);
 });
 
 test("expired continuation preserves the answer and refreshes the same request without the dead token", async ({ page }) => {

@@ -8,6 +8,7 @@ import { COPILOT_MAX_QUESTION_LENGTH, isCopilotQuickPromptId } from "../../../do
 import { configuredCopilotComposition } from "../../../server/copilot/composition";
 import type { MockCoachSession } from "../../../server/auth/mock-coach-session";
 import { boundedId, isSyntacticallyValidCopilotContinuation } from "../../../server/copilot/continuation-token";
+import { isSameOriginMutation } from "../../../server/http/same-origin";
 
 export const COPILOT_MAX_BODY_BYTES = 16_384;
 export const COPILOT_TOTAL_DEADLINE_MS = 5_000;
@@ -250,11 +251,7 @@ export function createCopilotPostHandler(dependencies: CopilotPostHandlerDepende
       const mapped = externalOutcome(interruptedOutcome(requestId, request.signal));
       return response(mapped.payload, mapped.status);
     };
-    const origin = request.headers.get("origin");
-    if (!origin) return response({ status: "forbidden" }, 403);
-    try {
-      if (new URL(origin).origin !== new URL(request.url).origin) return response({ status: "forbidden" }, 403);
-    } catch { return response({ status: "forbidden" }, 403); }
+    if (!isSameOriginMutation(request)) return response({ status: "forbidden" }, 403);
     const parsed = await readBoundedJson(request, signal);
     if (parsed.status === "aborted") return interruptedResponse("request:unavailable");
     if (parsed.status !== "ready") {

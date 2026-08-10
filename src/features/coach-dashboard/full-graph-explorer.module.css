@@ -1,58 +1,112 @@
-.explorer {
+.explorer,
+.completeGraph,
+.entrySurface,
+.relationshipMap,
+.inventory,
+.detailPanel,
+.inventoryBody,
+.branchLevels,
+.connectionGroups,
+.candidateList {
   display: grid;
+  min-width: 0;
+}
+
+.explorer {
   gap: 14px;
+  max-width: 100%;
+  overflow: clip;
   padding: 16px;
   border: 1px solid var(--ax-line);
   border-radius: var(--ax-r-lg);
   background: var(--ax-surface);
 }
 
+.completeGraph {
+  gap: 14px;
+}
+
 .explorerHeader,
+.surfaceHeader,
 .graphMeta,
-.workoutTopline {
+.headerActions,
+.mapActions,
+.entryKind,
+.filterCounts {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+.explorerHeader,
+.surfaceHeader,
+.entryKind,
+.filterCounts {
   justify-content: space-between;
-  gap: 12px;
+}
+
+.headerActions,
+.mapActions,
+.graphMeta {
+  flex-wrap: wrap;
+}
+
+.headerActions,
+.mapActions {
+  justify-content: flex-end;
 }
 
 .kicker,
 .detailKicker,
 .relationshipHeading,
 .nodeKind,
-.laneName {
-  color: var(--ax-ink-3);
+.nodeMeta,
+.laneName,
+.selectionStatus,
+.graphMeta,
+.focusCount,
+.filterCounts {
+  color: var(--ax-ink-2);
   font: var(--ax-type-micro);
-  letter-spacing: .08em;
+  letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .title,
-.detailTitle {
+.detailTitle,
+.surfaceTitle {
   margin: 4px 0 0;
-  color: var(--ax-ink-1);
-  font-size: 18px;
-  line-height: 1.15;
+  color: var(--ax-ink);
+  line-height: 1.18;
 }
 
-.headerActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+.title,
+.detailTitle {
+  font-size: 18px;
+}
+
+.surfaceTitle {
+  font-size: 15px;
 }
 
 .primaryButton,
 .secondaryButton,
-.relationship,
-.node {
+.suggestionButton,
+.branchNode,
+.candidateNode,
+.crossLink,
+.semanticEdge,
+.bundleControl,
+.inventoryList button {
+  min-width: 0;
+  min-height: 44px;
   cursor: pointer;
+  color: var(--ax-ink);
   font: inherit;
 }
 
 .primaryButton,
 .secondaryButton {
-  min-height: 36px;
   border-radius: var(--ax-r-pill);
   padding: 8px 13px;
   font-size: 12px;
@@ -60,26 +114,34 @@
 }
 
 .primaryButton {
-  border: 1px solid var(--ax-ink-1);
+  border: 1px solid var(--ax-ink);
   color: var(--ax-surface);
-  background: var(--ax-ink-1);
+  background: var(--ax-ink);
 }
 
 .secondaryButton {
   border: 1px solid var(--ax-line-strong);
-  color: var(--ax-ink-1);
   background: var(--ax-surface);
 }
 
-.primaryButton:disabled {
+.primaryButton:disabled,
+.inventoryList button:disabled,
+.crossLink:disabled {
   cursor: not-allowed;
   opacity: .52;
 }
 
 .primaryButton:focus-visible,
 .secondaryButton:focus-visible,
-.relationship:focus-visible,
-.node:focus-visible {
+.suggestionButton:focus-visible,
+.branchNode:focus-visible,
+.candidateNode:focus-visible,
+.crossLink:focus-visible,
+.semanticEdge:focus-visible,
+.bundleControl:focus-visible,
+.inventoryList button:focus-visible,
+.filterLabel input:focus-visible,
+.technicalDisclosure summary:focus-visible {
   outline: 3px solid var(--ax-signal);
   outline-offset: 3px;
 }
@@ -87,26 +149,39 @@
 .focusedView {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .focusLane {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: 11px 12px;
   border-left: 3px solid var(--ax-signal);
   border-radius: var(--ax-r-md);
   background: var(--ax-signal-faint), var(--ax-surface);
 }
 
+.laneText,
+.laneSource,
+.overviewNote,
+.inventoryNote,
+.candidateNode small,
+.crossLink span,
+.semanticEdge small {
+  overflow-wrap: anywhere;
+}
+
 .laneText {
-  color: var(--ax-ink-1);
+  color: var(--ax-ink);
   font-size: 14px;
 }
 
 .laneSource,
-.detailId,
-.detailList dd,
-.relationship strong {
+.nodeMeta,
+.candidateNode small,
+.crossLink span,
+.semanticEdge small {
   color: var(--ax-ink-2);
   font-family: var(--ax-font-mono);
   font-size: 10px;
@@ -114,9 +189,11 @@
 
 .capabilityNote,
 .loadingPanel,
-.emptyDetail {
+.emptyDetail,
+.partialNotice {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 14px;
   border: 1px dashed var(--ax-line-strong);
   border-radius: var(--ax-r-md);
@@ -124,17 +201,17 @@
   font-size: 13px;
 }
 
-.loadingPanel {
+.loadingPanel,
+.partialNotice {
   background: var(--ax-signal-faint), var(--ax-surface);
 }
 
 .graphMeta {
   justify-content: flex-start;
-  flex-wrap: wrap;
-  color: var(--ax-ink-2);
-  font: var(--ax-type-micro);
-  letter-spacing: .04em;
-  text-transform: uppercase;
+}
+
+.graphMeta span {
+  overflow-wrap: anywhere;
 }
 
 .graphMeta span + span::before {
@@ -143,127 +220,321 @@
   color: var(--ax-ink-4);
 }
 
-.canvasViewport {
-  display: grid;
-  gap: 12px;
+.selectionStatus {
   min-width: 0;
-  max-height: 560px;
-  overflow: auto;
-  padding: 4px;
+  overflow-wrap: anywhere;
+  padding: 7px 9px;
+  border-left: 2px solid var(--ax-signal);
+  background: var(--ax-signal-faint), var(--ax-surface);
+}
+
+.entrySurface,
+.relationshipMap,
+.inventory,
+.detailPanel {
+  gap: 12px;
+  max-width: 100%;
+  padding: 14px;
   border: 1px solid var(--ax-line);
   border-radius: var(--ax-r-md);
+  background: var(--ax-surface);
+}
+
+.entrySurface,
+.inventory {
   background: var(--ax-bg-desk);
 }
 
-.canvas {
-  position: relative;
-  flex: 0 0 auto;
+.relationshipMap,
+.detailPanel {
+  border-color: var(--ax-line-strong);
 }
 
-.edges {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
+.overviewNote,
+.inventoryNote {
+  margin: 0;
+  color: var(--ax-ink-2);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.edge {
-  stroke: var(--ax-line-strong);
-  stroke-width: 1.25;
-  opacity: .8;
+.suggestions,
+.entryGroups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
 }
 
-.nodes {
-  position: absolute;
-  inset: 0;
-}
-
-.node {
-  position: absolute;
-  z-index: 1;
+.suggestionButton,
+.branchNode,
+.candidateNode,
+.crossLink {
   display: grid;
   align-content: center;
   gap: 5px;
+  width: 100%;
   border: 1px solid var(--ax-line-strong);
   border-radius: var(--ax-r-md);
-  padding: 9px 10px;
-  color: var(--ax-ink-1);
+  padding: 10px 11px;
   text-align: left;
   background: var(--ax-surface);
   box-shadow: var(--ax-shadow-card);
 }
 
-.node:hover,
-.nodeSelected {
+.suggestionButton:hover,
+.branchNode:hover,
+.candidateNode:hover,
+.crossLink:not(:disabled):hover,
+.branchNodeCurrent {
   border-color: var(--ax-signal);
+  background: var(--ax-signal-faint), var(--ax-surface);
   box-shadow: 0 0 0 2px var(--ax-signal-faint);
 }
 
-.nodeSelected {
+.suggestionButton strong,
+.branchNode strong,
+.candidateNode strong,
+.crossLink strong {
+  overflow-wrap: anywhere;
+  color: var(--ax-ink);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.entryGroup {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface);
+}
+
+.entryGroup h4,
+.connectionGroup h4 {
+  margin: 0;
+  color: var(--ax-ink-2);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.entryKind {
+  min-width: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ax-line);
+  color: var(--ax-ink-2);
+  font-size: 11px;
+}
+
+.entryKind strong {
+  overflow-wrap: anywhere;
+  color: var(--ax-ink);
+}
+
+.branchLevels {
+  gap: 16px;
+}
+
+.branchLevel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-md);
+  background: var(--ax-bg-desk);
+}
+
+.branchLevel::before {
+  content: "DEPTH " attr(data-depth);
+  color: var(--ax-ink-3);
+  font: var(--ax-type-micro);
+  letter-spacing: .08em;
+}
+
+.branchNode {
+  border-left: 4px solid var(--ax-line-strong);
+}
+
+.branchNodeCurrent {
+  border-left-color: var(--ax-signal);
+}
+
+.connectionGroups,
+.candidateList {
+  gap: 9px;
+}
+
+.connectionGroup {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface);
+}
+
+.bundleControl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--ax-line-strong);
+  border-radius: var(--ax-r-sm);
+  padding: 9px 10px;
+  text-align: left;
+  background: var(--ax-surface);
+}
+
+.bundleControl strong {
+  flex: 0 0 auto;
+  color: var(--ax-ink-2);
+  font: var(--ax-type-micro);
+}
+
+.candidate {
+  display: grid;
+  min-width: 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--ax-line);
+}
+
+.edgeUnit {
+  display: grid;
+  min-width: 0;
+}
+
+.edgeGraphic {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 58px;
+  overflow: visible;
+}
+
+.edgeGraphic line {
+  stroke: var(--ax-line-strong);
+  stroke-width: 2;
+}
+
+.edgeGraphic polygon {
+  fill: var(--ax-signal);
+}
+
+.edgeGraphic text {
+  fill: var(--ax-ink);
+  paint-order: stroke;
+  stroke: var(--ax-surface);
+  stroke-width: 8px;
+  stroke-linejoin: round;
+  font-family: var(--ax-font-mono);
+  font-size: 11px;
+}
+
+.semanticEdge {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-sm);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  background: var(--ax-surface);
+}
+
+.semanticEdge:hover,
+.relationshipSelected {
+  border-color: var(--ax-signal);
   background: var(--ax-signal-faint), var(--ax-surface);
 }
 
-.nodeLabel {
-  overflow-wrap: anywhere;
+.semanticEdge span {
+  color: var(--ax-ink);
   font-size: 12px;
   font-weight: 700;
 }
 
-.relationships {
+.candidateNode,
+.crossLink {
+  margin-top: 7px;
+}
+
+.crossLink {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.inventoryBody {
+  gap: 10px;
+}
+
+.filterLabel {
   display: grid;
   gap: 6px;
-  min-width: min(680px, 100%);
-  padding: 2px;
-}
-
-.relationshipHeading {
-  margin-bottom: 2px;
-}
-
-.relationship {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  border: 1px solid transparent;
-  border-radius: var(--ax-r-sm);
-  padding: 7px 8px;
   color: var(--ax-ink-2);
-  text-align: left;
-  background: transparent;
-}
-
-.relationship:hover,
-.relationshipSelected {
-  border-color: var(--ax-line-strong);
-  background: var(--ax-surface);
-}
-
-.relationship span {
-  overflow-wrap: anywhere;
   font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.relationship strong {
-  color: var(--ax-signal-strong, var(--ax-ink-2));
-  text-align: center;
-}
-
-.detailPanel {
-  display: grid;
-  gap: 8px;
-  padding: 14px;
+.filterLabel input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
   border: 1px solid var(--ax-line-strong);
-  border-radius: var(--ax-r-md);
+  border-radius: var(--ax-r-sm);
+  padding: 9px 10px;
+  color: var(--ax-ink);
+  font: inherit;
   background: var(--ax-surface);
 }
 
-.detailId {
+.filterCounts {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.inventoryList {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inventoryList li {
+  min-width: 0;
+}
+
+.inventoryList button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-sm);
+  padding: 9px 10px;
   overflow-wrap: anywhere;
+  text-align: left;
+  background: var(--ax-surface);
+}
+
+.inventoryList button:hover:not(:disabled) {
+  border-color: var(--ax-signal);
+}
+
+.inventoryList button span {
+  color: var(--ax-ink-2);
+  font-size: 11px;
 }
 
 .detailList {
   display: grid;
   gap: 7px;
+  min-width: 0;
   margin: 2px 0 0;
 }
 
@@ -271,6 +542,7 @@
   display: grid;
   grid-template-columns: minmax(110px, .42fr) minmax(0, 1fr);
   gap: 10px;
+  min-width: 0;
   padding-top: 7px;
   border-top: 1px solid var(--ax-line);
 }
@@ -282,23 +554,113 @@
 }
 
 .detailList dd {
+  min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  text-transform: none;
+  color: var(--ax-ink-2);
+  font-family: var(--ax-font-mono);
+  font-size: 10px;
+}
+
+.technicalDisclosure {
+  min-width: 0;
+  border: 1px solid var(--ax-line);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-bg-desk);
+}
+
+.technicalDisclosure summary {
+  min-height: 44px;
+  padding: 12px;
+  cursor: pointer;
+  color: var(--ax-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.technicalDisclosure[open] {
+  padding-bottom: 10px;
+}
+
+.technicalDisclosure[open] > .detailList,
+.technicalDisclosure[open] > .secondaryButton {
+  margin-right: 10px;
+  margin-left: 10px;
+}
+
+@media (min-width: 900px) {
+  .suggestions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .entryGroups {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
-  .explorerHeader {
+  .explorer {
+    gap: 11px;
+    padding: 12px;
+  }
+
+  .explorerHeader,
+  .surfaceHeader {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .headerActions {
+  .headerActions,
+  .mapActions {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .suggestions,
+  .entryGroups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entrySurface,
+  .relationshipMap,
+  .inventory,
+  .detailPanel,
+  .branchLevel {
+    padding: 10px;
+  }
+
+  .bundleControl {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .detailList > div {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 3px;
+  }
+}
+
+@media (max-width: 340px) {
+  .explorer {
+    padding: 9px;
+  }
+
+  .entrySurface,
+  .relationshipMap,
+  .inventory,
+  .detailPanel,
+  .branchLevel,
+  .connectionGroup {
+    padding: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explorer *,
+  .explorer *::before,
+  .explorer *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
   }
 }

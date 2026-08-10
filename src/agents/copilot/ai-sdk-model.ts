@@ -14,9 +14,9 @@ function schema(input: Readonly<CopilotModelInput>): Readonly<Record<string, unk
     additionalProperties: false,
     required: ["schemaVersion", "intentId", "selections"],
     properties: {
-      schemaVersion: { const: "copilot-model-candidate/v1" },
-      intentId: { enum: input.intentIds },
-      selections: { type: "array", maxItems: 0, items: false },
+      schemaVersion: { type: "string", enum: ["copilot-model-candidate/v1"] },
+      intentId: { type: "string", enum: input.intentIds },
+      selections: { type: "array", maxItems: 0, items: { type: "string" } },
     },
   };
 }

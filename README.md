@@ -11,7 +11,9 @@ A staff-level take-home for AI engineering candidates: build a **knowledge graph
 |------|---------|
 | [`ASSESSMENT.md`](./ASSESSMENT.md) | The full take-home spec — task, knowledge graphs, ontologies, build steps, deliverable |
 | [`data/exercises.json`](./data/exercises.json) | Exercise catalog (50 exercises) |
-| [`data/member-context.json`](./data/member-context.json) | One rich synthetic member: profile, goals, injuries, chat history, biomarkers, labs (blood panel + DEXA), adherence, churn signals |
+| [`data/member-context.json`](./data/member-context.json) | Jordan's synthetic member context: profile, goals, injuries, chat history, biomarkers, labs (blood panel + DEXA), adherence, churn signals |
+| [`data/member-context-avery.json`](./data/member-context-avery.json) | Avery's independent synthetic member context used by the roster and graph seed |
+| [`data/member-context-morgan.json`](./data/member-context-morgan.json) | Morgan's independent synthetic member context used by the roster and graph seed |
 
 ## The gist
 
@@ -29,12 +31,19 @@ See [`ASSESSMENT.md`](./ASSESSMENT.md) for the complete spec.
 | System architecture and data flow | [Architecture](#architecture) |
 | Stack rationale | [Architecture and technology choices](#architecture-and-technology-choices) |
 | Local setup | [Run locally](#run-locally) |
+| Railway minimum demo | [`docs/deployment/railway.md`](./docs/deployment/railway.md) |
 | AI-assisted development process | [How AI was used](#how-ai-was-used) |
 | Challenges and trade-offs | [Challenges, trade-offs, and technical decisions](#challenges-trade-offs-and-technical-decisions) |
 | Production evaluation and safety monitoring | [Production evaluation](#production-evaluation) |
 | Connected acceptance output and screenshots | [`docs/evidence/connected-acceptance.md`](./docs/evidence/connected-acceptance.md) and [`connected-acceptance-capture.json`](./docs/evidence/connected-acceptance-capture.json) |
 | Component examples and scorecard | [`docs/example-plans.md`](./docs/example-plans.md) and [`docs/evaluation.md`](./docs/evaluation.md) |
 | Graph schemas and ontology boundary | [`docs/graph/`](./docs/graph) and [`docs/ontology-model.md`](./docs/ontology-model.md) |
+
+## Railway minimum demo
+
+For the easiest hosted review path, use the documented two-service Railway setup: one app service runs Next.js plus the deterministic worker, and one pinned Neo4j Community service owns a persistent `/data` volume. It is a synthetic, non-production demo with private-network plaintext Bolt, mock authentication, one app replica, and manual SSH seeding.
+
+Follow [`docs/deployment/railway.md`](./docs/deployment/railway.md) for the exact variables, service order, seed/CAS workflow, smoke checklist, persistence check, and recovery boundaries. The local Docker Compose path below remains the fastest development path.
 
 ## Architecture
 
@@ -49,7 +58,7 @@ flowchart TB
   Safety["Catalog safety policy<br/>bounded deterministic traversal"]
   Composer["Workout composer adapter<br/>structured output only"]
   Validator["Post-model validator<br/>candidate + dose + duration + provenance"]
-  Model["Configured LLM<br/>AI SDK Gateway"]
+  Model["Configured LLM<br/>AI SDK provider"]
 
   subgraph Neo4j["Neo4j — separate logical, revisioned graphs"]
     Movement["Movement / Clinical KG<br/>catalog + anatomy + equipment + rules"]
@@ -107,7 +116,7 @@ The current corpus is small and has stable canonical identifiers. A vector datab
 | **Neo4j 2026.06 Community** | Exercises, anatomy ancestry, clinical rule paths, equipment requirements, substitutions, and provenance are naturally edge-centric. Managed transactions support stage/read-back/seal/compare-and-swap activation and atomic run completion. | Local setup requires Docker, and three logical graphs share one local database. Ports and revision IDs preserve the option to split stores later. |
 | **Immutable graph revisions and PROV-O-shaped traces** | Every answer/run can be reopened against the exact source revisions. Seals and canonical digests expose tampering or mixed-revision reads instead of silently explaining from current state. | Storage and lifecycle complexity are higher than overwriting active records. |
 | **SKOS + bounded SNOMED CT metadata; OPE citation-only** | SKOS records reviewed catalog-to-ontology mappings; a small SNOMED subset gives stable anatomy/condition identifiers. OPE is not copied because the available source/license evidence is insufficient for redistribution. | Coverage is intentionally narrower than a wholesale ontology import and requires curator review. |
-| **AI SDK 7 + Gateway behind model ports** | Provider-neutral structured output, timeouts, cancellation, and schema parsing are isolated at one adapter. A fake model can exercise all application behavior offline. | A configured provider is still required for live free-text classification and workout composition. |
+| **AI SDK 7 + provider model ports** | Provider-neutral structured output, timeouts, cancellation, and schema parsing are isolated at one adapter. Direct OpenAI and Vercel AI Gateway are supported, and a fake model can exercise all application behavior offline. | A configured provider is still required for live free-text classification and workout composition. |
 | **Deterministic pre-filter and post-validation around the LLM** | The model is useful for composition and language classification, but cannot promote an excluded exercise, invent a graph fact, change risk, or escape the candidate set. | Less open-ended generation; ambiguous safety input returns clarification instead of a best guess. |
 | **Vitest + Playwright + Axe** | Unit, contract, integration, security, browser, accessibility, responsive, and visual tests cover the failure-prone boundaries. The 15-scenario workout corpus hard-gates validity and provenance at 100%. | The offline corpus cannot measure provider latency or writing quality; those remain production canary signals. |
 | **pnpm 11, Node 24, Docker Compose** | Versions are pinned, installation is reproducible, and Neo4j is bound to localhost with a named volume. | Docker is a prerequisite for canonical graph paths. |
@@ -115,6 +124,8 @@ The current corpus is small and has stable canonical identifiers. A vector datab
 ## Run locally
 
 Prerequisites: Node 24, Corepack/pnpm 11, and Docker. All checked-in data is synthetic.
+
+Copy `.env.example` to `.env` and fill in any local credentials or model settings. The project startup, worker, graph-seeding, and demo scripts load the root `.env` automatically; `.env` is ignored by Git. Existing shell variables still take precedence.
 
 ### Fast UI path
 
@@ -144,18 +155,18 @@ pnpm dev
 
 The movement activation command is idempotent when that tracked revision is already active. If a different revision is active, compare-and-swap fails rather than replacing it silently; run `pnpm graph:inspect` and pass the active ID only after reviewing the change.
 
-Copilot quick prompts work without a model. Set `AI_GATEWAY_API_KEY` and `COPILOT_MODEL_ID` to enable non-alias free-text intent classification.
+Copilot quick prompts work without a model. Set `OPENAI_API_KEY` and `COPILOT_MODEL_ID` for direct OpenAI, or set `AI_PROVIDER=gateway` with `AI_GATEWAY_API_KEY` for Vercel AI Gateway, to enable non-alias free-text intent classification.
 
 ### Optional provider mode
 
-The deterministic demo is the reproducible default. To exercise the AI SDK composition and review adapters, configure `AI_GATEWAY_API_KEY`, `WORKOUT_MODEL_ID`, and `WORKOUT_WORKER_ID`, then run the worker in provider mode alongside the web app:
+The deterministic demo is the reproducible default. To exercise the AI SDK composition and review adapters, copy `.env.example` to `.env`, set `WORKOUT_DEMO_MODE=provider`, and fill in `OPENAI_API_KEY` (or the explicit Gateway credentials), `COPILOT_MODEL_ID`, `WORKOUT_MODEL_ID`, `WORKOUT_WORKER_ID`, and a shared `WORKOUT_ROUTE_SECRET`. Direct OpenAI is selected automatically when `OPENAI_API_KEY` is present; set `AI_PROVIDER=gateway` to use Vercel AI Gateway instead. Then start the web app and worker in separate terminals:
 
 ```bash
-NODE_ENV=development \
-AI_GATEWAY_API_KEY=<key> \
-WORKOUT_MODEL_ID=<gateway-model-id> \
-WORKOUT_WORKER_ID=worker:local \
-WORKOUT_DEMO_MODE=provider \
+cp .env.example .env
+# Edit .env: set WORKOUT_DEMO_MODE=provider and add the provider values.
+pnpm dev
+
+# In a second terminal:
 pnpm worker:workout-run -- --poll
 ```
 
@@ -233,7 +244,7 @@ The graph schema, ontology/license boundary, safety semantics, confidence thresh
 | **Fail closed on incomplete applicability** | Missing injury status/laterality/recovery context is not evidence of safety. | Some requests require clarification or return no safe result; availability is sacrificed for safety. |
 | **Synthetic scope** | The assessment forbids real member data, and the clinical rules are not validated care guidance. | The system demonstrates architecture and controls, not clinical efficacy, production identity, or PHI compliance. |
 
-Known scope limits: local mock coach auth, one canonical seeded Member Context member, no managed production queue, no external vector index, no trained churn model, no image analysis, no server voice transport, no spoken answers, no delivery/publishing integration, and no provider-backed quality/latency baseline. Optional browser dictation is a client-side progressive enhancement only; it keeps an editable transcript in memory and falls back to typed input. These are explicit boundaries, not silent mocks.
+Known scope limits: local mock coach auth, three synthetic canonical Member Context members, no managed production queue, no external vector index, no trained churn model, no image analysis, no voice interface, no delivery/publishing integration, and no provider-backed quality/latency baseline. These are explicit boundaries, not silent mocks.
 
 ## Production evaluation
 
@@ -266,7 +277,7 @@ The current offline baseline is 15 scenarios at 100% recommendation validity and
 
 ## Current UI slice
 
-The root route renders the copy-first AXON coach dashboard. Today and Coach are its only global destinations at mobile and desktop widths. Today owns the calendar, scheduled-athlete workout previews, full-athlete disclosure, and each athlete’s unified morning brief; workout, rationale, Copilot, voice, profile, history, and approval remain nested under that brief. The initial workspace is a synthetic typed projection, while the workout and Copilot capabilities use fetch adapters to cross the server boundary. The `ui/` directory remains a disconnected design reference and is never imported by production code.
+The root route renders the copy-first AXON coach dashboard. Today and Coach are its only global destinations at mobile and desktop widths. Today owns the calendar, scheduled-athlete workout previews, full-athlete disclosure, and each athlete’s unified morning brief; workout, rationale, Copilot, profile, history, and approval remain nested under that brief. The initial workspace is a synthetic typed projection, while the workout and Copilot capabilities use fetch adapters to cross the server boundary. The `ui/` directory remains a disconnected design reference and is never imported by production code.
 
 ```bash
 pnpm install
@@ -275,11 +286,11 @@ pnpm dev
 
 Quality gates are available through `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm test:a11y`, `pnpm test:visual`, and `pnpm build`.
 
-Adjustment, substitution, provenance, conversation/media, and workout generation cross authenticated server routes and the pinned graph revisions. The demo worker processes queued runs automatically; provider mode remains an explicit opt-in. Browser dictation may fill the Copilot composer after a processing disclosure and explicit coach action, but server voice transport, spoken answers, audio persistence, delivery, publishing, and member-messaging integration are outside the take-home.
+Adjustment, substitution, provenance, conversation/media, and workout generation cross authenticated server routes and the pinned graph revisions. The demo worker processes queued runs automatically; provider mode remains an explicit opt-in. Voice input, audio persistence, delivery, publishing, and member-messaging integration are outside the take-home.
 
 ## Member Context knowledge graph
 
-The repository includes a revisioned, provenance-bearing Member Context graph seeded only from the tracked synthetic Jordan fixture. Start the pinned local Neo4j service, validate the seed without writes, publish it, and inspect the active revision from the repository root:
+The repository includes a revisioned, provenance-bearing Member Context graph seeded from three explicit synthetic roster fixtures. Start the pinned local Neo4j service, validate the seeds without writes, publish them, and inspect the active revisions from the repository root:
 
 ```bash
 docker compose up -d neo4j
@@ -296,9 +307,7 @@ The connected Copilot is a read-only server capability over the canonical Member
 
 The five quick prompts are deterministic and do not require a model: `Morning brief`, `Adherence`, `Sleep`, `What changed since last week?`, and `Churn risk`. Exact aliases resolve through the same versioned intent registry. Other bounded free text is sent to the configured model only for canonical intent classification; the provider may return stable intent IDs, but it cannot author facts, chart points, citations, risk levels, identity, or actions. Factual clauses, exact message quotations, charts, accessible chart summaries, citations, timestamps, and churn are rendered and validated deterministically from the pinned evidence.
 
-Copilot also supports optional browser-native dictation as an input convenience. The UI discloses that browser or recognition-provider processing may occur before the coach explicitly starts capture, keeps the transcript editable, and submits it through the same bounded text request as typed input. The app does not claim on-device processing, control provider retention, persist audio, create a separate voice transcript store, produce spoken answers, or add a server transcription route; unsupported, denied, or failed capture leaves typed input available.
-
-Start Neo4j, seed the synthetic Jordan revision, and run the app:
+Start Neo4j, seed all synthetic member revisions, and run the app:
 
 ```bash
 pnpm install
@@ -307,9 +316,9 @@ pnpm graph:seed:member
 pnpm dev
 ```
 
-Local development supplies a mock synthetic coach session when no session cookie is present. Jordan is the only canonical Member Context seed; Avery and Morgan remain in the synthetic roster but return a truthful unavailable-context state. For non-local use, configure `COPILOT_CONTINUATION_SECRET` and `COPILOT_SESSION_SECRET` with separate values of at least 32 bytes, plus the Neo4j variables documented below. `COPILOT_LOCAL_COACH_ID` and comma-separated `COPILOT_LOCAL_MEMBER_IDS` only customize the local mock scope.
+Local development supplies a mock synthetic coach session when no session cookie is present. Jordan, Avery, and Morgan each have an independently seeded canonical Member Context revision. For non-local use, configure `COPILOT_CONTINUATION_SECRET` and `COPILOT_SESSION_SECRET` with separate values of at least 32 bytes, plus the Neo4j variables documented below. `COPILOT_LOCAL_COACH_ID` and comma-separated `COPILOT_LOCAL_MEMBER_IDS` only customize the local mock scope.
 
-Free-text classification is optional. Set `AI_GATEWAY_API_KEY` and `COPILOT_MODEL_ID` to enable the AI SDK provider. Without them, deterministic quick prompts still work and non-alias free text returns a retryable model-unavailable state. Provider input is restricted to the current question, canonical intent IDs, and empty bounded selection metadata; input/output telemetry and provider retries are disabled at this boundary.
+Free-text classification is optional. Set `OPENAI_API_KEY` and `COPILOT_MODEL_ID` for direct OpenAI, or `AI_PROVIDER=gateway`, `AI_GATEWAY_API_KEY`, and `COPILOT_MODEL_ID` for Vercel AI Gateway, to enable the AI SDK provider. Without them, deterministic quick prompts still work and non-alias free text returns a retryable model-unavailable state. Provider input is restricted to the current question, canonical intent IDs, and empty bounded selection metadata; input/output telemetry and provider retries are disabled at this boundary.
 
 The external result union keeps degraded behavior explicit:
 
@@ -341,7 +350,7 @@ pnpm build
 
 The canonical grounding matrix runs all five quick prompts plus free text, follow-up, injection, sparse-history, and adversarial packet checks against real Neo4j without network model calls. It treats authorization, member/revision parity, evidence-kind compatibility, clause citations, chart equality, unsupported login/image claims, typed failures, and production isolation as release gates. Language quality and latency are reported signals only. If local Neo4j routing discovery is unavailable, the same focused test can use the direct endpoint with `NEO4J_URI=bolt://127.0.0.1:7687`.
 
-This exact-retrieval baseline is intentionally conservative: it is auditable and deterministic, but it supports a small intent vocabulary and does not provide semantic/vector search, persisted chat transcripts, image analysis, server voice transport, spoken answers, audio persistence, member messaging, graph writes, clinical recommendations, or a trained churn model. Every record and example is synthetic take-home data; do not ingest real member data or PHI.
+This exact-retrieval baseline is intentionally conservative: it is auditable and deterministic, but it supports a small intent vocabulary and does not provide semantic/vector search, persisted chat transcripts, image analysis, voice input or output, audio persistence, member messaging, graph writes, clinical recommendations, or a trained churn model. Every record and example is synthetic take-home data; do not ingest real member data or PHI.
 
 ## Movement and Clinical knowledge graph
 

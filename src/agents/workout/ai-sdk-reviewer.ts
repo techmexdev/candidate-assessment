@@ -12,14 +12,13 @@ type JsonSchema = Readonly<Record<string, unknown>>;
 const REVIEW_JSON_SCHEMA: JsonSchema = Object.freeze({
   type: "object",
   additionalProperties: false,
-  required: ["status"],
+  required: ["status", "defects"],
   properties: {
-    status: { enum: ["accepted", "revise"] },
+    status: { type: "string", enum: ["accepted", "revise"] },
     defects: {
       type: "array",
       maxItems: 4,
-      uniqueItems: true,
-      items: { enum: ["dose-imbalance", "section-coverage", "redundant-pattern", "rationale-quality"] },
+      items: { type: "string", enum: ["dose-imbalance", "section-coverage", "redundant-pattern", "rationale-quality"] },
     },
   },
 });

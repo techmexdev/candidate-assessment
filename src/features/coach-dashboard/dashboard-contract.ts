@@ -1,5 +1,7 @@
 import type {
   FullGraphDomain,
+  FullGraphEntityKind,
+  FullGraphPageRequest,
   FullGraphReadResult,
 } from "../../domain/contracts/full-graph-view";
 import type { CopilotSupportingContextReference } from "../../domain/contracts/copilot";
@@ -124,11 +126,22 @@ export type DashboardFullGraphRequest = {
   readonly domain: FullGraphDomain;
   readonly memberId?: string;
   readonly revisionId?: string;
+  readonly entityId?: string;
+  readonly entityKind?: FullGraphEntityKind;
   readonly signal?: AbortSignal;
+};
+
+export type DashboardFullGraphPageRequest = DashboardFullGraphRequest & {
+  readonly page: FullGraphPageRequest;
 };
 
 export type DashboardFullGraphClient = {
   readonly read: (input: DashboardFullGraphRequest) => Promise<FullGraphReadResult>;
+  readonly readPage?: (input: DashboardFullGraphPageRequest) => Promise<FullGraphReadResult>;
+  readonly readProgressively?: (
+    input: DashboardFullGraphRequest,
+    onProgress: (result: FullGraphReadResult) => void,
+  ) => Promise<FullGraphReadResult>;
 };
 
 export type DashboardFullGraphCapability =

@@ -42,8 +42,8 @@ export type GraphRepositories = {
 
 /** Server-only complete graph dependencies. The base graph port stays focused-query-only. */
 export type FullGraphRepositories = {
-  movement: Pick<MovementGraphFullReadProvider, "readFullActive" | "readFullRevision">;
-  memberContext: Pick<MemberContextFullReadProvider, "readFullActive" | "readFullRevision">;
+  movement: Pick<MovementGraphFullReadProvider, "readFullActive" | "readFullRevision" | "readFullPage">;
+  memberContext: Pick<MemberContextFullReadProvider, "readFullActive" | "readFullRevision" | "readFullPage">;
 };
 
 /** Server composition dependencies for the member-context read boundary. */

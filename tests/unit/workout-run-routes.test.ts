@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { asWorkoutRunId } from "../../src/domain/contracts/workout";
-import { createWorkoutRunPostHandler } from "../../src/app/api/workout-runs/route";
+import { createWorkoutRunPostHandler, isSameOriginMutation } from "../../src/app/api/workout-runs/route";
 import { createWorkoutRunResourceHandlers } from "../../src/app/api/workout-runs/[runId]/route";
 import { createWorkoutRunEventsHandler } from "../../src/app/api/workout-runs/[runId]/events/route";
 import { createWorkoutClarificationHandler } from "../../src/app/api/workout-runs/[runId]/clarification/route";
@@ -19,6 +19,25 @@ function request(path: string, init: RequestInit = {}) {
 }
 
 describe("workout run route adapters", () => {
+  it("accepts browser same-origin mutations that omit Origin but include Referer", () => {
+    expect(isSameOriginMutation(new Request("https://axon.test/api/workout-runs", {
+      method: "POST",
+      headers: { referer: "https://axon.test/" },
+    }))).toBe(true);
+    expect(isSameOriginMutation(new Request("https://axon.test/api/workout-runs", {
+      method: "POST",
+      headers: { referer: "https://evil.test/" },
+    }))).toBe(false);
+    expect(isSameOriginMutation(new Request("http://127.0.0.1:3000/api/workout-runs", {
+      method: "POST",
+      headers: {
+        referer: "https://axon.test/",
+        "x-forwarded-host": "axon.test",
+        "x-forwarded-proto": "https",
+      },
+    }))).toBe(true);
+  });
+
   it("derives the coach from the server session and rejects cross-origin or invalid submissions", async () => {
     const submit = vi.fn(async (input: unknown) => {
       void input;

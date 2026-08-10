@@ -10,14 +10,20 @@ Built from scratch for this product (no external brand imported). Primary artifa
 
 ## The one idea to remember
 
-**Ink is human. Signal is machine.** Everything a *person* does — buttons, approvals, warnings, text — is carbon ink on chalk. Everything the *graph or AI* produced — provenance, decision paths, retrieval states, suggested actions — carries the holographic **Signal** gradient. If it shimmers, a machine reasoned it; a coach can always tell at a glance which is which. Never use Signal decoratively.
+**Ink is human. Signal is graph truth.** Coach actions — buttons, approvals, warnings, and editable controls — always use carbon ink on chalk. Reserve the holographic **Signal** gradient for graph/provenance output such as selected graph facts, retrieval state, and source-backed evidence. Never apply Signal to a coach action or use it decoratively.
 
 ## Full graph inspection
 
 - Focused Movement explanations and member profiles remain the default. `Show full graph` is an optional curiosity path inside the originating surface.
-- Full graph views are read-only and show the complete bounded snapshot, total node/relationship counts, authority (`canonical` or `fixture`), and the pinned graph/context revision.
-- Selecting a node or relationship opens persistent source/provenance details. Show explicit `none · identity or lineage node` when no direct assertion exists; never infer a source from nearby data.
-- Keep the semantic relationship inventory available with the viewport. A dense canvas may scroll, but it must not silently replace the complete projection with a top-N subset.
+- The semantic model is **entry → active branch → complete inventory**. Entry groups human-readable kinds and ranked starting suggestions. The active branch follows one path at a time. The complete inventory remains the authoritative linear route to every loaded node and relationship.
+- Outgoing controls follow the stored source-to-target direction. Reverse/incoming controls let the coach traverse from a stored target back to its source, but their copy and arrow preserve the original `from → relationship → to` fact; rendered branch depth never implies a universal domain hierarchy.
+- Following a sibling prunes only the previous sibling's descendants. The shared ancestor and selected connecting edge remain. Following the current node again collapses its descendants and returns focus to that node.
+- A shared neighbor or cycle has one canonical node card while it remains on the active path. Later encounters render as inspectable shared/existing-path relationship controls and stop recursive expansion.
+- Every visible arrow has a parallel native, linear relationship control with the same endpoints and relationship label. SVG connectors are decorative; node and relationship controls remain keyboard-operable without an ARIA tree or grid.
+- The complete inventory filters the already-loaded revision-pinned projection client-side by human label, kind, category, or relationship kind. Filtering never changes projection completeness, active-branch ownership, authorization, or graph scope. High-degree hubs show exact visible-versus-total previews while the inventory retains every loaded relationship.
+- Raw node, relationship, assertion, revision, locator, and digest IDs remain internal and default-hidden. Exact references appear only in the selected node/relationship's native, collapsed `Technical reference` disclosure, which stays keyboard- and screen-reader-reachable. Human-facing cards, arrows, status, tooltips, counts, and accessible names use labels, kinds, and duplicate-safe ordinals instead of IDs.
+- Selecting a node or relationship updates a persistent source/provenance detail region. Show explicit `none · identity or lineage node` when no direct assertion exists; never infer a source from nearby data.
+- Full graph views are read-only and keep Movement/Clinical and each authorized member-context projection separate. Show truthful loaded/total counts, authority (`canonical` or `fixture`), and pinned graph context; stale member, domain, revision, or source responses must not restore another graph's branch.
 - `← Focused view` returns to the originating explanation or profile. Graph inspection must not mutate workouts, approvals, member context, Copilot state, or graph data.
 
 ## CONTENT FUNDAMENTALS

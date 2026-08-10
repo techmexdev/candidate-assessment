@@ -1,6 +1,6 @@
 services:
   neo4j:
-    image: neo4j:2026.06-community
+    image: neo4j:2026.06.0-community
     environment:
       NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-movement-graph-local-test}"
       MOVEMENT_NEO4J_USERNAME: "${NEO4J_USERNAME:-neo4j}"
@@ -11,11 +11,11 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "/var/lib/neo4j/bin/cypher-shell -a neo4j://127.0.0.1:7687 -u $${MOVEMENT_NEO4J_USERNAME} -p $${MOVEMENT_NEO4J_PASSWORD} 'RETURN 1'"
-      interval: 5s
+        - "if command -v curl >/dev/null 2>&1; then curl --fail --silent --max-time 3 http://127.0.0.1:7474/ >/dev/null; else /bin/bash -lc 'exec 3<>/dev/tcp/127.0.0.1/7474'; fi"
+      interval: 30s
       timeout: 5s
-      retries: 30
-      start_period: 15s
+      retries: 10
+      start_period: 30s
     volumes:
       - movement-neo4j-data:/data
 

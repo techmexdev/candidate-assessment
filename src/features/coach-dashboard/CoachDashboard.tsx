@@ -6,15 +6,15 @@ import { SignalKicker } from "@/ui/axon/components/agentic/SignalKicker";
 import { VersionTimeline } from "@/ui/axon/components/data/VersionTimeline";
 import { calculateCalendarWindow } from "../../domain/policies/copilot-projections";
 import { createCopilotPin, createCopilotSupportingContextReference, type CopilotAnswerPacket, type CopilotQuestionInput, type CopilotSupportingContextReference, type SignedCopilotContinuation } from "../../domain/contracts/copilot";
-import type { FullGraphReadResult } from "../../domain/contracts/full-graph-view";
+import type { FullGraphProjection, FullGraphReadResult } from "../../domain/contracts/full-graph-view";
 import type {
   CoachDashboardMemberViewModel,
   CoachDashboardWorkspace,
   DashboardAdapter,
   DashboardDecisionId,
 } from "./dashboard-contract";
-import { createSpeechInputController, type SpeechInputController } from "./speech-input";
 import { buildTodayProjection, sessionDateKey } from "./synthetic-dashboard-base";
+import { sortWorkoutHistoryChronologically } from "./history-order";
 import {
   dashboardReducer,
   initialDashboardState,
@@ -37,7 +37,7 @@ import {
   type CopilotPresentationGroup,
 } from "./copilot-view-model";
 import styles from "./dashboard.module.css";
-import { FullGraphExplorer } from "./FullGraphExplorer";
+import { FullGraphExplorer, type GraphInspectionOutcome, type GraphInspectionRequest } from "./FullGraphExplorer";
 
 const destinations: { id: DashboardDestination; label: string }[] = [
   { id: "today", label: "Today" },
@@ -55,6 +55,33 @@ const prompts: { id: QuickPromptId; label: string }[] = [
 ];
 
 const DashboardViewModelContext = createContext<CoachDashboardMemberViewModel | null>(null);
+
+function graphResultMatchesRequest(
+  result: FullGraphReadResult,
+  expected: { readonly domain: FullGraphProjection["domain"]; readonly memberId?: string; readonly revisionId?: string },
+): boolean {
+  if (result.status !== "ready") return result.domain === expected.domain;
+  return result.data.domain === expected.domain
+    && result.data.memberId === expected.memberId
+    && (!expected.revisionId || result.data.revisionId === expected.revisionId);
+}
+
+function graphTopologyMatches(left: FullGraphProjection, right: FullGraphProjection): boolean {
+  if (left.domain !== right.domain
+    || left.memberId !== right.memberId
+    || left.revisionId !== right.revisionId
+    || left.sourceArtifactDigest !== right.sourceArtifactDigest
+    || left.counts.nodes !== right.counts.nodes
+    || left.counts.relationships !== right.counts.relationships) return false;
+  const leftNodes = [...left.nodes].map((node) => node.id).sort();
+  const rightNodes = [...right.nodes].map((node) => node.id).sort();
+  if (leftNodes.length !== rightNodes.length || leftNodes.some((id, index) => id !== rightNodes[index])) return false;
+  const relationshipKey = (relationship: FullGraphProjection["relationships"][number]) => `${relationship.id}\u0000${relationship.fromId}\u0000${relationship.toId}`;
+  const leftRelationships = [...left.relationships].map(relationshipKey).sort();
+  const rightRelationships = [...right.relationships].map(relationshipKey).sort();
+  return leftRelationships.length === rightRelationships.length
+    && leftRelationships.every((key, index) => key === rightRelationships[index]);
+}
 
 function useDashboardViewModel() {
   const viewModel = useContext(DashboardViewModelContext);
@@ -97,7 +124,6 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   const suppressRouteFocusRestore = useRef(false);
   const dialogWasOpen = useRef(false);
   const previousRoutes = useRef<AthleteRoute[]>([]);
-  const speechInput = useMemo(() => createSpeechInputController(), []);
   const activeWorkflow = selectActiveAthleteState(state);
   const currentVersion = selectCurrentVersion(state);
   const published = selectIsPublished(state);
@@ -116,16 +142,6 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       decisionPaths: projection.decisionPaths,
     };
   }, [activeMember, activeWorkflow?.runtimeWorkout]);
-
-  useEffect(() => {
-    const memberId = state.activeMemberId;
-    if (!memberId) return;
-    const sync = () => dispatch({ type: "update-speech-capture", memberId, capture: speechInput.getSnapshot() });
-    sync();
-    return speechInput.subscribe(sync);
-  }, [speechInput, state.activeMemberId]);
-
-  useEffect(() => () => speechInput.dispose(), [speechInput]);
 
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
@@ -147,81 +163,161 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     }
   }, [adapter]);
 
-  const readMovementGraph = useCallback(async () => {
+  const clearMovementGraph = useCallback(() => {
+    fullGraphAbort.current?.abort();
+    fullGraphAbort.current = null;
+    fullGraphRequest.current += 1;
+    setMovementGraph(null);
+    setMovementGraphExpanded(false);
+    setMovementGraphLoading(false);
+  }, []);
+
+  const clearMemberContextGraph = useCallback(() => {
+    memberGraphAbort.current?.abort();
+    memberGraphAbort.current = null;
+    memberGraphRequest.current += 1;
+    setMemberContextGraph(null);
+    setMemberContextGraphMemberId(null);
+    setMemberContextGraphExpanded(false);
+    setMemberContextGraphLoading(false);
+  }, []);
+
+  const readMovementGraph = useCallback(async (revisionId?: string, inspection?: Pick<GraphInspectionRequest, "entityId" | "entityKind">): Promise<GraphInspectionOutcome | undefined> => {
     const capability = adapter.capabilities.fullGraph;
-    if (!capability?.available || !capability.supports({ domain: "movement-clinical" })) return;
+    if (!capability?.available || !capability.supports({ domain: "movement-clinical" })) return inspection ? "failed" : undefined;
     fullGraphAbort.current?.abort();
     const controller = new AbortController();
     const requestId = ++fullGraphRequest.current;
     fullGraphAbort.current = controller;
-    setMovementGraphLoading(true);
+    if (!inspection) setMovementGraph(null);
+    if (!inspection) setMovementGraphLoading(true);
     try {
-      const result = await capability.client.read({ domain: "movement-clinical", signal: controller.signal });
-      if (controller.signal.aborted || requestId !== fullGraphRequest.current) return;
-      setMovementGraph(result);
+      const request = {
+        domain: "movement-clinical",
+        ...(revisionId ? { revisionId } : {}),
+        ...(inspection ? { entityId: inspection.entityId, entityKind: inspection.entityKind } : {}),
+        signal: controller.signal,
+      } as const;
+      const result = !inspection && capability.client.readProgressively
+        ? await capability.client.readProgressively(request, (progress) => {
+            if (!controller.signal.aborted
+              && requestId === fullGraphRequest.current
+              && graphResultMatchesRequest(progress, request)) setMovementGraph(progress);
+          })
+        : await capability.client.read(request);
+      if (controller.signal.aborted
+        || requestId !== fullGraphRequest.current
+        || !graphResultMatchesRequest(result, request)) return inspection ? "failed" : undefined;
+      if (inspection) {
+        const refreshed = movementGraph?.status === "ready"
+          && result.status === "ready"
+          && graphTopologyMatches(movementGraph.data, result.data);
+        if (refreshed) setMovementGraph(result);
+        return refreshed ? "refreshed" : result.status === "ready" ? "unchanged" : "failed";
+      } else {
+        setMovementGraph(result);
+      }
     } catch {
-      if (!controller.signal.aborted && requestId === fullGraphRequest.current) {
+      if (!inspection && !controller.signal.aborted && requestId === fullGraphRequest.current) {
         setMovementGraph({ status: "unavailable", domain: "movement-clinical", message: "Movement graph is unavailable." });
       }
+      return inspection ? "failed" : undefined;
     } finally {
       if (fullGraphAbort.current === controller) {
         fullGraphAbort.current = null;
-        setMovementGraphLoading(false);
+        if (!inspection) setMovementGraphLoading(false);
       }
     }
-  }, [adapter]);
+  }, [adapter, movementGraph]);
 
   const expandMovementGraph = useCallback(() => {
     setMovementGraphExpanded(true);
-    if (!movementGraph || movementGraph.status !== "ready") void readMovementGraph();
-  }, [movementGraph, readMovementGraph]);
+    void readMovementGraph();
+  }, [readMovementGraph]);
 
   const collapseMovementGraph = useCallback(() => {
-    setMovementGraphExpanded(false);
-    fullGraphAbort.current?.abort();
-    setMovementGraphLoading(false);
-  }, []);
+    clearMovementGraph();
+  }, [clearMovementGraph]);
 
-  const readMemberContextGraph = useCallback(async (memberId: string) => {
+  const readMemberContextGraph = useCallback(async (memberId: string, revisionId?: string, inspection?: Pick<GraphInspectionRequest, "entityId" | "entityKind">): Promise<GraphInspectionOutcome | undefined> => {
     const capability = adapter.capabilities.fullGraph;
     const request = { domain: "member-context" as const, memberId };
-    if (!capability?.available || !capability.supports(request)) return;
+    if (!capability?.available || !capability.supports(request)) {
+      if (inspection) return "failed";
+      setMemberContextGraphMemberId(memberId);
+      setMemberContextGraph({ status: "unavailable", domain: "member-context", message: "Member context graph is unavailable for this member." });
+      setMemberContextGraphLoading(false);
+      return;
+    }
     memberGraphAbort.current?.abort();
     const controller = new AbortController();
     const requestId = ++memberGraphRequest.current;
     memberGraphAbort.current = controller;
     setMemberContextGraphMemberId(memberId);
-    setMemberContextGraphLoading(true);
+    if (!inspection) setMemberContextGraph(null);
+    if (!inspection) setMemberContextGraphLoading(true);
     try {
-      const result = await capability.client.read({ ...request, signal: controller.signal });
-      if (controller.signal.aborted || requestId !== memberGraphRequest.current || state.activeMemberId !== memberId) return;
-      setMemberContextGraph(result);
+      const graphRequest = {
+        ...request,
+        ...(revisionId ? { revisionId } : {}),
+        ...(inspection ? { entityId: inspection.entityId, entityKind: inspection.entityKind } : {}),
+        signal: controller.signal,
+      } as const;
+      const result = !inspection && capability.client.readProgressively
+        ? await capability.client.readProgressively(graphRequest, (progress) => {
+            if (!controller.signal.aborted
+              && requestId === memberGraphRequest.current
+              && state.activeMemberId === memberId
+              && graphResultMatchesRequest(progress, graphRequest)) {
+              setMemberContextGraph(progress);
+            }
+          })
+        : await capability.client.read(graphRequest);
+      if (controller.signal.aborted
+        || requestId !== memberGraphRequest.current
+        || state.activeMemberId !== memberId
+        || !graphResultMatchesRequest(result, graphRequest)) return inspection ? "failed" : undefined;
+      if (inspection) {
+        const refreshed = memberContextGraph?.status === "ready"
+          && result.status === "ready"
+          && graphTopologyMatches(memberContextGraph.data, result.data);
+        if (refreshed) setMemberContextGraph(result);
+        return refreshed ? "refreshed" : result.status === "ready" ? "unchanged" : "failed";
+      } else {
+        setMemberContextGraph(result);
+      }
     } catch {
-      if (!controller.signal.aborted && requestId === memberGraphRequest.current && state.activeMemberId === memberId) {
+      if (!inspection && !controller.signal.aborted && requestId === memberGraphRequest.current && state.activeMemberId === memberId) {
         setMemberContextGraph({ status: "unavailable", domain: "member-context", message: "Member context is unavailable." });
       }
+      return inspection ? "failed" : undefined;
     } finally {
       if (memberGraphAbort.current === controller) {
         memberGraphAbort.current = null;
-        setMemberContextGraphLoading(false);
+        if (!inspection) setMemberContextGraphLoading(false);
       }
     }
-  }, [adapter, state.activeMemberId]);
+  }, [adapter, memberContextGraph, state.activeMemberId]);
 
   const expandMemberContextGraph = useCallback(() => {
     const memberId = state.activeMemberId;
     if (!memberId) return;
     setMemberContextGraphExpanded(true);
-    if (memberContextGraphMemberId !== memberId || !memberContextGraph || memberContextGraph.status !== "ready") {
-      void readMemberContextGraph(memberId);
-    }
-  }, [memberContextGraph, memberContextGraphMemberId, readMemberContextGraph, state.activeMemberId]);
+    void readMemberContextGraph(memberId);
+  }, [readMemberContextGraph, state.activeMemberId]);
 
   const collapseMemberContextGraph = useCallback(() => {
-    setMemberContextGraphExpanded(false);
-    memberGraphAbort.current?.abort();
-    setMemberContextGraphLoading(false);
-  }, []);
+    clearMemberContextGraph();
+  }, [clearMemberContextGraph]);
+
+  const inspectMovementGraph = useCallback(async (input: GraphInspectionRequest): Promise<GraphInspectionOutcome> => {
+    return await readMovementGraph(input.revisionId, input) ?? "failed";
+  }, [readMovementGraph]);
+  const inspectMemberContextGraph = useCallback((input: GraphInspectionRequest) => {
+    return state.activeMemberId
+      ? readMemberContextGraph(state.activeMemberId, input.revisionId, input).then((outcome) => outcome ?? "failed")
+      : Promise.resolve<GraphInspectionOutcome>("failed");
+  }, [readMemberContextGraph, state.activeMemberId]);
 
   const checkSession = useCallback(async () => {
     const capability = adapter.capabilities.session;
@@ -254,13 +350,15 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     try {
       const session = await capability.client.signIn();
       if (!session) throw new Error("Session unavailable");
+      clearMovementGraph();
+      clearMemberContextGraph();
       dispatch({ type: "reset-session" });
       setLoadState({ status: "loading" });
       setSessionState("authenticated");
     } catch {
       setSessionState("unavailable");
     }
-  }, [adapter]);
+  }, [adapter, clearMemberContextGraph, clearMovementGraph]);
 
   function captureReturnFocus(fallback: string): string;
   function captureReturnFocus(fallback?: null): string | null;
@@ -273,6 +371,8 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
   }
 
   const openScreen = (screen: NestedScreen, detailId?: string) => {
+    clearMovementGraph();
+    clearMemberContextGraph();
     const focusKey = captureReturnFocus(`${screen}-trigger`);
     if (screen === "insight") {
       dispatch({ type: "push-route", route: { id: "insight", detailId: detailId ?? "adherence", focusKey } });
@@ -301,11 +401,15 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     } catch {
       return;
     }
+    clearMovementGraph();
+    clearMemberContextGraph();
     const focusKey = captureReturnFocus(`supporting-context-${evidenceId}`);
     dispatch({ type: "push-route", route: { id: "history", focusKey, supportingContext: reference } });
   };
 
   const openDecisionPath = (decisionId: DashboardDecisionId) => {
+    clearMovementGraph();
+    clearMemberContextGraph();
     const focusKey = captureReturnFocus(`decision-${decisionId}`);
     dispatch({ type: "push-route", route: { id: "decision-path", decisionId, focusKey } });
   };
@@ -326,9 +430,8 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     generationAbort.current?.abort();
     copilotAbort.current?.abort();
     conversationAbort.current?.abort();
-    fullGraphAbort.current?.abort();
-    memberGraphAbort.current?.abort();
-    speechInput.clear();
+    clearMovementGraph();
+    clearMemberContextGraph();
     clearOperationTimers();
     try { await capability?.client.signOut(); } catch { /* local state still clears */ }
     dispatch({ type: "reset-session" });
@@ -356,13 +459,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     stopCopilot();
     stopGeneration();
     stopConversation();
-    memberGraphAbort.current?.abort();
-    memberGraphRequest.current += 1;
-    setMemberContextGraph(null);
-    setMemberContextGraphMemberId(null);
-    setMemberContextGraphExpanded(false);
-    setMemberContextGraphLoading(false);
-    speechInput.clear();
+    clearMemberContextGraph();
     dispatch({ type: "select-athlete", memberId, focusKey: captureReturnFocus(`today-row-athlete-${memberId}`) });
   };
 
@@ -371,7 +468,8 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     stopCopilot();
     stopGeneration();
     stopConversation();
-    speechInput.clear();
+    clearMovementGraph();
+    clearMemberContextGraph();
     suppressRouteFocusRestore.current = true;
     dispatch({ type: "select-destination", destination });
     window.requestAnimationFrame(() => {
@@ -383,13 +481,9 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
     clearOperationTimers();
     stopCopilot();
     stopConversation();
-    const preserveCapture = currentRoute?.id === "voice"
-      && state.routeStack.at(-2)?.id === "copilot"
-      && (state.athleteStates[state.activeMemberId ?? ""]?.capture.status === "reviewing"
-        || state.athleteStates[state.activeMemberId ?? ""]?.capture.status === "over-limit");
-    if (preserveCapture) speechInput.stop();
-    else speechInput.clear();
-    dispatch({ type: "pop-route", preserveCapture });
+    clearMovementGraph();
+    clearMemberContextGraph();
+    dispatch({ type: "pop-route" });
   };
 
   const requestAdjustment = () => {
@@ -631,7 +725,8 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
       fullGraphUnavailableReason={adapter.capabilities.fullGraph?.available === false ? adapter.capabilities.fullGraph.reason : undefined}
       onExpandFullGraph={expandMovementGraph}
       onCollapseFullGraph={collapseMovementGraph}
-      onRetryFullGraph={readMovementGraph}
+      onRetryFullGraph={() => { void readMovementGraph(); }}
+      onInspectFullGraph={inspectMovementGraph}
     />
     : activeMember && activeWorkflow && currentRoute
       ? (
@@ -652,9 +747,16 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           workoutGenerationAvailable={adapter.capabilities.workoutGeneration?.available === true}
           generateWorkout={generateWorkout}
           retryWorkoutGeneration={retryWorkoutGeneration}
-          speechInput={speechInput}
           conversationAvailable={adapter.capabilities.conversation?.available === true}
           copilotAvailable={adapter.capabilities.copilot?.available === true && adapter.capabilities.copilot.supportsMember(state.activeMemberId!)}
+          movementGraph={movementGraph}
+          movementGraphExpanded={movementGraphExpanded}
+          movementGraphLoading={movementGraphLoading}
+          movementGraphUnavailableReason={adapter.capabilities.fullGraph?.available === false ? adapter.capabilities.fullGraph.reason : undefined}
+          onExpandMovementGraph={expandMovementGraph}
+          onCollapseMovementGraph={collapseMovementGraph}
+          onRetryMovementGraph={() => { void readMovementGraph(); }}
+          onInspectMovementGraph={inspectMovementGraph}
           memberContextGraph={memberContextGraphMemberId === state.activeMemberId ? memberContextGraph : null}
           memberContextGraphExpanded={memberContextGraphExpanded}
           memberContextGraphLoading={memberContextGraphLoading}
@@ -664,6 +766,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
           onRetryMemberContextGraph={() => {
             if (state.activeMemberId) void readMemberContextGraph(state.activeMemberId);
           }}
+          onInspectMemberContextGraph={inspectMemberContextGraph}
         />
       )
       : <CoachDayWorkspace workspace={loadState.data.workspace} state={state} dispatch={dispatch} onSelectAthlete={selectAthlete} />;
@@ -676,7 +779,7 @@ export function CoachDashboard({ adapter }: { adapter: DashboardAdapter }) {
             <div className={styles.desktopLayout} data-testid="desktop-dashboard">
               <div className={styles.desktopNavRow}>
                 <DashboardNavigation state={state} onSelect={selectDestination} disabled={dialogOpen} />
-                <div className={styles.desktopNavMeta}>AXON COACH WORKSPACE · LOCAL DEMO <button className={styles.inlineButton} type="button" onClick={() => void signOut}>Sign out</button></div>
+                <div className={styles.desktopNavMeta}>AXON COACH WORKSPACE · SYNTHETIC DEMO <button className={styles.inlineButton} type="button" onClick={() => void signOut}>Sign out</button></div>
               </div>
               <div className={styles.desktopMain}>
                 <section className={styles.desktopContent} aria-label="Coach dashboard content">{dashboardContent}</section>
@@ -717,7 +820,7 @@ function SessionGate({
           {checking ? "Checking coach session…" : unavailable ? "Coach session is unavailable" : status === "expired" ? "Your session expired" : "Sign in to continue"}
         </h1>
         <p className={styles.bodyCopy}>
-          {checking ? "Your browser session is being verified." : unavailable ? "The local session service did not respond. Try again when it is available." : "Use the explicit local demo coach session to open Jordan’s connected workspace."}
+          {checking ? "Your browser session is being verified." : unavailable ? "The demo session service did not respond. Try again when it is available." : "Use the explicit demo coach session to open the synthetic workspace."}
         </p>
         {checking ? <div className={styles.srOnly} role="status" aria-live="polite">Checking session.</div> : unavailable ? (
           <button className={styles.secondaryButton} type="button" onClick={onRetry}>Retry session check</button>
@@ -798,16 +901,13 @@ function CoachDayWorkspace({ workspace, state, dispatch, onSelectAthlete }: {
     }
     return counts;
   }, [workspace.sessions, workspace.timezone]);
-  const athletesById = useMemo(
-    () => new Map(workspace.athletes.map((athlete) => [athlete.id, athlete])),
-    [workspace.athletes],
+  const scheduledAthleteIds = useMemo(
+    () => new Set(projection.scheduledAthletes.map(({ athlete }) => athlete.id)),
+    [projection.scheduledAthletes],
   );
-  const firstScheduledAthlete = projection.scheduledAthletes[0]?.athlete;
-  const firstScheduledMemberView = firstScheduledAthlete ? workspace.memberViews[firstScheduledAthlete.id] ?? null : null;
 
   return (
     <section className={styles.coachDay} data-testid="coach-day-workspace" aria-label="Today overview">
-      {firstScheduledMemberView && <TodayProfileItem member={firstScheduledMemberView.member} selectedDate={selectedDate} onOpen={() => onSelectAthlete(firstScheduledMemberView.member.id)} />}
       <header className={styles.coachDayHeader}>
         <div>
           <div className={styles.micro}>TODAY · COACH DAY OVERVIEW</div>
@@ -850,75 +950,48 @@ function CoachDayWorkspace({ workspace, state, dispatch, onSelectAthlete }: {
 
       <section className={styles.rosterPanel} data-testid="today-athlete-row" aria-labelledby="today-athletes-title">
         <div className={styles.coachDaySectionHeader}>
-          <div><div className={styles.micro}>TODAY’S ATHLETES</div><h2 id="today-athletes-title" className={styles.coachDaySectionTitle}>Scheduled today</h2></div>
-          <span className={styles.coachDayCount}>{projection.scheduledAthletes.length}</span>
+          <div><div className={styles.micro}>TODAY’S ATHLETES</div><h2 id="today-athletes-title" className={styles.coachDaySectionTitle}>Today’s roster</h2></div>
+          <span className={styles.coachDayCount}>{projection.scheduledAthletes.length} scheduled</span>
         </div>
         {projection.scheduledAthletes.length ? (
-          <div className={`${styles.rosterList} ${styles.scheduledAthleteRow}`}>
+          <div className={`${styles.rosterList} ${styles.todayAthleteList}`} data-testid="today-athletes-list">
             {projection.scheduledAthletes.map(({ athlete, firstSession }) => (
-              <button className={styles.athleteCard} data-focus-key={`today-row-athlete-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
+              <button className={`${styles.athleteCard} ${styles.todayAthleteCard}`} data-focus-key={`today-row-athlete-${athlete.id}`} data-testid={`today-athlete-card-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
                 <span className={styles.athleteAvatar} aria-hidden="true">{athlete.initials}</span>
                 <span className={styles.athleteCardBody}><strong>{athlete.name}</strong><span>{athlete.suggestedWorkoutTitle} · {formatSessionTime(firstSession.startsAt, workspace.timezone)} · {firstSession.durationMinutes} min</span></span>
                 <span className={styles.sessionArrow} aria-hidden="true">→</span>
               </button>
             ))}
           </div>
-        ) : <div className={styles.agendaEmpty} data-testid="athletes-empty"><strong>No athletes scheduled</strong><span>See all athletes remains available below.</span></div>}
-      </section>
-
-      <section className={styles.agendaPanel} data-testid="today-schedule" aria-labelledby="coach-day-agenda-title">
-        <div className={styles.coachDaySectionHeader}>
-          <div><div className={styles.micro}>SCHEDULE</div><h2 id="coach-day-agenda-title" className={styles.coachDaySectionTitle}>Suggested workouts</h2></div>
-          <span className={styles.coachDayCount}>{projection.sessions.length} {projection.sessions.length === 1 ? "session" : "sessions"}</span>
+        ) : <div className={styles.rosterEmpty} data-testid="athletes-empty"><strong>No athletes scheduled</strong><span>The full roster is listed below.</span></div>}
+        <div className={styles.allAthletesHeader}>
+          <div><div className={styles.micro}>ALL ATHLETES</div><h2 className={styles.coachDaySectionTitle}>Full roster</h2></div>
+          <span className={styles.coachDayCount}>{workspace.athletes.length} total</span>
         </div>
-        {projection.sessions.length ? <div className={styles.agendaList}>{projection.sessions.map((session) => {
-          const athlete = athletesById.get(session.athleteId);
-          if (!athlete) return null;
-          const sessionTime = formatSessionTime(session.startsAt, workspace.timezone);
-          return <button className={styles.sessionCard} data-focus-key={`today-session-${session.id}`} data-testid={`session-${session.id}`} key={session.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief, ${session.label}, ${sessionTime}`}>
-            <span className={styles.sessionTime}>{sessionTime}</span>
-            <span className={styles.sessionCardBody}><strong>{athlete.name} · {athlete.suggestedWorkoutTitle}</strong><span>{session.label} · {session.durationMinutes} min</span></span>
-            <span className={styles.sessionArrow} aria-hidden="true">→</span>
-          </button>;
-        })}</div> : <div className={styles.agendaEmpty} data-testid="agenda-empty"><strong>No sessions scheduled</strong><span>There are no upcoming sessions on {formatCoachDate(selectedDate)}.</span></div>}
-      </section>
-
-      <section className={styles.rosterPanel} aria-label="All athletes">
-        <button className={styles.secondaryButton} type="button" aria-expanded={state.todayView.allAthletesExpanded} aria-controls="all-athletes-list" onClick={() => dispatch({ type: "set-all-athletes-expanded", expanded: !state.todayView.allAthletesExpanded })}>
-          {state.todayView.allAthletesExpanded ? "Hide all athletes" : "See all athletes"}
-        </button>
-        {state.todayView.allAthletesExpanded && <div id="all-athletes-list" className={styles.rosterList}>
-          {workspace.athletes.map((athlete) => <button className={styles.athleteCard} data-focus-key={`today-all-athlete-${athlete.id}`} data-testid={`athlete-card-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
+        <div id="all-athletes-list" className={styles.rosterList}>
+          {workspace.athletes.filter((athlete) => !scheduledAthleteIds.has(athlete.id)).map((athlete) => <button className={styles.athleteCard} data-focus-key={`today-all-athlete-${athlete.id}`} data-testid={`athlete-card-${athlete.id}`} key={athlete.id} type="button" onClick={() => onSelectAthlete(athlete.id)} aria-label={`Open ${athlete.name} morning brief`}>
             <span className={styles.athleteAvatar} aria-hidden="true">{athlete.initials}</span>
             <span className={styles.athleteCardBody}><strong>{athlete.name}</strong><span>{athlete.suggestedWorkoutTitle}</span></span>
             <span className={styles.athleteAdherence}>{athlete.adherence}<small>adherence</small></span>
           </button>)}
-        </div>}
+        </div>
       </section>
+
     </section>
   );
 }
 
-function TodayProfileItem({ member, selectedDate, onOpen }: {
-  member: CoachDashboardMemberViewModel["member"];
-  selectedDate: string;
-  onOpen: () => void;
-}) {
-  const displayDate = formatMemberDate(selectedDate);
-  return (
-    <button className={styles.todayProfileItem} data-testid="today-profile-item" data-focus-key={`today-profile-${member.id}`} type="button" onClick={onOpen} aria-label={`Open ${member.name} morning brief`}>
-      <span className={styles.todayProfileBack} aria-hidden="true">←</span>
-      <span className={styles.avatar} aria-hidden="true">{member.initials}</span>
-      <span className={styles.todayProfileIdentity}>
-        <span className={styles.memberName}>{member.name}</span>
-        <span className={styles.micro}>{member.tier} · {member.trainingDaysPerWeek} days/wk</span>
-      </span>
-      <span className={styles.date} aria-hidden="true">{displayDate.weekday}<br />{displayDate.monthDay}</span>
-    </button>
-  );
-}
-
-function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading, fullGraphUnavailableReason, onExpandFullGraph, onCollapseFullGraph, onRetryFullGraph }: {
+function CoachScreen({
+  workspace,
+  fullGraph,
+  fullGraphExpanded,
+  fullGraphLoading,
+  fullGraphUnavailableReason,
+  onExpandFullGraph,
+  onCollapseFullGraph,
+  onRetryFullGraph,
+  onInspectFullGraph,
+}: {
   workspace: CoachDashboardWorkspace;
   fullGraph: FullGraphReadResult | null;
   fullGraphExpanded: boolean;
@@ -927,6 +1000,7 @@ function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading
   onExpandFullGraph: () => void;
   onCollapseFullGraph: () => void;
   onRetryFullGraph: () => void;
+  onInspectFullGraph: (input: GraphInspectionRequest) => Promise<GraphInspectionOutcome>;
 }) {
   return <section className={`${styles.coachDay} ${styles.stack}`} aria-label="Coach">
     <div><div className={styles.micro}>COACH · READ-ONLY WORKSPACE</div><h1 className={styles.coachDayTitle} data-destination-heading="coach" tabIndex={-1}>{workspace.coach.name}</h1><p className={styles.coachDayIntro}>Workspace identity and regional settings.</p></div>
@@ -945,12 +1019,13 @@ function CoachScreen({ workspace, fullGraph, fullGraphExpanded, fullGraphLoading
       onExpand={onExpandFullGraph}
       onCollapse={onCollapseFullGraph}
       onRetry={onRetryFullGraph}
+      onInspect={onInspectFullGraph}
     />
     <div className={styles.subtle}>These settings are read-only in this dashboard.</div>
   </section>;
 }
 
-function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openSupportingContext, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, speechInput, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph}: {
+function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, currentVersion, published, ask, submitCopilot, openScreen, openSupportingContext, openDecisionPath, openDialog, workoutGenerationAvailable, generateWorkout, retryWorkoutGeneration, copilotAvailable, conversationAvailable, movementGraph, movementGraphExpanded, movementGraphLoading, movementGraphUnavailableReason, onExpandMovementGraph, onCollapseMovementGraph, onRetryMovementGraph, onInspectMovementGraph, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph, onInspectMemberContextGraph }: {
   route: AthleteRoute;
   workflow: AthleteWorkflowState;
   selectedDate: string;
@@ -969,7 +1044,14 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   retryWorkoutGeneration: () => void;
   copilotAvailable: boolean;
   conversationAvailable: boolean;
-  speechInput: SpeechInputController;
+  movementGraph: FullGraphReadResult | null;
+  movementGraphExpanded: boolean;
+  movementGraphLoading: boolean;
+  movementGraphUnavailableReason?: string;
+  onExpandMovementGraph: () => void;
+  onCollapseMovementGraph: () => void;
+  onRetryMovementGraph: () => void;
+  onInspectMovementGraph: (input: GraphInspectionRequest) => Promise<GraphInspectionOutcome>;
   memberContextGraph: FullGraphReadResult | null;
   memberContextGraphExpanded: boolean;
   memberContextGraphLoading: boolean;
@@ -977,109 +1059,30 @@ function AthleteRouteScreen({ route, workflow, selectedDate, dispatch, onBack, c
   onExpandMemberContextGraph: () => void;
   onCollapseMemberContextGraph: () => void;
   onRetryMemberContextGraph: () => void;
+  onInspectMemberContextGraph: (input: GraphInspectionRequest) => Promise<GraphInspectionOutcome>;
 }) {
   if (route.id === "brief") return <><MemberHeader selectedDate={selectedDate} onBack={onBack} /><TodayScreen selectedDate={selectedDate} state={workflow} currentVersion={currentVersion} published={published} ask={ask} openScreen={openScreen} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "workout") return <WorkoutScreen workflow={workflow} currentVersion={currentVersion} published={published} openScreen={openScreen} openDecisionPath={openDecisionPath} openDialog={openDialog} onBack={onBack} workoutGenerationAvailable={workoutGenerationAvailable} generateWorkout={generateWorkout} retryWorkoutGeneration={retryWorkoutGeneration} />;
-  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openScreen={openScreen} openSupportingContext={openSupportingContext} speechInput={speechInput} selectedDate={selectedDate} copilotAvailable={copilotAvailable} /></>;
-  if (route.id === "voice") return <><ScreenHeader title="Voice Copilot" kicker="MORNING BRIEF · VOICE MODE" onBack={onBack} /><VoiceModeScreen state={workflow} submit={submitCopilot} speechInput={speechInput} copilotAvailable={copilotAvailable} onBack={onBack} /></>;
+  if (route.id === "copilot") return <><ScreenHeader title="Copilot" kicker="MEMBER CONTEXT · ROUTE-BACKED" onBack={onBack} /><CopilotScreen state={workflow} dispatch={dispatch} ask={ask} submit={submitCopilot} openSupportingContext={openSupportingContext} selectedDate={selectedDate} copilotAvailable={copilotAvailable} /></>;
   if (route.id === "history") return <><ScreenHeader title="History" kicker="PROFILE · MEMBER ACTIVITY" onBack={onBack} /><HistoryScreen state={workflow} conversationAvailable={conversationAvailable} supportingContext={route.supportingContext ?? null} /></>;
-  if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} memberContextGraph={memberContextGraph} memberContextGraphExpanded={memberContextGraphExpanded} memberContextGraphLoading={memberContextGraphLoading} memberContextGraphUnavailableReason={memberContextGraphUnavailableReason} onExpandMemberContextGraph={onExpandMemberContextGraph} onCollapseMemberContextGraph={onCollapseMemberContextGraph} onRetryMemberContextGraph={onRetryMemberContextGraph} />;
-  if (route.id === "decision-path") return <DecisionPathScreen decisionId={route.decisionId} state={workflow} onBack={onBack} />;
+  if (route.id === "profile") return <ProfileScreen onBack={onBack} onOpenDecisionPath={openDecisionPath} onOpenHistory={() => openScreen("history")} memberContextGraph={memberContextGraph} memberContextGraphExpanded={memberContextGraphExpanded} memberContextGraphLoading={memberContextGraphLoading} memberContextGraphUnavailableReason={memberContextGraphUnavailableReason} onExpandMemberContextGraph={onExpandMemberContextGraph} onCollapseMemberContextGraph={onCollapseMemberContextGraph} onRetryMemberContextGraph={onRetryMemberContextGraph} onInspectMemberContextGraph={onInspectMemberContextGraph} />;
+  if (route.id === "decision-path") return <DecisionPathScreen
+    decisionId={route.decisionId}
+    state={workflow}
+    onBack={onBack}
+    movementGraph={movementGraph}
+    movementGraphExpanded={movementGraphExpanded}
+    movementGraphLoading={movementGraphLoading}
+    movementGraphUnavailableReason={movementGraphUnavailableReason}
+    onExpandMovementGraph={onExpandMovementGraph}
+    onCollapseMovementGraph={onCollapseMovementGraph}
+    onRetryMovementGraph={onRetryMovementGraph}
+    onInspectMovementGraph={onInspectMovementGraph}
+  />;
   if (route.id === "insight") return <InsightScreen detailId={route.detailId} state={workflow} onBack={onBack} />;
   if (route.id === "approve") return <ApproveScreen currentVersion={currentVersion} published={published} dispatch={dispatch} onBack={onBack} />;
   if (route.id === "workout-rationale") return <WorkoutRationaleScreen onBack={onBack} openDecisionPath={openDecisionPath} />;
   return null;
-}
-
-function VoiceModeScreen({ state, submit, speechInput, copilotAvailable, onBack }: {
-  state: AthleteWorkflowState;
-  submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
-  speechInput: SpeechInputController;
-  copilotAvailable: boolean;
-  onBack: () => void;
-}) {
-  const fixture = useDashboardViewModel();
-  const captureSequence = useRef(0);
-  const capture = state.capture;
-  const scope = capture.scope?.routeId === "voice" ? capture.scope : null;
-  const text = capture.transcript;
-  const displayTranscript = [text, capture.interimTranscript].filter(Boolean).join(text && capture.interimTranscript ? " " : "");
-  const beginDisclosure = () => {
-    if (!copilotAvailable) return;
-    speechInput.showDisclosure({
-      memberId: fixture.member.id,
-      routeId: "voice",
-      contextRevisionId: state.copilot.lastReadyAnswer?.contextRevisionId ?? null,
-      captureId: `voice:${Date.now()}:${++captureSequence.current}`,
-    });
-  };
-  const startListening = () => { if (scope) speechInput.start(scope); };
-  const submitQuestion = () => {
-    if (!scope || state.copilot.pending) return;
-    const input = speechInput.submit(scope);
-    if (!input) return;
-    submit(input, input.question, state.copilot.lastReadyAnswer?.continuation ? { continuation: state.copilot.lastReadyAnswer.continuation } : {});
-    onBack();
-  };
-  const statusLabel = capture.status === "requesting-permission"
-    ? "Requesting microphone permission"
-    : capture.status === "listening"
-      ? "Listening"
-      : capture.status === "reviewing" || capture.status === "over-limit"
-        ? "Review dictated question"
-        : capture.status === "disclosure"
-          ? "Review voice input disclosure"
-          : capture.status === "idle"
-            ? "Voice input ready"
-            : capture.status.replaceAll("-", " ");
-  return (
-    <section className={styles.voiceScreen} aria-label="Voice mode">
-      <div className={styles.voiceHero}>
-        <span className={`${styles.signalOrb} ${capture.status === "listening" ? styles.signalOrbListening : ""}`} aria-hidden="true"><span className={styles.signalOrbCore}>◉</span></span>
-        <div className={styles.voiceStateLabel} role="status" aria-live="polite">{statusLabel}</div>
-      </div>
-      <div className={`${styles.voiceLog} ${styles.stack}`}>
-        {!copilotAvailable ? <>
-          <div className={styles.micro}>VOICE INPUT · UNAVAILABLE</div>
-          <h2 className={styles.heroTitle}>Continue in text Copilot</h2>
-          <p className={styles.bodyCopy}>Member context is unavailable for {fixture.member.name}. Voice capture is disabled until the same Copilot capability is ready.</p>
-          <button className={styles.secondaryButton} type="button" onClick={onBack}>Back to text Copilot</button>
-        </> : capture.status === "idle" || capture.status === "cancelled" || ["unsupported", "denied", "no-speech", "audio-error", "network-error", "service-error", "language-error"].includes(capture.status) ? <>
-          <div className={styles.micro}>VOICE INPUT · REVIEW FIRST</div>
-          <h2 className={styles.heroTitle}>Talk through {fixture.member.name}&apos;s signal</h2>
-          <p className={styles.bodyCopy}>Your browser will turn speech into editable text. Review the transcript before it can be sent to graph-grounded Copilot. Audio is not stored by this screen.</p>
-          {capture.message && <div className={styles.capabilityNote} role="status"><strong>Voice input needs attention</strong><span>{capture.message}</span></div>}
-          <div className={styles.actionRow}>
-            <button className={styles.primaryButton} type="button" onClick={beginDisclosure}>Use voice input</button>
-            <button className={styles.secondaryButton} type="button" onClick={onBack}>Back to text Copilot</button>
-          </div>
-        </> : capture.status === "disclosure" ? <>
-          <div className={styles.micro}>VOICE INPUT · DISCLOSURE</div>
-          <h2 className={styles.heroTitle}>Before the microphone starts</h2>
-          <p className={styles.bodyCopy}>AXON will request microphone access through your browser&apos;s speech recognition. The transcript stays editable here and is only sent after you choose Submit question.</p>
-          <div className={styles.actionRow}>
-            <button className={styles.primaryButton} type="button" onClick={startListening}>Allow microphone &amp; start</button>
-            <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Cancel</button>
-          </div>
-        </> : capture.status === "requesting-permission" || capture.status === "listening" ? <>
-          <div className={styles.micro}>VOICE INPUT · {capture.status === "listening" ? "LISTENING" : "REQUESTING"}</div>
-          <h2 className={styles.heroTitle}>{capture.status === "listening" ? "Speak naturally" : "Waiting for browser permission"}</h2>
-          <p className={styles.bodyCopy}>{capture.interimTranscript || "Your words will appear here as editable text."}</p>
-          <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Stop listening</button>
-        </> : <>
-          <div className={styles.micro}>VOICE INPUT · REVIEW</div>
-          <h2 className={styles.heroTitle}>Review before Copilot</h2>
-          <label className={styles.runtimeField} htmlFor="voice-question"><span className={styles.bodyStrong}>Review dictated question</span><textarea id="voice-question" className={styles.textarea} value={displayTranscript} onChange={(event) => { if (scope) speechInput.setTranscript(scope, event.target.value); }} aria-describedby="voice-question-help" /></label>
-          <div id="voice-question-help" className={styles.subtle}>{Array.from(displayTranscript).length}/500 characters · You can edit this text before submitting.</div>
-          {capture.message && <div className={styles.capabilityNote} role="status"><strong>Question needs editing</strong><span>{capture.message}</span></div>}
-          <div className={styles.actionRow}>
-            <button className={styles.primaryButton} type="button" disabled={capture.status !== "reviewing" || !displayTranscript.trim() || Boolean(state.copilot.pending)} onClick={submitQuestion}>Submit question</button>
-            <button className={styles.secondaryButton} type="button" onClick={() => speechInput.cancel()}>Clear voice input</button>
-          </div>
-        </>}
-      </div>
-    </section>
-  );
 }
 
 function DashboardNavigation({ state, onSelect, variant = "desktop", disabled = false }: {
@@ -1143,20 +1146,25 @@ function DashboardNavigation({ state, onSelect, variant = "desktop", disabled = 
 }
 
 function MemberHeader({ selectedDate, onBack }: { selectedDate: string; onBack: () => void }) {
-  const fixture = useDashboardViewModel();
   const displayDate = formatMemberDate(selectedDate);
   return (
     <header className={styles.memberHeader}>
       <button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button>
-      <div className={styles.memberButton}>
-        <span className={styles.avatar} aria-hidden="true">{fixture.member.initials}</span>
-        <span>
-          <span className={styles.memberName}>{fixture.member.name}</span>
-          <span className={styles.micro}>{fixture.member.tier} · {fixture.member.trainingDaysPerWeek} days/wk</span>
-        </span>
-      </div>
       <div className={styles.date} data-testid="member-brief-date">{displayDate.weekday}<br />{displayDate.monthDay}</div>
     </header>
+  );
+}
+
+function MemberSummary() {
+  const fixture = useDashboardViewModel();
+  return (
+    <article className={styles.memberSummary} data-testid="member-brief-summary" aria-label={`${fixture.member.name} member information`}>
+      <span className={styles.avatar} aria-hidden="true">{fixture.member.initials}</span>
+      <span className={styles.memberSummaryCopy}>
+        <strong className={styles.memberName}>{fixture.member.name}</strong>
+        <span className={styles.micro}>{fixture.member.tier} · {fixture.member.trainingDaysPerWeek} days/wk</span>
+      </span>
+    </article>
   );
 }
 
@@ -1180,9 +1188,11 @@ function TodayScreen({
   const fixture = useDashboardViewModel();
   const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? null;
   const briefPending = state.copilot.pending?.input.kind === "quick-prompt" && state.copilot.pending.input.promptId === "morning-brief";
-  const briefOutcome = state.copilot.outcome;
+  const lastRequestWasMorningBrief = state.copilot.lastRequest?.input.kind === "quick-prompt" && state.copilot.lastRequest.input.promptId === "morning-brief";
+  const briefOutcome = lastRequestWasMorningBrief ? state.copilot.outcome : null;
   return (
     <section className={`${styles.scroll} ${styles.stack} ${styles.todayScreen}`} aria-label="Today">
+      <MemberSummary />
       <button className={styles.heroCard} type="button" data-focus-key="brief-workout" onClick={() => openScreen("workout")} style={{ textAlign: "left", cursor: "pointer" }}>
         <div className={styles.micro}>{published ? "PUBLISHED ✓" : `DRAFT FOR ${formatCoachDate(selectedDate).toUpperCase()} · READY`}</div>
         <h1 className={styles.heroTitle}>{published ? "Local publication recorded" : `${currentVersion.durationMinutes}-min ${fixture.workoutTitle}`}</h1>
@@ -1194,9 +1204,6 @@ function TodayScreen({
       <div className={styles.rosterList}>
         <button className={styles.athleteCard} type="button" data-focus-key="brief-copilot" onClick={() => openScreen("copilot")}>
           <span className={styles.athleteAvatar} aria-hidden="true">AI</span><span className={styles.athleteCardBody}><strong>Copilot context</strong><span>{copilotAvailable ? briefAnswer ? "Graph-grounded context ready" : "Loading graph-grounded context" : "Member context unavailable"}</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
-        </button>
-        <button className={styles.athleteCard} type="button" data-focus-key="brief-voice" onClick={() => openScreen("voice")}>
-          <span className={styles.athleteAvatar} aria-hidden="true">◉</span><span className={styles.athleteCardBody}><strong>Talk through today</strong><span>{copilotAvailable ? "Voice input with review before submit" : "Member context unavailable; continue in text Copilot"}</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
         </button>
         <button className={styles.athleteCard} type="button" data-focus-key="brief-profile" onClick={() => openScreen("profile")}>
           <span className={styles.athleteAvatar} aria-hidden="true">{fixture.member.initials}</span><span className={styles.athleteCardBody}><strong>Athlete profile</strong><span>Injury, goals, preferences, and equipment</span></span><span className={styles.sessionArrow} aria-hidden="true">→</span>
@@ -1212,7 +1219,15 @@ function TodayScreen({
       </article>)}
 
       <div className={styles.sectionLabel}>MORNING BRIEF</div>
-      {!copilotAvailable ? <CopilotUnavailable memberName={fixture.member.name} /> : briefPending && !briefAnswer ? <div className={styles.card}><SignalKicker working>Loading morning brief…</SignalKicker><div className={styles.bodyCopy}>Retrieving one revision-pinned answer packet.</div></div> : briefAnswer ? <CopilotAnswerCard answer={briefAnswer} compact /> : briefOutcome && briefOutcome.status !== "ready" ? <CopilotOutcomeNotice outcome={briefOutcome} /> : <div className={styles.card}><div className={styles.bodyStrong}>Morning brief not loaded.</div><div className={styles.bodyCopy}>Open Copilot to retry the graph-backed brief.</div></div>}
+      {!copilotAvailable ? <CopilotUnavailable memberName={fixture.member.name} /> : briefPending && !briefAnswer ? <div className={styles.card}><SignalKicker working>Loading morning brief…</SignalKicker><div className={styles.bodyCopy}>Retrieving one revision-pinned answer packet.</div></div> : briefAnswer ? <>
+        <CopilotAnswerCard answer={briefAnswer} presentation="workbench" />
+        {briefPending && <div className={styles.capabilityNote} role="status" aria-live="polite"><SignalKicker working>Updating morning brief…</SignalKicker><span>Showing the previous revision-pinned brief until the update is ready.</span></div>}
+        {briefOutcome && briefOutcome.status !== "ready" && briefOutcome.status !== "cancelled" && <CopilotOutcomeNotice outcome={briefOutcome} />}
+        {briefOutcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(state.copilot.pending)} onClick={() => ask("brief")}>Retry morning brief</button>}
+      </> : briefOutcome && briefOutcome.status !== "ready" ? <>
+        <CopilotOutcomeNotice outcome={briefOutcome} />
+        {briefOutcome.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(state.copilot.pending)} onClick={() => ask("brief")}>Retry morning brief</button>}
+      </> : <div className={styles.card}><div className={styles.bodyStrong}>Morning brief not loaded.</div><div className={styles.bodyCopy}>Open Copilot to retry the graph-backed brief.</div></div>}
       {copilotAvailable && <button className={styles.secondaryButton} type="button" data-focus-key="brief-copilot-churn" disabled={state.copilot.pending !== null} onClick={() => { openScreen("copilot"); ask("churn"); }}>Ask Copilot about risk →</button>}
       <div className={styles.metrics}>
         {[['adherence', fixture.metrics.adherence, 'ADHERENCE WK'], ['sleep', fixture.metrics.sleep, 'SLEEP AVG 7D'], ['heart', fixture.metrics.restingHeartRate, 'RESTING HR']].map(([id, value, label]) => (
@@ -1345,27 +1360,21 @@ function WorkoutScreen({ workflow, currentVersion, published, openScreen, openDe
   );
 }
 
-function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportingContext, speechInput, selectedDate, copilotAvailable }: {
+function CopilotScreen({ state, dispatch, ask, submit, openSupportingContext, selectedDate, copilotAvailable }: {
   state: AthleteWorkflowState;
   dispatch: React.Dispatch<DashboardAction>;
   ask: (id: QuickPromptId) => void;
   submit: (input: CopilotQuestionInput, promptLabel: string, options?: { continuation?: SignedCopilotContinuation }) => void;
-  openScreen: (screen: NestedScreen, detailId?: string) => void;
   openSupportingContext: (answer: CopilotAnswerPacket, evidenceId: string) => void;
-  speechInput: SpeechInputController;
   selectedDate: string;
   copilotAvailable: boolean;
 }) {
   const fixture = useDashboardViewModel();
   const [draftQuestion, setDraftQuestion] = useState("");
-  const captureSequence = useRef(0);
   const pending = state.copilot.pending;
   const continuation = state.copilot.lastReadyAnswer?.continuation;
   const lastRequest = state.copilot.lastRequest;
-  const capture = state.capture;
-  const captureScope = capture.scope;
-  const captureDraftActive = captureScope?.routeId === "voice" || captureScope?.routeId === "copilot";
-  const question = captureDraftActive ? capture.transcript : draftQuestion;
+  const question = draftQuestion;
   const workbenchAnswers = state.copilot.answers.length > 0
     ? state.copilot.answers
     : state.copilot.lastReadyAnswer
@@ -1374,31 +1383,12 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
   const workbench = buildCopilotWorkbenchViewModel(workbenchAnswers);
   const briefAnswer = state.copilot.answers.findLast((answer) => answer.intentId === "morning-brief") ?? state.copilot.lastReadyAnswer;
   const primaryFreshness = workbench.primary?.freshness ?? briefAnswer?.briefFreshness;
-  const voiceCaptureActive = capture.scope?.routeId === "copilot"
-    && capture.status !== "idle"
-    && capture.status !== "cancelled";
-  const beginInlineVoice = () => {
-    if (!copilotAvailable || pending) return;
-    speechInput.showDisclosure({
-      memberId: fixture.member.id,
-      routeId: "copilot",
-      contextRevisionId: state.copilot.lastReadyAnswer?.contextRevisionId ?? null,
-      captureId: `copilot:${Date.now()}:${++captureSequence.current}`,
-    });
-  };
-  const startInlineVoice = () => { if (captureScope?.routeId === "copilot") speechInput.start(captureScope); };
-  const cancelInlineVoice = () => speechInput.cancel();
   const submitTypedQuestion = (event?: React.FormEvent) => {
     event?.preventDefault();
     const value = question.trim();
     if (!value || pending) return;
     submit({ kind: "free-text", question: value }, value, continuation ? { continuation } : {});
-    speechInput.clear();
     setDraftQuestion("");
-  };
-  const updateQuestion = (value: string) => {
-    setDraftQuestion(value);
-    if (captureScope) speechInput.setTranscript(captureScope, value);
   };
   const retry = () => lastRequest && submit(lastRequest.input, lastRequest.promptLabel, lastRequest.continuation ? { continuation: lastRequest.continuation } : {});
   const refresh = () => lastRequest && submit(lastRequest.input, `${lastRequest.promptLabel} refresh`);
@@ -1440,24 +1430,6 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
           <div className={styles.taskCardBottom}><span className={styles.source}>GROUNDED · {task.actionId}</span><button className={styles.textButton} type="button" disabled={Boolean(pending)} onClick={() => taskAction(task)}>Open grounded context →</button></div>
         </article>)}
       </section>}
-      <button
-        className={styles.copilotVoiceCard}
-        data-focus-key="copilot-voice"
-        type="button"
-        disabled={voiceCaptureActive || Boolean(pending)}
-        onClick={() => openScreen("voice")}
-        aria-label="Open voice mode"
-      >
-        <span className={`${styles.signalOrb} ${styles.copilotSignalOrb}`} aria-hidden="true">
-          <span className={styles.signalOrbCore}>◉</span>
-        </span>
-          <span className={styles.copilotVoiceCopy}>
-            <span className={styles.micro}>VOICE COPILOT</span>
-            <span className={styles.copilotVoiceTitle}>Talk through {fixture.member.name}&apos;s signal</span>
-          <span className={styles.subtle}>Dictate, review, and send through the same grounded Copilot request.</span>
-          <span className={styles.copilotVoiceAction}>Open reviewed voice input →</span>
-        </span>
-      </button>
       <div className={styles.promptRow} aria-label="Copilot quick prompts">
         {prompts.map((prompt) => <button className={styles.pillButton} disabled={!copilotAvailable || Boolean(pending)} type="button" key={prompt.id} onClick={() => ask(prompt.id)}>{prompt.label}</button>)}
       </div>
@@ -1472,16 +1444,9 @@ function CopilotScreen({ state, dispatch, ask, submit, openScreen, openSupportin
       {state.copilot.outcome?.controls.retry && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={retry}>Retry</button>}
       {state.copilot.outcome?.controls.refresh && <button className={styles.secondaryButton} type="button" disabled={Boolean(pending)} onClick={refresh}>Refresh active revision</button>}
       {copilotAvailable && <form className={styles.copilotComposer} onSubmit={submitTypedQuestion}>
-        <div className={styles.composerTopline}><span className={styles.micro}>ASK COPILOT</span><span className={styles.subtle}>Typed or voice input · review before submit</span></div>
+        <div className={styles.composerTopline}><span className={styles.micro}>ASK COPILOT</span><span className={styles.subtle}>Type a question about this athlete</span></div>
         <label className={styles.srOnly} htmlFor="copilot-question">Ask about {fixture.member.name}</label>
-        <div className={styles.composerInputRow}>
-          <textarea id="copilot-question" className={styles.textarea} value={question} disabled={Boolean(pending)} maxLength={500} onChange={(event) => updateQuestion(event.target.value)} placeholder={`Ask about ${fixture.member.name}…`} />
-          <button className={styles.composerMicButton} type="button" disabled={Boolean(pending) || voiceCaptureActive} aria-label="Start voice input" onClick={beginInlineVoice}>◉</button>
-        </div>
-        {capture.status === "disclosure" && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>Before voice input</strong><span>Your browser will request microphone access. The transcript stays editable and is not sent until you submit it.</span><div className={styles.actionRow}><button className={styles.primaryButton} type="button" onClick={startInlineVoice}>Allow microphone &amp; start</button><button className={styles.secondaryButton} type="button" onClick={cancelInlineVoice}>Cancel</button></div></div>}
-        {(capture.status === "requesting-permission" || capture.status === "listening") && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>{capture.status === "listening" ? "Listening" : "Requesting microphone"}</strong><span>{capture.interimTranscript || "Speak naturally; your words will appear in the composer."}</span><button className={styles.secondaryButton} type="button" onClick={cancelInlineVoice}>Stop listening</button></div>}
-        {capture.status === "reviewing" && captureScope?.routeId === "copilot" && <div className={styles.subtle}>Voice transcript ready · edit the question, then choose Ask Copilot.</div>}
-        {capture.status === "over-limit" && captureScope?.routeId === "copilot" && <div className={styles.capabilityNote} role="status"><strong>Question is too long</strong><span>Shorten the dictated question before submitting.</span></div>}
+        <textarea id="copilot-question" className={styles.textarea} value={question} disabled={Boolean(pending)} maxLength={500} onChange={(event) => setDraftQuestion(event.target.value)} placeholder={`Ask about ${fixture.member.name}…`} />
         <div className={styles.composerActions}><span className={styles.subtle}>{Array.from(question).length}/500 characters</span><button className={styles.primaryButton} type="submit" disabled={Boolean(pending) || !question.trim() || Array.from(question).length > 500}>Ask Copilot</button></div>
       </form>}
     </section>
@@ -1671,6 +1636,7 @@ function PacketChart({ chart }: { chart: NonNullable<NonNullable<AthleteWorkflow
 
 function HistoryScreen({ state, conversationAvailable, supportingContext }: { state: AthleteWorkflowState; conversationAvailable: boolean; supportingContext: CopilotSupportingContextReference | null }) {
   const fixture = useDashboardViewModel();
+  const workoutHistory = sortWorkoutHistoryChronologically(fixture.history);
   return (
     <section className={`${styles.scroll} ${styles.stack}`} aria-label="History">
       <div><div className={styles.micro}>VERSION HISTORY</div><h1 className={styles.heroTitle}>Today’s workout trail</h1><div className={styles.subtle}>Content versions are immutable. Publication is recorded separately.</div></div>
@@ -1686,7 +1652,7 @@ function HistoryScreen({ state, conversationAvailable, supportingContext }: { st
       </div>
       {state.publicationEvents.map((event) => <div className={styles.publicationCard} key={event.id}><div className={styles.micro}>LOCAL PUBLICATION EVENT · {event.time}</div><div className={styles.bodyStrong}>Exact {event.workoutVersionId.replace("workout-", "")} recorded for the fixture demo</div><div className={styles.bodyCopy}>Approved by {event.actor}. No external delivery or new content version occurred.</div></div>)}
       <div className={styles.sectionLabel}>RECENT SESSIONS</div>
-      {fixture.history.map((workout) => <div className={styles.card} key={workout.date}><div className={styles.workoutTopline}><div className={styles.bodyStrong}>{workout.title}</div><span className={styles.statusPill}>{workout.completed ? "COMPLETED" : "MISSED"}</span></div><div className={styles.bodyCopy}>{workout.date} · {workout.completed ? `${workout.duration_min} min · RPE ${workout.rpe}` : "planned session"}</div></div>)}
+      {workoutHistory.map((workout, index) => <div className={styles.card} key={`${workout.date}:${workout.title}:${index}`}><div className={styles.workoutTopline}><div className={styles.bodyStrong}>{workout.title}</div><span className={styles.statusPill}>{workout.completed ? "COMPLETED" : "MISSED"}</span></div><div className={styles.bodyCopy}>{workout.date} · {workout.completed ? `${workout.duration_min} min · RPE ${workout.rpe}` : "planned session"}</div></div>)}
       <div className={styles.sectionLabel}>CONVERSATION</div>
       {!conversationAvailable && <div className={styles.card}><div className={styles.bodyStrong}>Conversation history unavailable</div><div className={styles.bodyCopy}>The connected member-context service is not configured.</div></div>}
       {conversationAvailable && state.conversation.status === "loading" && <div className={styles.card} aria-busy="true"><div className={styles.bodyStrong}>Loading revision-pinned conversation…</div></div>}
@@ -1717,7 +1683,7 @@ function ScreenHeader({ title, kicker, onBack }: { title: string; kicker: string
   return <header className={styles.screenHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Go back">←</button><div><h1 className={styles.screenTitle}>{title}</h1><div className={styles.micro}>{kicker}</div></div></header>;
 }
 
-function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph}: {
+function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContextGraph, memberContextGraphExpanded, memberContextGraphLoading, memberContextGraphUnavailableReason, onExpandMemberContextGraph, onCollapseMemberContextGraph, onRetryMemberContextGraph, onInspectMemberContextGraph }: {
   onBack: () => void;
   onOpenDecisionPath: (decisionId: DashboardDecisionId) => void;
   onOpenHistory: () => void;
@@ -1728,8 +1694,10 @@ function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContex
   onExpandMemberContextGraph: () => void;
   onCollapseMemberContextGraph: () => void;
   onRetryMemberContextGraph: () => void;
+  onInspectMemberContextGraph: (input: GraphInspectionRequest) => Promise<GraphInspectionOutcome>;
 }) {
   const fixture = useDashboardViewModel();
+  const workoutHistory = sortWorkoutHistoryChronologically(fixture.history);
   const injuryDecision = fixture.exclusions.find((item) => item.overridable);
   return <><ScreenHeader title={fixture.member.name} kicker="ATHLETE PROFILE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Profile">
     <div className={`${styles.card} ${styles.profileHero}`}><span className={styles.avatar}>{fixture.member.initials}</span><div><div className={styles.heroTitle}>{fixture.member.name}</div><div className={styles.micro}>{fixture.member.age} · {fixture.member.height} CM · {fixture.member.weight} KG</div><div className={styles.micro}>{fixture.member.tier} · SINCE {fixture.member.memberSince.slice(0, 7)}</div></div></div>
@@ -1755,11 +1723,12 @@ function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContex
       onExpand={onExpandMemberContextGraph}
       onCollapse={onCollapseMemberContextGraph}
       onRetry={onRetryMemberContextGraph}
+      onInspect={onInspectMemberContextGraph}
     />
     <div className={styles.sectionLabel}>RECENT WORKOUT HISTORY</div>
     <div className={styles.profileHistory}>
-      {fixture.history.map((workout) => (
-        <article className={styles.card} key={workout.date}>
+      {workoutHistory.map((workout, index) => (
+        <article className={styles.card} key={`${workout.date}:${workout.title}:${index}`}>
           <div className={styles.workoutTopline}>
             <div className={styles.bodyStrong}>{workout.title}</div>
             <span className={styles.statusPill}>{workout.completed ? "COMPLETED" : "MISSED"}</span>
@@ -1772,7 +1741,19 @@ function ProfileScreen({ onBack, onOpenDecisionPath, onOpenHistory, memberContex
   </section></>;
 }
 
-function DecisionPathScreen({ decisionId, state, onBack }: { decisionId: DashboardDecisionId; state: AthleteWorkflowState; onBack: () => void }) {
+function DecisionPathScreen({ decisionId, state, onBack, movementGraph, movementGraphExpanded, movementGraphLoading, movementGraphUnavailableReason, onExpandMovementGraph, onCollapseMovementGraph, onRetryMovementGraph, onInspectMovementGraph }: {
+  decisionId: DashboardDecisionId;
+  state: AthleteWorkflowState;
+  onBack: () => void;
+  movementGraph: FullGraphReadResult | null;
+  movementGraphExpanded: boolean;
+  movementGraphLoading: boolean;
+  movementGraphUnavailableReason?: string;
+  onExpandMovementGraph: () => void;
+  onCollapseMovementGraph: () => void;
+  onRetryMovementGraph: () => void;
+  onInspectMovementGraph: (input: GraphInspectionRequest) => Promise<GraphInspectionOutcome>;
+}) {
   const fixture = useDashboardViewModel();
   const path = fixture.decisionPaths[decisionId];
   if (!path) return <><ScreenHeader title="Decision path unavailable" kicker="SOURCE DATA UNAVAILABLE" onBack={onBack} /><section className={`${styles.scroll} ${styles.stack}`} aria-label="Decision Path"><div className={styles.card}><div className={styles.bodyStrong}>This decision path is unavailable.</div><div className={styles.bodyCopy}>The selected item does not include a matching source-backed decision identifier.</div></div></section></>;
@@ -1782,6 +1763,18 @@ function DecisionPathScreen({ decisionId, state, onBack }: { decisionId: Dashboa
     {path.lanes.map((lane) => <div className={styles.lane} key={lane.name}><div className={styles.micro}>{lane.name}</div><div className={styles.bodyStrong}>{lane.text}</div><div className={styles.source}>{lane.source}</div></div>)}
     {overridden && <div className={styles.card}><div className={styles.bodyStrong}>{fixture.coach.name} retained this exercise</div><div className={styles.bodyCopy}>Human ownership is shown in ink. Signal marks only the retained graph provenance and warning.</div><span className={styles.signalKicker} style={{ marginTop: 10 }}>WARNING PROVENANCE RETAINED</span></div>}
     <div className={styles.subtle} style={{ textAlign: "center" }}>The same four lanes explain each selection, exclusion, substitution, override, and Copilot claim.</div>
+    <FullGraphExplorer
+      domain="movement-clinical"
+      focusedLanes={path.lanes}
+      fullGraph={movementGraph}
+      expanded={movementGraphExpanded}
+      loading={movementGraphLoading}
+      unavailableReason={movementGraphUnavailableReason}
+      onExpand={onExpandMovementGraph}
+      onCollapse={onCollapseMovementGraph}
+      onRetry={onRetryMovementGraph}
+      onInspect={onInspectMovementGraph}
+    />
   </section></>;
 }
 

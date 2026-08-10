@@ -49,8 +49,7 @@
 }
 
 .memberHeader,
-.screenHeader,
-.todayProfileItem {
+.screenHeader {
   min-height: 72px;
   padding: 12px 18px;
   display: flex;
@@ -61,49 +60,27 @@
   flex: none;
 }
 
-.todayProfileItem {
-  width: calc(100% + 36px);
-  margin: -22px -18px 0;
-  border: 0;
-  border-bottom: 1px solid var(--ax-line-2);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
+.memberHeader {
+  justify-content: space-between;
 }
 
-.todayProfileItem:hover {
-  background: var(--ax-surface);
-}
-
-.todayProfileBack {
-  flex: none;
-  display: grid;
-  place-items: center;
-}
-
-.todayProfileIdentity {
-  flex: 1;
-}
-
-.memberButton {
-  min-width: 0;
-  flex: 1;
+.memberSummary {
+  min-height: 68px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
+  border: 1px solid var(--ax-line);
+  border-radius: 16px;
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-card);
 }
 
-.memberButton > span:last-child,
-.todayProfileIdentity {
+.memberSummaryCopy {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .avatar {
@@ -476,318 +453,6 @@
   background: var(--ax-ink);
 }
 
-@keyframes voice-halo-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes voice-halo-breathe {
-  0%, 100% { opacity: .55; }
-  50% { opacity: 1; }
-}
-
-@keyframes voice-equalizer {
-  0%, 100% { transform: scaleY(.25); }
-  50% { transform: scaleY(1); }
-}
-
-.voiceScreen {
-  min-height: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--ax-surface);
-  animation: ax-fade-up var(--ax-dur-med) var(--ax-ease);
-}
-
-.voiceHeader {
-  min-height: 64px;
-  padding: 10px 14px 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-bottom: 1px solid var(--ax-line-2);
-  flex: none;
-}
-
-.voiceStatusDot,
-.voiceAnswerDot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--ax-signal);
-}
-
-.voiceHeaderLabel,
-.voiceHeaderMeta,
-.voiceStateLabel,
-.voiceControlStatus,
-.voiceThinking,
-.voiceKicker,
-.voiceSources,
-.voiceRow > span {
-  font: var(--ax-type-micro);
-  letter-spacing: var(--ax-track-micro);
-}
-
-.voiceHeaderLabel {
-  flex: 1;
-  color: var(--ax-ink-2);
-}
-
-.voiceHeaderMeta {
-  color: var(--ax-ink-4);
-  letter-spacing: .08em;
-}
-
-.voiceHero {
-  padding: 26px 0 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  flex: none;
-}
-
-.signalOrb {
-  position: relative;
-  width: 86px;
-  height: 86px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  cursor: pointer;
-}
-
-.signalOrb::before,
-.signalOrb::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.signalOrb::before {
-  inset: -10px;
-  background: conic-gradient(from 0deg, rgb(140 110 255 / 55%), rgb(60 190 255 / 50%), rgb(255 90 180 / 45%), rgb(140 110 255 / 55%));
-  filter: blur(12px);
-  animation: voice-halo-spin 7s linear infinite, voice-halo-breathe 2.6s ease-in-out infinite;
-}
-
-.signalOrb::after {
-  inset: 0;
-  background: conic-gradient(from 0deg, #8c6eff, #3cbeff, #ff5ab4, #8c6eff);
-  animation: voice-halo-spin 7s linear infinite;
-}
-
-.signalOrbCore {
-  position: absolute;
-  inset: 3.5px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--ax-ink);
-  background: var(--ax-signal-soft), var(--ax-surface);
-  box-shadow: inset 0 0 18px rgb(140 110 255 / 30%);
-  font-size: 26px;
-}
-
-.signalOrbListening .signalOrbCore { box-shadow: inset 0 0 22px rgb(60 190 255 / 38%); }
-
-.voiceStateLabel { color: var(--ax-ink-3); }
-
-.voiceLog {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  scrollbar-width: none;
-}
-
-.voiceEmpty {
-  margin: auto 0;
-  padding: 14px 20px;
-  color: var(--ax-ink-4);
-  font-size: 13px;
-  line-height: 1.45;
-  text-align: center;
-}
-
-.voiceQuestion {
-  align-self: flex-end;
-  max-width: 82%;
-  padding: 10px 14px;
-  border-radius: 12px 12px 3px 12px;
-  color: var(--ax-on-ink);
-  background: var(--ax-ink);
-  font-size: 13.5px;
-  animation: ax-fade-up .25s var(--ax-ease);
-}
-
-.voiceAnswer {
-  max-width: 94%;
-  display: flex;
-  gap: 9px;
-  color: var(--ax-ink-2);
-  font-size: 13.5px;
-  line-height: 1.45;
-  animation: ax-fade-up .25s var(--ax-ease);
-}
-
-.voiceAnswerDot { margin-top: 5px; }
-
-.voiceCard {
-  padding: 13px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  border: 1px solid var(--ax-line);
-  border-radius: 10px;
-  background: var(--ax-surface);
-  box-shadow: var(--ax-shadow-card);
-  animation: ax-fade-up .3s var(--ax-ease);
-}
-
-.voiceKicker {
-  width: fit-content;
-  padding: 5px 10px;
-  border: 1px solid rgb(120 110 255 / 30%);
-  border-radius: 4px;
-  color: var(--ax-ink);
-  background: var(--ax-signal-soft);
-}
-
-.voiceCardTitle { font: var(--ax-type-card-title); }
-
-.voiceRows { display: flex; flex-direction: column; gap: 7px; }
-
-.voiceRow { display: flex; gap: 10px; align-items: baseline; }
-
-.voiceRow > span { width: 74px; flex: none; color: var(--ax-ink-3); }
-
-.voiceRow strong { flex: 1; color: var(--ax-ink-2); font-size: 12.5px; font-weight: 400; }
-
-.voiceSources { display: flex; gap: 5px; flex-wrap: wrap; color: var(--ax-ink-3); letter-spacing: 0; }
-
-.voiceSources span { padding: 4px 8px; border: 1px solid var(--ax-line); border-radius: 4px; }
-
-.voiceSuggestions {
-  padding: 0 16px 8px;
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  flex: none;
-}
-
-.voiceSuggestion {
-  min-height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--ax-line-strong);
-  border-radius: var(--ax-r-pill);
-  color: var(--ax-ink-2);
-  background: var(--ax-surface);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.voiceControls {
-  min-height: 70px;
-  padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-top: 1px solid var(--ax-line-2);
-  flex: none;
-}
-
-.voiceControlStatus {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--ax-ink-2);
-  font-size: 9.5px;
-}
-
-.voiceEqualizer { display: flex; align-items: center; gap: 3px; height: 18px; flex: none; }
-
-.voiceEqualizer i { width: 3px; height: 18px; border-radius: 2px; background: var(--ax-signal); animation: voice-equalizer .9s ease-in-out infinite; }
-.voiceEqualizer i:nth-child(2) { animation-delay: .12s; }
-.voiceEqualizer i:nth-child(3) { animation-delay: .24s; }
-.voiceEqualizer i:nth-child(4) { animation-delay: .36s; }
-.voiceEqualizer i:nth-child(5) { animation-delay: .48s; }
-
-.voiceThinking {
-  padding: 5px 9px;
-  border-radius: 3px;
-  color: var(--ax-ink);
-  background: var(--ax-signal-soft);
-  background-size: 200% 100%;
-  animation: ax-signal-shift 1.6s ease infinite;
-}
-
-.voiceIconButton,
-.voiceMicButton,
-.voiceSendButton {
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.voiceIconButton {
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--ax-line-strong);
-  color: var(--ax-ink-2);
-  background: var(--ax-surface);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.voiceIconButtonActive { color: var(--ax-on-ink); border-color: var(--ax-ink); background: var(--ax-ink); }
-
-.voiceMicButton {
-  width: 48px;
-  height: 48px;
-  border: 1px solid var(--ax-line-strong);
-  color: var(--ax-ink);
-  background: var(--ax-surface);
-  font-size: 15px;
-}
-
-.voiceMicButtonActive { border-color: var(--ax-ink); color: var(--ax-on-ink); background: var(--ax-ink); }
-
-.voiceTextInput {
-  min-width: 0;
-  flex: 1;
-  height: 46px;
-  padding: 0 14px;
-  border: 1px solid var(--ax-line-strong);
-  border-radius: 8px;
-  color: var(--ax-ink);
-  background: var(--ax-bg);
-  font-size: 13.5px;
-}
-
-.voiceSendButton {
-  width: 48px;
-  height: 48px;
-  border: 0;
-  color: var(--ax-on-ink);
-  background: var(--ax-ink);
-  font-size: 16px;
-}
-
 .workoutTopline {
   display: flex;
   align-items: center;
@@ -914,63 +579,6 @@
 .taskCardBottom { align-items: baseline; }
 .taskCardBottom .source { margin-top: 0; }
 
-.copilotVoiceCard {
-  min-height: 112px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  border: 1px solid var(--ax-line);
-  border-radius: 18px;
-  color: var(--ax-ink);
-  background: var(--ax-surface);
-  box-shadow: var(--ax-shadow-card);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--ax-dur-fast) var(--ax-ease),
-    transform var(--ax-dur-fast) var(--ax-ease);
-}
-
-.copilotVoiceCard:hover { border-color: var(--ax-line-strong); }
-.copilotVoiceCard:active { transform: scale(.99); }
-.copilotVoiceCard:disabled { cursor: default; opacity: .62; }
-
-.copilotSignalOrb {
-  width: 68px;
-  height: 68px;
-  flex: none;
-  cursor: inherit;
-}
-
-.copilotSignalOrb .signalOrbCore {
-  font-size: 20px;
-}
-
-.copilotVoiceCopy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-}
-
-.copilotVoiceTitle {
-  font: var(--ax-type-card-title);
-  letter-spacing: var(--ax-track-title);
-}
-
-.copilotVoiceCopy .subtle {
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.copilotVoiceAction {
-  margin-top: 5px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .copilotCard {
   padding: 16px;
   display: grid;
@@ -1077,7 +685,8 @@
   background: var(--ax-bg);
 }
 
-.barColumn { height: 100%; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.barColumn { min-height: 0; align-self: stretch; flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 4px; }
+.barFill { align-self: end; }
 .barLabel { color: var(--ax-ink-2); font: var(--ax-type-micro); text-align: center; }
 .dataRow { display: grid; grid-template-columns: 82px 1fr; gap: 8px; font-size: 12.5px; }
 .dataLabel { color: var(--ax-ink-2); font: var(--ax-type-micro); letter-spacing: .08em; }
@@ -1220,28 +829,6 @@
   background: var(--ax-surface);
 }
 
-.composerInputRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.composerInputRow .textarea { min-height: 84px; }
-
-.composerMicButton {
-  min-height: 44px;
-  align-self: end;
-  border: 1px solid var(--ax-line-strong);
-  border-radius: 12px;
-  color: var(--ax-ink);
-  background: var(--ax-surface);
-  font-size: 17px;
-  cursor: pointer;
-}
-
-.composerMicButton:disabled { cursor: default; opacity: .45; }
-
 .answerSection {
   display: grid;
   gap: 4px;
@@ -1320,7 +907,6 @@
   letter-spacing: var(--ax-track-micro);
 }
 
-.agendaPanel,
 .rosterPanel,
 .weekStrip {
   padding: 16px;
@@ -1345,27 +931,16 @@
   text-transform: uppercase;
 }
 
-.agendaList,
 .rosterList {
   display: grid;
   gap: 8px;
   margin-top: 14px;
 }
 
-.scheduledAthleteRow {
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(250px, 88%);
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: inline proximity;
-  padding: 2px 2px 6px;
+.todayAthleteList {
+  padding: 2px 2px 0;
 }
 
-.scheduledAthleteRow > * {
-  scroll-snap-align: start;
-}
-
-.sessionCard,
 .athleteCard {
   width: 100%;
   min-height: 68px;
@@ -1382,25 +957,24 @@
   transition: border-color var(--ax-dur-fast) var(--ax-ease), transform var(--ax-dur-fast) var(--ax-ease);
 }
 
-.sessionCard:hover,
 .athleteCard:hover {
   border-color: var(--ax-line-strong);
 }
 
-.sessionCard:active,
 .athleteCard:active {
   transform: scale(.995);
 }
 
-.sessionTime {
-  width: 74px;
-  flex: none;
-  color: var(--ax-ink-2);
-  font-size: 12px;
-  font-weight: 700;
+.todayAthleteCard {
+  border-color: var(--ax-signal);
+  background: var(--ax-signal-soft), var(--ax-surface);
+  box-shadow: inset 3px 0 0 var(--ax-signal);
 }
 
-.sessionCardBody,
+.todayAthleteCard:hover {
+  border-color: var(--ax-signal);
+}
+
 .athleteCardBody {
   min-width: 0;
   flex: 1;
@@ -1408,7 +982,6 @@
   gap: 3px;
 }
 
-.sessionCardBody strong,
 .athleteCardBody strong {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1416,7 +989,6 @@
   font-size: 14px;
 }
 
-.sessionCardBody span,
 .athleteCardBody span {
   overflow: hidden;
   color: var(--ax-ink-2);
@@ -1425,12 +997,22 @@
   white-space: nowrap;
 }
 
+.allAthletesHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--ax-line-2);
+}
+
 .sessionArrow {
   color: var(--ax-ink-2);
   font-size: 18px;
 }
 
-.agendaEmpty {
+.rosterEmpty {
   min-height: 112px;
   margin-top: 14px;
   padding: 18px;
@@ -1444,7 +1026,7 @@
   line-height: 1.45;
 }
 
-.agendaEmpty strong {
+.rosterEmpty strong {
   color: var(--ax-ink);
   font-size: 14px;
 }
@@ -1550,12 +1132,6 @@
 @media (max-width: 359px) {
   .memberHeader,
   .screenHeader {
-    padding-inline: 12px;
-  }
-
-  .todayProfileItem {
-    width: calc(100% + 24px);
-    margin-inline: -12px;
     padding-inline: 12px;
   }
 
@@ -1721,19 +1297,6 @@
     width: min(1120px, calc(100% - 64px));
     align-self: center;
     padding: 28px 0 40px;
-  }
-
-  .todayProfileItem {
-    width: 100%;
-    margin: -28px 0 0;
-    padding-inline: 0;
-  }
-
-  .scheduledAthleteRow {
-    grid-auto-flow: initial;
-    grid-auto-columns: initial;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow: visible;
   }
 
   .dialog {

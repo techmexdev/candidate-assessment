@@ -1,6 +1,6 @@
 # Member Context knowledge graph
 
-The Member Context graph is the canonical, revisioned retrieval substrate for one fictional member world. Its only seed is the tracked `data/member-context.json`; `data/member-context-avery.json`, `data/member-context-morgan.json`, globs, and directory discovery are deliberately outside this path. The source is synthetic only, the graph is not clinically validated, image contents are not analyzed, and the graph layer does not itself generate Copilot answers. No real member data or PHI belongs in this pipeline.
+The Member Context graph is the canonical, revisioned retrieval substrate for the synthetic roster. Its checked-in seed allowlist contains `data/member-context.json`, `data/member-context-avery.json`, and `data/member-context-morgan.json`; the seed command reads those explicit paths and never discovers arbitrary sibling files or globs. Each member receives an independent immutable revision and active catalog pointer. The source is synthetic only, the graph is not clinically validated, image contents are not analyzed, and the graph layer does not itself generate Copilot answers. No real member data or PHI belongs in this pipeline.
 
 ## Architecture and graph boundary
 
@@ -143,14 +143,14 @@ Run a deterministic validation without opening a database connection:
 pnpm graph:seed:member -- --dry-run
 ```
 
-Publish, validate, seal, and activate Jordan; an identical repeat reports `already-active` and creates no duplicate graph records:
+Publish, validate, seal, and activate every tracked roster member; an identical repeat reports `already-active` for each member and creates no duplicate graph records:
 
 ```bash
 pnpm graph:seed:member
 pnpm graph:seed:member
 ```
 
-For an operator-known first activation or upgrade, bind activation to an explicit expectation with `--expected-active none` or `--expected-active <context-revision-id>`. A stale value fails closed and preserves the current pointer.
+For an operator-known first activation or upgrade of one member, bind activation to an explicit expectation with `--member jordan --expected-active none` or `--member jordan --expected-active <context-revision-id>`. A stale value fails closed and preserves that member's current pointer.
 
 Inspect the active revision without publishing:
 
@@ -164,7 +164,7 @@ Run all database-backed Member Context publication, retrieval, and seed checks:
 pnpm test:integration
 ```
 
-`scripts/seed-member-context.ts` is the only packaged member seed entry. It reads the literal tracked path and does not discover sibling files. It uses the same validator, shared Neo4j client, schema setup, and publisher as the adapters; callers never supply raw Cypher and the command never resets the database.
+`scripts/seed-member-context.ts` is the only packaged member seed entry. It reads the explicit `MEMBER_CONTEXT_SEED_TARGETS` allowlist and does not discover sibling files. It uses the same validator, shared Neo4j client, schema setup, and publisher as the adapters; callers never supply raw Cypher and the command never resets the database.
 
 ## Bounded reads and downstream pin-and-cite flow
 

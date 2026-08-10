@@ -57,4 +57,4 @@ These checked-in browser captures show the responsive AXON surface used for the 
 - `pnpm eval:workout-runtime` is the separate component corpus: it proves lifecycle, validator, privacy, and provenance invariants with deterministic in-memory fixtures.
 - `pnpm test:connected` proves graph-backed route/worker lifecycle and revision-bound safety behavior against local Neo4j.
 - U5 adapter tests cover provider transport parsing, timeout, malformed output, canary containment, and one bounded recomposition. Deterministic agents are not provider quality evidence.
-- The system is a synthetic take-home: local mock auth, one seeded Jordan Member Context, no image analysis, voice transport, delivery integration, external vector index, or clinical efficacy claim.
+- The system is a synthetic take-home: local mock auth, three independently seeded roster Member Context revisions (the captured workflow exercises Jordan), no image analysis, voice transport, delivery integration, external vector index, or clinical efficacy claim.

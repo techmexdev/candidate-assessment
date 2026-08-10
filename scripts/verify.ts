@@ -26,9 +26,19 @@ const gates: readonly Gate[] = [
 
 function runGate(gate: Gate): Promise<{ readonly code: number; readonly output: string }> {
   return new Promise((resolve) => {
+    const gateEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      CI: process.env.CI ?? "1",
+      ...(gate.name === "unit" ? { NODE_ENV: "test" } : {}),
+    };
+    if (gate.name === "unit") {
+      for (const name of ["WORKOUT_ROUTE_SECRET", "COPILOT_SESSION_SECRET", "COPILOT_CONTINUATION_SECRET", "WORKOUT_TEST_BYPASS"]) {
+        delete gateEnvironment[name];
+      }
+    }
     const child = spawn("pnpm", gate.args, {
       cwd: process.cwd(),
-      env: { ...process.env, CI: process.env.CI ?? "1" },
+      env: gateEnvironment,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
@@ -82,22 +92,29 @@ function failureKind(output: string): "INFRASTRUCTURE" | "ASSERTION" {
   return "ASSERTION";
 }
 
-const failures: string[] = [];
-for (const gate of gates) {
-  process.stdout.write(`\n[GATE] ${gate.name}\n`);
-  const result = await runGate(gate);
-  if (result.code === 0) {
-    process.stdout.write(`[PASS] ${gate.name}\n`);
+async function main() {
+  const failures: string[] = [];
+  for (const gate of gates) {
+    process.stdout.write(`\n[GATE] ${gate.name}\n`);
+    const result = await runGate(gate);
+    if (result.code === 0) {
+      process.stdout.write(`[PASS] ${gate.name}\n`);
+    } else {
+      const kind = failureKind(result.output);
+      failures.push(`${kind}: ${gate.name}`);
+      process.stderr.write(`[${kind}] ${gate.name} failed (exit ${result.code})\n`);
+    }
+  }
+
+  if (failures.length > 0) {
+    process.stderr.write(`\nVerification failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}\n`);
+    process.exitCode = 1;
   } else {
-    const kind = failureKind(result.output);
-    failures.push(`${kind}: ${gate.name}`);
-    process.stderr.write(`[${kind}] ${gate.name} failed (exit ${result.code})\n`);
+    process.stdout.write("\n[PASS] verify: all gates green\n");
   }
 }
 
-if (failures.length > 0) {
-  process.stderr.write(`\nVerification failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}\n`);
+void main().catch((error: unknown) => {
+  process.stderr.write(`verify_error=${error instanceof Error ? error.name : "UnknownError"}\n`);
   process.exitCode = 1;
-} else {
-  process.stdout.write("\n[PASS] verify: all gates green\n");
-}
+});

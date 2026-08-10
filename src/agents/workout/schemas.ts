@@ -3,13 +3,13 @@ import type { WorkoutComposerProposal } from "../../application/ports/workout-co
 type JsonSchema = Readonly<Record<string, unknown>>;
 
 const doseSchema: JsonSchema = {
-  oneOf: [
+  anyOf: [
     {
       type: "object",
       additionalProperties: false,
       required: ["kind", "sets", "workSecondsPerSet"],
       properties: {
-        kind: { const: "timed" },
+        kind: { type: "string", enum: ["timed"] },
         sets: { type: "integer", minimum: 1 },
         workSecondsPerSet: { type: "integer", minimum: 1 },
       },
@@ -19,7 +19,7 @@ const doseSchema: JsonSchema = {
       additionalProperties: false,
       required: ["kind", "sets", "repetitionsPerSet", "secondsPerRepetition"],
       properties: {
-        kind: { const: "repetitions" },
+        kind: { type: "string", enum: ["repetitions"] },
         sets: { type: "integer", minimum: 1 },
         repetitionsPerSet: { type: "integer", minimum: 1 },
         secondsPerRepetition: { type: "number", exclusiveMinimum: 0 },
@@ -33,7 +33,7 @@ export const WORKOUT_PROPOSAL_JSON_SCHEMA: JsonSchema = Object.freeze({
   additionalProperties: false,
   required: ["schemaVersion", "sections"],
   properties: {
-    schemaVersion: { const: "workout-proposal/v1" },
+    schemaVersion: { type: "string", enum: ["workout-proposal/v1"] },
     sections: {
       type: "array",
       minItems: 3,
@@ -43,7 +43,7 @@ export const WORKOUT_PROPOSAL_JSON_SCHEMA: JsonSchema = Object.freeze({
         additionalProperties: false,
         required: ["kind", "items"],
         properties: {
-          kind: { enum: ["warm-up", "main", "cool-down"] },
+          kind: { type: "string", enum: ["warm-up", "main", "cool-down"] },
           items: {
             type: "array",
             minItems: 1,
@@ -57,7 +57,7 @@ export const WORKOUT_PROPOSAL_JSON_SCHEMA: JsonSchema = Object.freeze({
                 dose: doseSchema,
                 restSeconds: { type: "integer", minimum: 0 },
                 rationale: { type: "string", minLength: 1, maxLength: 280 },
-                citationIds: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", minLength: 1 } },
+                citationIds: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
               },
             },
           },

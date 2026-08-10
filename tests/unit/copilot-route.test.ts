@@ -44,6 +44,19 @@ function outcome(status: CopilotOutcome["status"]): CopilotOutcome {
 }
 
 describe("Copilot route", () => {
+  it("accepts browser same-origin mutations that omit Origin but include Referer", async () => {
+    const answer = vi.fn(async () => outcome("empty"));
+    const handler = createCopilotPostHandler({ resolveSession: async () => session, answer });
+    const response = await handler(new Request("https://axon.test/api/copilot", {
+      method: "POST",
+      body: JSON.stringify(validBody),
+      headers: { referer: "https://axon.test/", "content-type": "application/json" },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(answer).toHaveBeenCalledOnce();
+  });
+
   it("derives the coach and opaque authorization from the server session", async () => {
     const answer = vi.fn(async () => outcome("empty"));
     const handler = createCopilotPostHandler({ resolveSession: async () => session, answer });

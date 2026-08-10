@@ -1,5 +1,6 @@
 import type { SubmitWorkoutRunInput, SubmitWorkoutRunResult } from "../../../application/use-cases/submit-workout-run";
 import { configuredWorkoutRouteComposition } from "../../../server/workout-route-composition";
+import { isSameOriginMutation as hasSameOriginMutation } from "../../../server/http/same-origin";
 
 export type WorkoutRouteSession =
   | { readonly status: "authorized"; readonly coachId: string; readonly authorizationId: string }
@@ -9,9 +10,7 @@ export type ResolveWorkoutRouteSession = (request: Request) => Promise<WorkoutRo
 export type WorkoutRouteContext = { readonly params: Promise<{ readonly runId: string }> | { readonly runId: string } };
 
 export function isSameOriginMutation(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
+  return hasSameOriginMutation(request);
 }
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown> | undefined> {

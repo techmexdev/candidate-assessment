@@ -2,7 +2,6 @@ import type { CopilotAnswerPacket, CopilotPin, CopilotQuestionInput, CopilotSupp
 import type { DashboardConversationOutcome, DashboardCopilotOutcome, DashboardDecisionId, DashboardInsightId } from "./dashboard-contract";
 import type { DashboardRuntimeWorkoutProjection, DashboardWorkoutRuntimeUpdate } from "./runtime-adapter";
 import type { MemberConversationTimeline } from "../../application/use-cases/retrieve-member-conversation";
-import { createInitialSpeechCaptureState, type SpeechCaptureState } from "./speech-input";
 
 export type DashboardDestination = "today" | "coach";
 export type DashboardDialog = "adjustment" | "override";
@@ -14,7 +13,6 @@ export type AthleteRoute =
   | (AthleteRouteBase & { id: "workout" })
   | (AthleteRouteBase & { id: "workout-rationale"; itemId?: string })
   | (AthleteRouteBase & { id: "copilot" })
-  | (AthleteRouteBase & { id: "voice" })
   | (AthleteRouteBase & { id: "history"; supportingContext?: CopilotSupportingContextReference })
   | (AthleteRouteBase & { id: "profile" })
   | (AthleteRouteBase & { id: "insight"; detailId: string })
@@ -93,13 +91,11 @@ export type AthleteWorkflowState = {
   runtimeWorkout: DashboardRuntimeWorkoutProjection | null;
   conversation: DashboardConversationState;
   copilot: DashboardCopilotState;
-  capture: SpeechCaptureState;
 };
 
 export type DashboardState = {
   destination: DashboardDestination;
   selectedDate: string;
-  todayView: { allAthletesExpanded: boolean };
   activeMemberId: string | null;
   routeStack: AthleteRoute[];
   athleteStates: Record<string, AthleteWorkflowState>;
@@ -111,11 +107,10 @@ export type DashboardAction =
   | { type: "reset-session" }
   | { type: "initialize-date"; date: string }
   | { type: "select-date"; date: string }
-  | { type: "set-all-athletes-expanded"; expanded: boolean }
   | { type: "select-destination"; destination: DashboardDestination }
   | { type: "select-athlete"; memberId: string; focusKey?: string }
   | { type: "push-route"; route: Exclude<AthleteRoute, { id: "brief" }> }
-  | { type: "pop-route"; preserveCapture?: boolean }
+  | { type: "pop-route" }
   | { type: "open-adjustment" }
   | { type: "open-override"; decisionId: DashboardDecisionId }
   | { type: "set-draft-duration"; duration: number }
@@ -131,7 +126,6 @@ export type DashboardAction =
   | { type: "request-copilot"; request: DashboardCopilotRequestRecord }
   | { type: "complete-copilot"; memberId: string; requestId: string; outcome: DashboardCopilotOutcome }
   | { type: "toggle-copilot-pin"; pin: CopilotPin }
-  | { type: "update-speech-capture"; memberId: string; capture: SpeechCaptureState }
   | { type: "request-workout-generation"; requestId: string }
   | {
       type: "update-workout-generation";
@@ -185,7 +179,6 @@ function createAthleteWorkflowState(): AthleteWorkflowState {
     runtimeWorkout: null,
     conversation: { status: "idle", requestId: null, reference: null, timeline: null, message: "" },
     copilot: { pending: null, lastRequest: null, outcome: null, answers: [], lastReadyAnswer: null, pins: [] },
-    capture: createInitialSpeechCaptureState(),
   };
 }
 
@@ -193,7 +186,6 @@ export function createInitialDashboardState(selectedDate = ""): DashboardState {
   return {
     destination: "today",
     selectedDate,
-    todayView: { allAthletesExpanded: false },
     activeMemberId: null,
     routeStack: [],
     athleteStates: {},
@@ -213,19 +205,15 @@ function isPublished(workflow: AthleteWorkflowState) {
   return workflow.publicationEvents.length > 0;
 }
 
-function cancelPending(workflow: AthleteWorkflowState, options: { preserveCapture?: boolean } = {}): AthleteWorkflowState {
+function cancelPending(workflow: AthleteWorkflowState): AthleteWorkflowState {
   const generationPending = ["submitting", "queued", "running"].includes(workflow.runtimeGeneration.status);
-  const capturePending = !options.preserveCapture && (workflow.capture.status !== "idle"
-    || Boolean(workflow.capture.transcript)
-    || Boolean(workflow.capture.interimTranscript));
   const conversationPending = workflow.conversation.status === "loading";
-  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !capturePending && !conversationPending) return workflow;
+  if (!workflow.pendingPrompt && !workflow.pendingAdjustment && !generationPending && !workflow.copilot.pending && !conversationPending) return workflow;
   return {
     ...workflow,
     pendingPrompt: null,
     pendingAdjustment: false,
     copilot: workflow.copilot.pending ? { ...workflow.copilot, pending: null } : workflow.copilot,
-    capture: capturePending ? createInitialSpeechCaptureState() : workflow.capture,
     ...(conversationPending ? {
       conversation: {
         status: "cancelled" as const,
@@ -310,16 +298,11 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
       return state.selectedDate ? state : { ...state, selectedDate: action.date };
     case "select-date":
       return { ...state, selectedDate: action.date, announcement: `${action.date} selected.` };
-    case "set-all-athletes-expanded":
-      return state.todayView.allAthletesExpanded === action.expanded
-        ? state
-        : { ...state, todayView: { allAthletesExpanded: action.expanded } };
     case "select-destination": {
       const left = leaveActiveRoute(state);
       return {
         ...left,
         destination: action.destination,
-        todayView: action.destination === "today" ? { allAthletesExpanded: false } : left.todayView,
         announcement: action.destination === "today" ? "Today opened." : "Coach opened.",
       };
     }
@@ -345,7 +328,7 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
         return { ...leaveActiveRoute(state), destination: "today", announcement: "Today restored." };
       }
       {
-        const cancelled = updateActiveAthlete(state, (workflow) => cancelPending(workflow, { preserveCapture: action.preserveCapture }));
+        const cancelled = updateActiveAthlete(state, cancelPending);
         return {
           ...cancelled,
           routeStack: state.routeStack.slice(0, -1),
@@ -550,24 +533,6 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
         },
       }));
       return { ...updated, announcement: removing ? "Copilot pin removed from Today." : "Copilot answer pinned to Today." };
-    }
-    case "update-speech-capture": {
-      if (action.memberId !== state.activeMemberId) return state;
-      const workflow = state.athleteStates[action.memberId];
-      if (!workflow) return state;
-      const currentCaptureId = workflow.capture.scope?.captureId;
-      const nextCaptureId = action.capture.scope?.captureId;
-      const activeCapture = workflow.capture.status !== "idle" && workflow.capture.status !== "cancelled";
-      if (activeCapture && currentCaptureId && nextCaptureId && currentCaptureId !== nextCaptureId) return state;
-      const updated = updateAthlete(state, action.memberId, (current) => ({ ...current, capture: action.capture }));
-      const message = action.capture.status === "listening"
-        ? "Voice input listening."
-        : action.capture.status === "reviewing"
-          ? "Voice input ready to review."
-          : action.capture.status === "submitting"
-            ? "Submitting voice question."
-            : action.capture.message;
-      return message ? { ...updated, announcement: message } : updated;
     }
     case "request-workout-generation": {
       const workflow = selectActiveAthleteState(state);

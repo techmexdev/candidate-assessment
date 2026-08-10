@@ -184,3 +184,52 @@ describe("Neo4j client transaction timeouts", () => {
     expect(work).not.toHaveBeenCalled();
   });
 });
+
+describe("Neo4j transport policy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const railway = {
+    environment: "production",
+    runtimeProfile: "railway-demo",
+    allowInsecureRailway: true,
+    expectedPrivateDomain: "neo4j.railway.internal",
+    uri: "bolt://neo4j.railway.internal:7687",
+    username: "neo4j",
+    password: "Q7v!pR2#nL8@xZ4$",
+  } as const;
+
+  it("accepts the exact direct Bolt URI for the explicit Railway demo profile", () => {
+    expect(() => createNeo4jClient(railway)).not.toThrow();
+    expect(driverMocks.driver).toHaveBeenCalledWith(
+      railway.uri,
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
+  it.each([
+    { label: "without the profile allowance", config: { ...railway, runtimeProfile: undefined, allowInsecureRailway: false } },
+    { label: "without the flag", config: { ...railway, allowInsecureRailway: false } },
+    { label: "with a different private host", config: { ...railway, uri: "bolt://other.railway.internal:7687" } },
+    { label: "with a non-Railway host", config: { ...railway, uri: "bolt://neo4j.example.com:7687", expectedPrivateDomain: "neo4j.example.com" } },
+    { label: "with the routing scheme", config: { ...railway, uri: "neo4j://neo4j.railway.internal:7687" } },
+    { label: "with an alternate port", config: { ...railway, uri: "bolt://neo4j.railway.internal:7688" } },
+    { label: "with URI credentials", config: { ...railway, uri: "bolt://user:pass@neo4j.railway.internal:7687" } },
+    { label: "with a URI path", config: { ...railway, uri: "bolt://neo4j.railway.internal:7687/neo4j" } },
+    { label: "with a URI query", config: { ...railway, uri: "bolt://neo4j.railway.internal:7687?x=1" } },
+  ])("rejects the Railway plaintext URI $label", ({ config }) => {
+    expect(() => createNeo4jClient(config)).toThrow();
+    expect(driverMocks.driver).not.toHaveBeenCalled();
+  });
+
+  it("continues to accept encrypted remote production URIs without the Railway exception", () => {
+    expect(() => createNeo4jClient({
+      environment: "production",
+      uri: "neo4j+s://graph.example.com:7687",
+      username: "neo4j",
+      password: "a-real-production-password",
+    })).not.toThrow();
+  });
+});

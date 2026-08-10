@@ -28,6 +28,9 @@ describe("member context graph documentation", () => {
     expect(documentation.match(/```mermaid/g)).toHaveLength(2);
     for (const phrase of [
       "data/member-context.json",
+      "data/member-context-avery.json",
+      "data/member-context-morgan.json",
+      "MEMBER_CONTEXT_SEED_TARGETS",
       "source locator",
       "temporal precision",
       "PROV-O",
@@ -76,6 +79,8 @@ describe("member context graph documentation", () => {
 
     for (const file of [
       "data/member-context.json",
+      "data/member-context-avery.json",
+      "data/member-context-morgan.json",
       "data/member-context-concept-mappings.json",
       "data/member-context-synthetic-sources.json",
       "scripts/seed-member-context.ts",

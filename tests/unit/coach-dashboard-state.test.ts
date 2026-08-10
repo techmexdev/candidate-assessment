@@ -12,7 +12,6 @@ import {
   selectCurrentVersion,
   type DashboardState,
 } from "../../src/features/coach-dashboard/state";
-import type { SpeechCaptureState } from "../../src/features/coach-dashboard/speech-input";
 
 const jordanState = () => dashboardReducer(
   createInitialDashboardState("2026-08-06"),
@@ -126,7 +125,6 @@ describe("coach dashboard state", () => {
       selectedDate: "2026-08-06",
       activeMemberId: null,
       routeStack: [],
-      todayView: { allAthletesExpanded: false },
       athleteStates: {},
     });
   });
@@ -158,9 +156,8 @@ describe("coach dashboard state", () => {
     expect(backToBrief.routeStack.map((route) => route.id)).toEqual(["brief"]);
   });
 
-  it("returns from the brief to the same Today place without erasing athlete work", () => {
-    const expanded = dashboardReducer(jordanState(), { type: "set-all-athletes-expanded", expanded: true });
-    const pinned = dashboardReducer(expanded, { type: "toggle-pin", insightId: "sleep" });
+  it("returns from the brief without erasing athlete work", () => {
+    const pinned = dashboardReducer(jordanState(), { type: "toggle-pin", insightId: "sleep" });
     const today = dashboardReducer(pinned, { type: "pop-route" });
 
     expect(today).toMatchObject({
@@ -168,7 +165,6 @@ describe("coach dashboard state", () => {
       selectedDate: "2026-08-06",
       activeMemberId: null,
       routeStack: [],
-      todayView: { allAthletesExpanded: true },
     });
     expect(today.athleteStates.mbr_jordan.pins).toEqual(["sleep"]);
   });
@@ -176,13 +172,12 @@ describe("coach dashboard state", () => {
   it("uses Today as a hard reset from nested routes while retaining member state", () => {
     const nested = dashboardReducer(
       dashboardReducer(jordanState(), { type: "toggle-pin", insightId: "sleep" }),
-      { type: "push-route", route: { id: "voice", focusKey: "brief-voice" } },
+      { type: "push-route", route: { id: "copilot", focusKey: "brief-copilot" } },
     );
     const today = dashboardReducer(nested, { type: "select-destination", destination: "today" });
 
     expect(today.activeMemberId).toBeNull();
     expect(today.routeStack).toEqual([]);
-    expect(today.todayView.allAthletesExpanded).toBe(false);
     expect(today.athleteStates.mbr_jordan.pins).toEqual(["sleep"]);
   });
 
@@ -335,42 +330,6 @@ describe("coach dashboard state", () => {
     });
 
     expect(mismatched).toBe(pending);
-  });
-
-  it("keeps speech capture member-scoped and clears it when leaving the route", () => {
-    const capture: SpeechCaptureState = {
-      status: "reviewing",
-      scope: {
-        memberId: "mbr_jordan",
-        routeId: "copilot",
-        contextRevisionId: "revision-1",
-        captureId: "capture-1",
-      },
-      interimTranscript: "",
-      transcript: "Review adherence",
-      message: "",
-    };
-    const active = dashboardReducer(jordanState(), {
-      type: "update-speech-capture",
-      memberId: "mbr_jordan",
-      capture,
-    });
-    const avery = dashboardReducer(active, { type: "select-athlete", memberId: "mbr_avery" });
-    const stale = dashboardReducer(avery, {
-      type: "update-speech-capture",
-      memberId: "mbr_jordan",
-      capture,
-    });
-    const left = dashboardReducer(active, { type: "select-destination", destination: "coach" });
-
-    expect(active.athleteStates.mbr_jordan.capture).toEqual(capture);
-    expect(active.announcement).not.toContain(capture.transcript);
-    expect(stale).toBe(avery);
-    expect(left.athleteStates.mbr_jordan.capture).toMatchObject({
-      status: "idle",
-      transcript: "",
-      interimTranscript: "",
-    });
   });
 
   it("keeps cancelled edits out of the immutable content history", () => {

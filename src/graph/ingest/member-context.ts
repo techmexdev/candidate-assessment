@@ -25,6 +25,11 @@ import {
 } from "../validation/member-context";
 
 const mappingArtifactDigest = sha256(canonicalJson(conceptMappings));
+const DEFAULT_SOURCE_LOCATOR = "data/member-context.json";
+
+export type MemberContextGraphCompileOptions = {
+  readonly sourceLocator?: string;
+};
 
 function slug(value: string): string {
   return value
@@ -151,7 +156,10 @@ const labDefinitions = {
   },
 } as const;
 
-export function compileMemberContextGraph(input: MemberContextDocumentInput): MemberContextGraphSnapshot {
+export function compileMemberContextGraph(
+  input: MemberContextDocumentInput,
+  options: MemberContextGraphCompileOptions = {},
+): MemberContextGraphSnapshot {
   const sourceValidation = validateMemberContextSource(input);
   if (!sourceValidation.valid) throw new MemberContextValidationError(sourceValidation.errors);
 
@@ -180,7 +188,7 @@ export function compileMemberContextGraph(input: MemberContextDocumentInput): Me
     kind: "source-artifact",
     semanticId: `source-artifact:${artifactDigest}`,
     artifactDigest,
-    sourceLocator: "data/member-context.json",
+    sourceLocator: options.sourceLocator ?? DEFAULT_SOURCE_LOCATOR,
     mediaType: "application/json",
     synthetic: true,
   });

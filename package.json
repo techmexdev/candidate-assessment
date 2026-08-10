@@ -7,38 +7,41 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node --import ./scripts/load-dotenv.mjs node_modules/next/dist/bin/next dev",
     "build": "pnpm check:isolation && next build",
-    "start": "next start",
+    "start": "node --import ./scripts/load-dotenv.mjs node_modules/next/dist/bin/next start",
+    "railway:start": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/run-railway-demo.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:connected": "CONNECTED_ACCEPTANCE=1 NODE_ENV=test WORKOUT_DEMO_MODE=deterministic WORKOUT_WORKER_ID=worker:connected-acceptance vitest run --config vitest.integration.config.mts tests/integration/connected-workout-acceptance.test.ts",
     "capture:connected": "CONNECTED_ACCEPTANCE=1 NODE_ENV=test WORKOUT_DEMO_MODE=deterministic WORKOUT_WORKER_ID=worker:connected-capture CONNECTED_ACCEPTANCE_CAPTURE=docs/evidence/connected-acceptance-capture.json vitest run --config vitest.integration.config.mts tests/integration/connected-workout-acceptance.test.ts",
-    "verify:evidence": "tsx scripts/verify-connected-evidence.ts",
+    "verify:evidence": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/verify-connected-evidence.ts",
     "test:workout-runtime:security": "vitest run tests/unit/workout-agent-policy.test.ts tests/unit/workout-runtime.test.ts tests/unit/workout-run-repository-contract.test.ts && vitest run --config vitest.integration.config.mts tests/integration/workout-run-stream.test.ts",
     "test:workout-runtime:integrity": "vitest run tests/unit/workout-composition.test.ts tests/unit/workout-provenance.test.ts tests/unit/workout-runtime.test.ts tests/unit/workout-run-repository-contract.test.ts tests/unit/workout-run-worker.test.ts && vitest run --config vitest.integration.config.mts tests/integration/workout-run-stream.test.ts",
-    "eval:workout-runtime": "tsx tests/fixtures/workout-generation-scenarios.ts",
-    "worker:workout-run": "tsx scripts/run-workout-worker.ts",
-    "demo": "tsx scripts/run-connected-demo.ts",
-    "graph:seed": "tsx scripts/seed-movement-graph.ts seed",
-    "graph:inspect": "tsx scripts/seed-movement-graph.ts inspect",
+    "eval:workout-runtime": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs tests/fixtures/workout-generation-scenarios.ts",
+    "worker:workout-run": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/run-workout-worker.ts",
+    "demo": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/run-connected-demo.ts",
+    "graph:seed": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/seed-movement-graph.ts seed",
+    "graph:inspect": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/seed-movement-graph.ts inspect",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test --grep @a11y",
     "test:visual": "playwright test --grep @visual",
-    "graph:seed:member": "tsx scripts/seed-member-context.ts",
+    "graph:seed:member": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/seed-member-context.ts",
     "check:isolation": "node scripts/check-production-isolation.mjs",
-    "verify": "tsx scripts/verify.ts"
+    "verify": "node --import ./scripts/load-dotenv.mjs node_modules/tsx/dist/cli.mjs scripts/verify.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.36",
     "@fontsource-variable/archivo": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "ai": "7.0.55",
     "neo4j-driver": "6.2.0",
     "next": "16.2.12",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tsx": "4.23.8"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
@@ -49,7 +52,6 @@
     "eslint": "9.39.5",
     "eslint-config-next": "16.2.12",
     "typescript": "5.9.3",
-    "tsx": "4.23.8",
     "vitest": "4.1.10"
   }
 }

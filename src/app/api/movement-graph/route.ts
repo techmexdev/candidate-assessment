@@ -1,4 +1,8 @@
-import type { FullGraphReadResult } from "../../../domain/contracts/full-graph-view";
+import type {
+  FullGraphReadResult,
+} from "../../../domain/contracts/full-graph-view";
+import type { RetrieveFullGraph } from "../../../application/use-cases/retrieve-full-graph";
+import { parseFullGraphQueryParams } from "../full-graph-query";
 import { configuredWorkoutRouteComposition } from "../../../server/workout-route-composition";
 
 type Session = Awaited<ReturnType<typeof configuredWorkoutRouteComposition.resolveSession>>;
@@ -35,7 +39,7 @@ function externalResult(result: FullGraphReadResult): { readonly body: FullGraph
 
 export function createMovementGraphHandler(dependencies: {
   readonly resolveSession: (request: Request) => Promise<Session>;
-  readonly readMovement: (input?: { readonly revisionId?: string }) => Promise<FullGraphReadResult>;
+  readonly readMovement: RetrieveFullGraph["readMovement"];
 }) {
   return async (request: Request): Promise<Response> => {
     let session: Session;
@@ -53,12 +57,21 @@ export function createMovementGraphHandler(dependencies: {
       );
     }
 
-    const revisionId = new URL(request.url).searchParams.get("revisionId");
+    const params = new URL(request.url).searchParams;
+    const revisionId = params.get("revisionId");
     if (revisionId !== null && (revisionId.length === 0 || revisionId.length > 200)) {
       return response(invalidResult(), 400);
     }
+    const query = parseFullGraphQueryParams(params);
+    if (!query) return response(invalidResult(), 400);
     try {
-      const result = await dependencies.readMovement(revisionId === null ? undefined : { revisionId });
+      const result = await dependencies.readMovement({
+        ...(revisionId === null ? {} : { revisionId }),
+        ...(query.entityId === undefined ? {} : {
+          inspection: { entityId: query.entityId, entityKind: query.entityKind },
+        }),
+        ...(query.page === undefined ? {} : { page: query.page }),
+      });
       const external = externalResult(result);
       return response(external.body, external.status);
     } catch {

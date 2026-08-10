@@ -56,6 +56,10 @@ export type PublicationInspection = {
   readonly activeRevisionId: string | null;
   readonly revisionId?: string;
   readonly publicationAttemptId?: string;
+  readonly sealId?: string;
+  readonly canonicalDigest?: string;
+  readonly nodeCount?: number;
+  readonly edgeCount?: number;
   readonly state: "active" | "sealed" | "staged" | "rejected" | "abandoned" | "missing";
   readonly validationErrors: readonly string[];
 };

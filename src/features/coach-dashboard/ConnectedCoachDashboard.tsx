@@ -20,7 +20,7 @@ export function createProductionDashboardAdapter(): DashboardAdapter {
       copilot: {
         available: true,
         client: createFetchDashboardCopilotClient(),
-        supportsMember: (memberId) => memberId === syntheticDashboardBase.member.id,
+        supportsMember: (memberId) => Object.hasOwn(syntheticDashboardBase.workspace.memberViews, memberId),
       },
       conversation: { available: true, client: createFetchDashboardConversationClient() },
       fullGraph: {

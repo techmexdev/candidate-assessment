@@ -42,6 +42,7 @@ describe("full graph projection contract", () => {
     expect(projection.nodes.every((node) => node.provenance.directAssertion === "present"
       && node.provenance.assertionId
       && node.provenance.source?.sourceRevision)).toBe(true);
+    expect(projection.nodes.some((node) => node.provenance.lineageIds.length > 0)).toBe(true);
   });
 
   it("projects every member-context node and relationship while marking identity nodes without assertions", () => {
@@ -63,6 +64,7 @@ describe("full graph projection contract", () => {
       directAssertion: "present",
       source: { artifactDigest: snapshot.sourceArtifactDigest },
     });
+    expect(projection.nodes.some((node) => node.provenance.lineageIds.length > 0)).toBe(true);
     expect(projection.relationships.every((relationship) => relationship.revisionId === snapshot.contextRevisionId)).toBe(true);
   });
 

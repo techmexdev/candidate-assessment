@@ -366,6 +366,10 @@ class Neo4jMemberContextPublisher implements MemberContextPublisher {
               : attemptState === "abandoned" ? "abandoned"
                 : foundRevision ? "staged" : "missing";
         const validationErrors = Array.isArray(record?.get("validationErrors")) ? record!.get("validationErrors") as string[] : [];
+        const sealId = text(record?.get("sealId"));
+        const canonicalDigest = text(record?.get("canonicalDigest"));
+        const nodeCount = Number(record?.get("nodeCount"));
+        const relationshipCount = Number(record?.get("relationshipCount"));
         return {
           status: "ok",
           data: {
@@ -373,6 +377,10 @@ class Neo4jMemberContextPublisher implements MemberContextPublisher {
             activeRevisionId,
             contextRevisionId,
             ...(text(record?.get("attemptId")) ? { publicationAttemptId: text(record?.get("attemptId")) } : {}),
+            ...(sealId ? { sealId } : {}),
+            ...(canonicalDigest ? { canonicalDigest } : {}),
+            ...(Number.isFinite(nodeCount) ? { nodeCount } : {}),
+            ...(Number.isFinite(relationshipCount) ? { relationshipCount } : {}),
             state,
             validationErrors,
           },
