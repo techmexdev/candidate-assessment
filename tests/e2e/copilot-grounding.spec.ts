@@ -74,7 +74,12 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
       sections: options.limitationOnly ? [
         { sectionId: "limitation", clauses: [{ clauseId: `limitation:${answerId}`, text: "Insufficient recorded history for a complete morning brief.", evidenceIds: [evidenceId] }] },
       ] : [
-        { sectionId: "answer", clauses: [{ clauseId: `clause:${answerId}`, text: `${intentId} grounded answer ${answerId}.`, evidenceIds: [evidenceId] }] },
+        { sectionId: "answer", clauses: intentId === "churn-risk" ? [
+          { clauseId: `clause:${answerId}:completion-one`, text: "weekly-workout-completion: 100 percent.", evidenceIds: [evidenceId] },
+          { clauseId: `clause:${answerId}:completion-two`, text: "weekly-workout-completion: 50 percent.", evidenceIds: [evidenceId] },
+          { clauseId: `clause:${answerId}:message`, text: "Member message: Skipped Thursday because work was exhausting.", evidenceIds: [evidenceId] },
+          { clauseId: `clause:${answerId}:unsupported`, text: "A source-provided risk reason is excluded because its basis is unsupported.", evidenceIds: [evidenceId] },
+        ] : [{ clauseId: `clause:${answerId}`, text: `${intentId} grounded answer ${answerId}.`, evidenceIds: [evidenceId] }] },
         { sectionId: "next-action", clauses: [{ clauseId: `action:${answerId}`, text: "Review the supported evidence with the member.", evidenceIds: [evidenceId] }] },
         ...(options.richMorning ? [
           { sectionId: "recent-facts", clauses: [{ clauseId: `fact:${answerId}`, text: "Weekly completion reached 67 percent.", evidenceIds: [evidenceId] }] },
@@ -151,11 +156,13 @@ test("Today morning brief is concise by default and complete on demand", async (
   const brief = page.locator('[data-answer-id="answer:1"]');
   await expect(brief).toHaveAttribute("data-copilot-presentation", "workbench");
   await expect(brief.getByText(/Latest recorded.*June 4/)).toBeVisible();
-  await expect(brief.getByText("morning-brief grounded answer answer:1.")).toBeVisible();
+  await expect(brief.getByText("Celebrate the completed training streak.")).toBeVisible();
+  await expect(brief.getByText("morning-brief grounded answer answer:1.")).toBeHidden();
   await expect(brief.getByText("Watch", { exact: true })).toBeVisible();
   await expect(brief.getByText("Review the supported evidence with the member.")).toBeVisible();
 
   const disclosures = {
+    analysis: brief.getByTestId("copilot-disclosure-analysis"),
     facts: brief.getByTestId("copilot-disclosure-facts"),
     trend: brief.getByTestId("copilot-disclosure-trend"),
     risk: brief.getByTestId("copilot-disclosure-risk"),
@@ -169,6 +176,8 @@ test("Today morning brief is concise by default and complete on demand", async (
 
   const requestCountBeforeDisclosure = seen.length;
   for (const disclosure of Object.values(disclosures)) await disclosure.locator("summary").click();
+  await expect(disclosures.analysis.getByText("morning-brief grounded answer answer:1.")).toBeVisible();
+  await expect(disclosures.analysis.getByText("Review the missed session risk.")).toBeVisible();
   await expect(disclosures.facts.getByText("Weekly completion reached 67 percent.")).toBeVisible();
   await expect(disclosures.trend.getByText("Adherence is steady across recent weeks.")).toBeVisible();
   await expect(disclosures.trend.getByRole("img", { name: "Jun 4: 50 percent." })).toBeVisible();
@@ -263,7 +272,13 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   await expect(page.getByText(/Latest recorded.*June 4/)).toBeVisible();
   await page.getByRole("button", { name: /Copilot context/ }).click();
   const morningBrief = page.locator('[data-answer-id="answer:1"]');
-  await expect(morningBrief.getByText("grounded answer answer:1")).toBeVisible();
+  await expect(morningBrief.getByText("Celebrate the completed training streak.")).toBeVisible();
+  await expect(morningBrief.getByText("grounded answer answer:1")).toBeHidden();
+  const morningTasks = page.getByTestId("copilot-disclosure-morning-tasks");
+  await expect(morningTasks).not.toHaveAttribute("open", "");
+  await expect(morningTasks.getByRole("button", { name: "Open grounded context" }).first()).toBeHidden();
+  await morningTasks.locator(":scope > summary").click();
+  await expect(morningTasks.getByRole("button", { name: "Open grounded context" })).toHaveCount(2);
   const morningRisk = morningBrief.getByTestId("copilot-disclosure-risk");
   await expect(morningRisk).not.toHaveAttribute("open", "");
   await expect(morningRisk.getByText("planned-workout-missed-1")).toBeHidden();
@@ -296,10 +311,24 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
       contextRevisionId: REVISION_ONE,
       answerId: `answer:${requestIndex}`,
     });
-    await expect(page.getByText(new RegExp(`grounded answer answer:${requestIndex + 1}`))).toBeVisible();
+    const currentAnswer = page.locator(`[data-answer-id="answer:${requestIndex + 1}"]`);
+    await expect(currentAnswer).toBeVisible();
+    await expect(currentAnswer.getByText("Review the supported evidence with the member.")).toBeVisible();
   }
 
   const churnRisk = page.locator('[data-answer-id="answer:5"]');
+  await expect(churnRisk.getByLabel("Why").getByText("Coach-entered cancellation concern.")).toBeVisible();
+  await expect(churnRisk.getByText("weekly-workout-completion: 100 percent.")).toBeHidden();
+  await expect(churnRisk.getByText("Member message: Skipped Thursday because work was exhausting.")).toBeHidden();
+  await expect(churnRisk.getByText("A source-provided risk reason is excluded because its basis is unsupported.")).toBeHidden();
+  const fullAnalysis = churnRisk.getByTestId("copilot-disclosure-analysis");
+  await expect(fullAnalysis).not.toHaveAttribute("open", "");
+  const requestCountBeforeAnalysis = seen.length;
+  await fullAnalysis.locator("summary").click();
+  await expect(fullAnalysis.getByText("weekly-workout-completion: 100 percent.")).toBeVisible();
+  await expect(fullAnalysis.getByText("Member message: Skipped Thursday because work was exhausting.")).toBeVisible();
+  await expect(fullAnalysis.getByText("A source-provided risk reason is excluded because its basis is unsupported.")).toBeVisible();
+  expect(seen).toHaveLength(requestCountBeforeAnalysis);
   const churnRiskDisclosure = churnRisk.getByTestId("copilot-disclosure-risk");
   await churnRiskDisclosure.locator("summary").click();
   await expect(churnRiskDisclosure).toContainText("Level · watch");
@@ -472,7 +501,8 @@ test("every canonical roster member reaches graph Copilot without fixture fallba
     requestedFor: "2026-07-08",
     input: { kind: "quick-prompt", promptId: "morning-brief" },
   });
-  await expect(page.getByText(/grounded answer answer:1/)).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:1"]')).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:1"]').getByLabel("Priority").getByText("Celebrate the completed training streak.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Morning brief", exact: true })).toBeEnabled();
   await expect(page.getByRole("status").filter({ hasText: "Member context unavailable" })).toHaveCount(0);
 });
@@ -499,7 +529,8 @@ test("typed failure controls preserve the ready answer and expose only allowed r
   await page.getByRole("button", { name: /Copilot context/ }).click();
   await page.getByRole("button", { name: "Sleep", exact: true }).click();
   await expect(page.getByText("Copilot model unavailable", { exact: true })).toBeVisible();
-  await expect(page.getByText(/grounded answer answer:ready/)).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:ready"]')).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:ready"]').getByLabel("Priority").getByText("Celebrate the completed training streak.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Refresh active revision/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Go back" }).click();
@@ -533,7 +564,8 @@ test("expired continuation preserves the answer and refreshes the same request w
   await page.getByRole("button", { name: "Sleep", exact: true }).click();
 
   await expect(page.getByText("Continuation expired", { exact: true })).toBeVisible();
-  await expect(page.getByText(/grounded answer answer:ready/)).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:ready"]')).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:ready"]').getByLabel("Priority").getByText("Celebrate the completed training streak.")).toBeVisible();
   const refresh = page.getByRole("button", { name: "Refresh active revision" });
   await expect(refresh).toBeVisible();
   await refresh.click();
@@ -548,11 +580,11 @@ test("expired continuation preserves the answer and refreshes the same request w
   expect(seen[2].requestId).not.toBe(seen[1].requestId);
   expect(seen[2]).not.toHaveProperty("continuation");
   await expect(page.locator('[data-answer-id="answer:refreshed"]')).toHaveAttribute("data-revision-id", REVISION_TWO);
-  await expect(page.getByText(/grounded answer answer:refreshed/)).toBeVisible();
+  await expect(page.locator('[data-answer-id="answer:refreshed"]')).toBeVisible();
   const previousResults = page.getByTestId("copilot-disclosure-previous-results");
   await expect(previousResults).not.toHaveAttribute("open", "");
   await previousResults.locator(":scope > summary").click();
-  await expect(previousResults.locator('[data-answer-id="answer:ready"]').getByText(/grounded answer answer:ready/)).toBeVisible();
+  await expect(previousResults.locator('[data-answer-id="answer:ready"]').getByText("Celebrate the completed training streak.")).toBeVisible();
   await expect(refresh).toHaveCount(0);
 
   const input = page.getByRole("textbox", { name: "Ask about Jordan Rivera" });

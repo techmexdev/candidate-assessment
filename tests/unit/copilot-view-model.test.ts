@@ -6,7 +6,7 @@ import type {
   CopilotChurnView,
   CopilotCitation,
 } from "../../src/domain/contracts/copilot";
-import { buildCopilotWorkbenchViewModel } from "../../src/features/coach-dashboard/copilot-view-model";
+import { buildCopilotAnswerViewModel, buildCopilotWorkbenchViewModel } from "../../src/features/coach-dashboard/copilot-view-model";
 
 const scope = {
   memberId: "mbr_jordan",
@@ -120,6 +120,54 @@ function packet(
 }
 
 describe("Copilot presentation view model", () => {
+  it("bounds a rich churn-risk answer to one supported reason and one action while preserving omitted clauses", () => {
+    const rich = packet("answer:rich-churn", {
+      intentId: "churn-risk",
+      sections: [
+        { sectionId: "answer", clauses: [
+          { clauseId: "answer:one", text: "weekly-workout-completion: 100 percent.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "answer:two", text: "weekly-workout-completion: 50 percent.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "answer:three", text: "Member message: skipped Thursday because work was exhausting.", evidenceIds: ["evidence:answer"] },
+        ] },
+        { sectionId: "next-action", clauses: [
+          { clauseId: "action:one", text: "Review the missed-session pattern with the member.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "action:two", text: "Consider a shorter session.", evidenceIds: ["evidence:answer"] },
+        ] },
+      ],
+      churn: {
+        ...churn,
+        source: {
+          ...churn.source!,
+          reasons: [
+            { text: "Adherence fell from 100% to 50% over two weeks.", basisStatus: "supported", evidenceIds: ["evidence:answer"] },
+            { text: "The member may cancel.", basisStatus: "unsupported-source", evidenceIds: ["evidence:answer"] },
+          ],
+        },
+      },
+    });
+
+    const model = buildCopilotAnswerViewModel(rich);
+
+    expect(model.primarySections).toEqual([]);
+    expect(model.decisionSupport).toEqual({
+      label: "Why",
+      text: "Adherence fell from 100% to 50% over two weeks.",
+      evidenceIds: ["evidence:answer"],
+    });
+    expect(model.nextAction?.clauses.map((clause) => clause.text)).toEqual([
+      "Review the missed-session pattern with the member.",
+    ]);
+    const analysis = model.groups.find((group) => group.id === "analysis");
+    expect(analysis?.label).toBe("Full analysis");
+    expect(analysis?.sections.flatMap((section) => section.clauses.map((clause) => clause.text))).toEqual([
+      "weekly-workout-completion: 100 percent.",
+      "weekly-workout-completion: 50 percent.",
+      "Member message: skipped Thursday because work was exhausting.",
+      "Consider a shorter session.",
+    ]);
+    expect(analysis?.countLabel).toBe("4 statements");
+  });
+
   it("makes the newest answer primary and keeps complete supporting content grouped by meaning", () => {
     const older = packet("answer:older");
     const latest = packet("answer:latest");
@@ -128,12 +176,15 @@ describe("Copilot presentation view model", () => {
 
     expect(model.primary?.answer).toBe(latest);
     expect(model.previous.map((item) => item.answer.answerId)).toEqual(["answer:older"]);
-    expect(model.primary?.primarySections.map((section) => section.sectionId)).toEqual(["answer", "limitation"]);
+    expect(model.primary?.primarySections.map((section) => section.sectionId)).toEqual(["limitation"]);
+    expect(model.primary?.primarySections[0]?.clauses).toHaveLength(1);
     expect(model.primary?.nextAction?.sectionId).toBe("next-action");
+    expect(model.primary?.nextAction?.clauses).toHaveLength(1);
     expect(model.primary?.freshness).toBe(latest.briefFreshness);
     expect(model.primary?.headlineRisk).toBe("watch");
 
-    expect(model.primary?.groups.map((group) => group.id)).toEqual(["facts", "trend", "risk", "sources"]);
+    expect(model.primary?.groups.map((group) => group.id)).toEqual(["analysis", "facts", "trend", "risk", "sources"]);
+    expect(model.primary?.groups.find((group) => group.id === "analysis")?.sections.map((section) => section.sectionId)).toEqual(["answer"]);
     expect(model.primary?.groups.find((group) => group.id === "facts")?.sections.map((section) => section.sectionId)).toEqual(["recent-facts"]);
     expect(model.primary?.groups.find((group) => group.id === "trend")?.chart).toBe(latest.chart);
     expect(model.primary?.groups.find((group) => group.id === "risk")?.churn).toBe(latest.churn);
@@ -154,6 +205,67 @@ describe("Copilot presentation view model", () => {
     expect(model.primary?.primarySections.map((section) => section.sectionId)).toEqual(["limitation"]);
     expect(model.primary?.groups.map((group) => group.id)).toEqual(["sources"]);
     expect(model.primary?.groups.find((group) => group.id === "sources")?.itemCount).toBe(1);
+  });
+
+  it("uses one highest-priority morning task and preserves additional tasks on demand", () => {
+    const morning = packet("answer:morning", {
+      intentId: "morning-brief",
+      sections: [
+        { sectionId: "answer", clauses: [
+          { clauseId: "brief:one", text: "Coach task: Celebrate the completed session.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "brief:two", text: "Coach task: Review the missed session.", evidenceIds: ["evidence:answer"] },
+        ] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Check in with the member.", evidenceIds: ["evidence:answer"] }] },
+      ],
+      tasks: [
+        { taskId: "task:second", taskType: "review_risk", actionId: "review-churn-risk", text: "Review the missed session.", evidenceIds: ["evidence:answer"], sourceOrder: 1 },
+        { taskId: "task:first", taskType: "celebrate", actionId: "celebrate-progress", text: "Celebrate the completed session.", evidenceIds: ["evidence:answer"], sourceOrder: 0 },
+      ],
+    });
+
+    const model = buildCopilotAnswerViewModel(morning);
+
+    expect(model.primarySections).toEqual([]);
+    expect(model.decisionSupport).toMatchObject({ label: "Priority", text: "Celebrate the completed session." });
+    expect(model.groups.find((group) => group.id === "analysis")?.sections.flatMap((section) => section.clauses.map((clause) => clause.text))).toEqual([
+      "Coach task: Celebrate the completed session.",
+      "Coach task: Review the missed session.",
+      "Review the missed session.",
+    ]);
+  });
+
+  it("uses the latest chart point for chart-backed intents and bounds fallback answers to one clause", () => {
+    const adherence = packet("answer:adherence", {
+      intentId: "adherence",
+      churn: null,
+      sections: [
+        { sectionId: "answer", clauses: [
+          { clauseId: "answer:first", text: "A long adherence explanation.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "answer:second", text: "Another adherence detail.", evidenceIds: ["evidence:answer"] },
+        ] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Review adherence.", evidenceIds: ["evidence:answer"] }] },
+      ],
+    });
+    const generic = packet("answer:changes", {
+      intentId: "changes-since-last-week",
+      churn: null,
+      chart: null,
+      sections: [
+        { sectionId: "answer", clauses: [
+          { clauseId: "answer:first", text: "First supported change.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "answer:second", text: "Second supported change.", evidenceIds: ["evidence:answer"] },
+        ] },
+      ],
+    });
+
+    const adherenceModel = buildCopilotAnswerViewModel(adherence);
+    expect(adherenceModel.decisionSupport).toMatchObject({ label: "Latest", text: "Jun 8 · 100%" });
+    expect(adherenceModel.primarySections).toEqual([]);
+    expect(adherenceModel.groups.find((group) => group.id === "analysis")?.itemCount).toBe(2);
+
+    const genericModel = buildCopilotAnswerViewModel(generic);
+    expect(genericModel.primarySections[0]?.clauses.map((clause) => clause.text)).toEqual(["First supported change."]);
+    expect(genericModel.groups.find((group) => group.id === "analysis")?.sections[0]?.clauses.map((clause) => clause.text)).toEqual(["Second supported change."]);
   });
 
   it("omits empty groups and preserves every unknown section in additional context", () => {

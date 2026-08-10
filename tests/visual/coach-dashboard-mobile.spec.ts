@@ -84,7 +84,8 @@ test("@visual selected-member Copilot workbench mobile density", async ({ page }
   await page.goto("/");
   await page.getByRole("button", { name: "Open Jordan Rivera morning brief" }).first().click();
   await page.getByRole("button", { name: /Copilot context/ }).click();
-  const answer = page.locator('[data-copilot-presentation="workbench"]');
+  await page.getByRole("button", { name: "Churn risk", exact: true }).click();
+  const answer = page.locator('[data-answer-id="answer:presentation:churn-risk"]');
   await expect(answer).toBeVisible();
   await expect(page).toHaveScreenshot("copilot-workbench-mobile-default.png", { fullPage: true });
 

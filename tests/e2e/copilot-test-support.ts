@@ -7,8 +7,8 @@ const EVIDENCE_AS_OF = "2026-06-04T23:59:59.999-05:00";
 const SOURCE = { locator: "/synthetic/copilot-presentation", artifactDigest: `sha256:${"d".repeat(64)}` };
 
 function richAnswer(request: CopilotRequest): CopilotAnswerPacket {
-  const answerId = "answer:presentation";
   const intentId = request.input.kind === "quick-prompt" ? request.input.promptId : "morning-brief";
+  const answerId = intentId === "morning-brief" ? "answer:presentation" : `answer:presentation:${intentId}`;
   const scope = { memberId: request.memberId, contextRevisionId: REVISION, authority: "canonical" as const };
   const evidenceIds = {
     answer: `${answerId}:answer`,
@@ -57,7 +57,12 @@ function richAnswer(request: CopilotRequest): CopilotAnswerPacket {
     briefFreshness: intentId === "morning-brief" ? { status: "latest-recorded", generatedFor: "2026-06-04" } : null,
     evidence: { ...scope, atoms: evidence },
     sections: [
-      { sectionId: "answer", clauses: [{ clauseId: `${answerId}:answer-clause`, text: "The member is progressing with steady adherence.", evidenceIds: [evidenceIds.answer] }] },
+      { sectionId: "answer", clauses: intentId === "churn-risk" ? [
+        { clauseId: `${answerId}:completion-one`, text: "weekly-workout-completion: 100 percent.", evidenceIds: [evidenceIds.answer] },
+        { clauseId: `${answerId}:completion-two`, text: "weekly-workout-completion: 50 percent.", evidenceIds: [evidenceIds.answer] },
+        { clauseId: `${answerId}:workout`, text: "Full Body: not completed.", evidenceIds: [evidenceIds.facts] },
+        { clauseId: `${answerId}:message`, text: "Member message: Skipped Thursday because work was exhausting.", evidenceIds: [evidenceIds.source] },
+      ] : [{ clauseId: `${answerId}:answer-clause`, text: "The member is progressing with steady adherence.", evidenceIds: [evidenceIds.answer] }] },
       { sectionId: "recent-facts", clauses: [{ clauseId: `${answerId}:facts-clause`, text: "Two recent sessions were completed as planned.", evidenceIds: [evidenceIds.facts] }] },
       { sectionId: "trend", clauses: [{ clauseId: `${answerId}:trend-clause`, text: "Adherence is steady across the recorded period.", evidenceIds: [evidenceIds.trend] }] },
       { sectionId: "stable-context", clauses: [{ clauseId: `${answerId}:context-clause`, text: "The member is traveling this week.", evidenceIds: [evidenceIds.source] }] },

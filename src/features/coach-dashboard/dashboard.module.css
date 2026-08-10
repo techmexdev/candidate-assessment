@@ -612,6 +612,7 @@
 }
 
 .copilotRiskHeadline,
+.copilotDecisionSupport,
 .copilotNextAction {
   min-width: 0;
   display: grid;
@@ -620,6 +621,14 @@
   border-radius: 12px;
   background: var(--ax-signal-soft);
 }
+
+.copilotDecisionSupport {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.copilotDecisionSupport p { margin: 0; }
 
 .copilotNextAction {
   background: var(--ax-bg);

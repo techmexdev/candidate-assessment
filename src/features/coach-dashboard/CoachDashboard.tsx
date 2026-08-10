@@ -1422,14 +1422,16 @@ function CopilotScreen({ state, dispatch, ask, submit, openSupportingContext, se
         <h1 className={styles.heroTitle}>{fixture.member.name}&apos;s morning workbench</h1>
         <div className={styles.subtle}>{formatCoachDate(selectedDate)} · {freshness} · {fixture.member.tier}</div>
       </div>
-      {briefAnswer && briefAnswer.tasks.length > 0 && <section className={styles.taskStack} aria-labelledby="copilot-tasks-title">
-        <div className={styles.sectionLabel} id="copilot-tasks-title">MORNING TASKS</div>
-        {briefAnswer.tasks.map((task) => <article className={styles.taskCard} data-task-id={task.taskId} key={task.taskId}>
-          <div className={styles.taskCardTop}><span className={styles.signalKicker}>{task.taskType === "celebrate" ? "CELEBRATE" : "REVIEW RISK"}</span><span className={styles.micro}>TASK {task.sourceOrder + 1}</span></div>
-          <div className={styles.bodyStrong}>{task.text}</div>
-          <div className={styles.taskCardBottom}><span className={styles.source}>GROUNDED · {task.actionId}</span><button className={styles.textButton} type="button" disabled={Boolean(pending)} onClick={() => taskAction(task)}>Open grounded context →</button></div>
-        </article>)}
-      </section>}
+      {briefAnswer && briefAnswer.tasks.length > 0 && <details className={styles.copilotDisclosure} data-testid="copilot-disclosure-morning-tasks">
+        <summary><span>Morning tasks</span><span className={styles.copilotDisclosureMeta}>{briefAnswer.tasks.length} {briefAnswer.tasks.length === 1 ? "task" : "tasks"}</span></summary>
+        <section className={`${styles.taskStack} ${styles.copilotDisclosureContent}`} aria-label="Morning tasks">
+          {briefAnswer.tasks.map((task) => <article className={styles.taskCard} data-task-id={task.taskId} key={task.taskId}>
+            <div className={styles.taskCardTop}><span className={styles.signalKicker}>{task.taskType === "celebrate" ? "CELEBRATE" : "REVIEW RISK"}</span><span className={styles.micro}>TASK {task.sourceOrder + 1}</span></div>
+            <div className={styles.bodyStrong}>{task.text}</div>
+            <div className={styles.taskCardBottom}><span className={styles.source}>GROUNDED · {task.actionId}</span><button className={styles.textButton} type="button" disabled={Boolean(pending)} onClick={() => taskAction(task)}>Open grounded context →</button></div>
+          </article>)}
+        </section>
+      </details>}
       <div className={styles.promptRow} aria-label="Copilot quick prompts">
         {prompts.map((prompt) => <button className={styles.pillButton} disabled={!copilotAvailable || Boolean(pending)} type="button" key={prompt.id} onClick={() => ask(prompt.id)}>{prompt.label}</button>)}
       </div>
@@ -1548,8 +1550,12 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
       {actions}
     </div>
     <div className={styles.copilotPrimaryContent}>
-      {viewModel.primarySections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} primary />)}
       {riskLabel && <div className={styles.copilotRiskHeadline}><span className={styles.dataLabel}>Risk signal</span><strong>{riskLabel}</strong></div>}
+      {viewModel.primarySections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} primary />)}
+      {viewModel.decisionSupport && <section className={styles.copilotDecisionSupport} aria-label={viewModel.decisionSupport.label}>
+        <span className={styles.dataLabel}>{viewModel.decisionSupport.label}</span>
+        <p className={styles.bodyStrong}>{viewModel.decisionSupport.text}</p>
+      </section>}
       {viewModel.nextAction && <CopilotPresentationSection section={viewModel.nextAction} />}
     </div>
     {viewModel.groups.map((group) => <CopilotDisclosure key={group.id} group={group} answer={answer} onOpenContext={onOpenContext} />)}
@@ -1558,7 +1564,7 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
 
 function CopilotDisclosure({ group, answer, onOpenContext }: { group: CopilotPresentationGroup; answer: CopilotAnswerPacket; onOpenContext?: (answer: CopilotAnswerPacket, evidenceId: string) => void }) {
   return <details className={styles.copilotDisclosure} data-testid={`copilot-disclosure-${group.id}`}>
-    <summary><span>{group.label}</span><span className={styles.copilotDisclosureMeta}>{group.itemCount} {group.itemCount === 1 ? "item" : "items"}</span></summary>
+    <summary><span>{group.label}</span><span className={styles.copilotDisclosureMeta}>{group.countLabel}</span></summary>
     <div className={styles.copilotDisclosureContent}>
       {group.sections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} />)}
       {group.id === "trend" && group.chart && <PacketChart chart={group.chart} />}

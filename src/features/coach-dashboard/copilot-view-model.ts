@@ -9,8 +9,14 @@ import type {
   CopilotMorningTask,
 } from "../../domain/contracts/copilot";
 
-export const COPILOT_PRESENTATION_GROUP_IDS = ["facts", "trend", "risk", "sources", "additional"] as const;
+export const COPILOT_PRESENTATION_GROUP_IDS = ["analysis", "facts", "trend", "risk", "sources", "additional"] as const;
 export type CopilotPresentationGroupId = (typeof COPILOT_PRESENTATION_GROUP_IDS)[number];
+
+export type CopilotDecisionSupport = {
+  readonly label: "Why" | "Priority" | "Latest";
+  readonly text: string;
+  readonly evidenceIds: readonly string[];
+};
 
 export type CopilotPresentationRevision = {
   readonly contextRevisionId: string;
@@ -27,6 +33,7 @@ export type CopilotPresentationGroup = {
   readonly citations: readonly CopilotCitation[];
   readonly revision: CopilotPresentationRevision;
   readonly itemCount: number;
+  readonly countLabel: string;
 };
 
 export type CopilotAnswerViewModel = {
@@ -36,6 +43,7 @@ export type CopilotAnswerViewModel = {
   readonly tasks: readonly CopilotMorningTask[];
   readonly freshness: CopilotBriefFreshness | null;
   readonly headlineRisk: CopilotDerivedChurnLevel | null;
+  readonly decisionSupport: CopilotDecisionSupport | null;
   readonly groups: readonly CopilotPresentationGroup[];
 };
 
@@ -45,6 +53,7 @@ export type CopilotWorkbenchViewModel = {
 };
 
 const groupLabels: Readonly<Record<CopilotPresentationGroupId, string>> = {
+  analysis: "Full analysis",
   facts: "Facts and context",
   trend: "Trend and chart",
   risk: "Risk reasoning",
@@ -73,6 +82,60 @@ function uniqueSections(sections: readonly (CopilotAnswerSection | null)[]): rea
     seen.add(section.sectionId);
     return true;
   });
+}
+
+function sectionWithClauses(
+  section: CopilotAnswerSection,
+  clauses: CopilotAnswerSection["clauses"],
+): CopilotAnswerSection | null {
+  return clauses.length > 0 ? { ...section, clauses } : null;
+}
+
+function firstClause(section: CopilotAnswerSection | null): CopilotAnswerSection | null {
+  return section ? sectionWithClauses(section, section.clauses.slice(0, 1)) : null;
+}
+
+function remainingClauses(section: CopilotAnswerSection | null): CopilotAnswerSection | null {
+  return section ? sectionWithClauses(section, section.clauses.slice(1)) : null;
+}
+
+function mergeSections(sections: readonly (CopilotAnswerSection | null)[]): readonly CopilotAnswerSection[] {
+  const merged = new Map<string, CopilotAnswerSection>();
+  for (const section of sections) {
+    if (!section || !hasContent(section)) continue;
+    const current = merged.get(section.sectionId);
+    merged.set(section.sectionId, current
+      ? { ...current, clauses: [...current.clauses, ...section.clauses] }
+      : section);
+  }
+  return [...merged.values()];
+}
+
+function decisionSupportFor(answer: CopilotAnswerPacket): CopilotDecisionSupport | null {
+  if (answer.intentId === "churn-risk") {
+    const reason = answer.churn?.source?.reasons.find((candidate) => candidate.basisStatus === "supported");
+    return reason ? { label: "Why", text: reason.text, evidenceIds: reason.evidenceIds } : null;
+  }
+
+  if (answer.intentId === "morning-brief") {
+    const task = [...answer.tasks].sort((left, right) => left.sourceOrder - right.sourceOrder)[0];
+    return task ? { label: "Priority", text: task.text, evidenceIds: task.evidenceIds } : null;
+  }
+
+  if ((answer.intentId === "adherence" || answer.intentId === "sleep") && answer.chart) {
+    const latest = answer.chart.points.at(-1);
+    if (latest) return {
+      label: "Latest",
+      text: `${latest.label} · ${answer.chart.unit === "percent" ? `${latest.value}%` : `${latest.value} ${answer.chart.unit}`}`,
+      evidenceIds: latest.evidenceIds,
+    };
+  }
+
+  return null;
+}
+
+function analysisCountLabel(itemCount: number): string {
+  return `${itemCount} ${itemCount === 1 ? "statement" : "statements"}`;
 }
 
 function groupItemCount(
@@ -120,6 +183,9 @@ function buildGroup(
       memberTimezone: answer.memberTimezone,
     },
     itemCount,
+    countLabel: id === "analysis"
+      ? analysisCountLabel(itemCount)
+      : `${itemCount} ${itemCount === 1 ? "item" : "items"}`,
   };
 }
 
@@ -127,15 +193,34 @@ export function buildCopilotAnswerViewModel(answer: CopilotAnswerPacket): Copilo
   const meaningfulAnswer = answer.sections.find((section) => section.sectionId === "answer" && hasContent(section)) ?? null;
   const meaningfulLimitation = answer.sections.find((section) => section.sectionId === "limitation" && hasContent(section)) ?? null;
   const fallback = firstMeaningfulSection(answer.sections, new Set(["next-action"]));
-  const primarySections = uniqueSections([meaningfulAnswer ?? meaningfulLimitation ?? fallback, meaningfulAnswer ? meaningfulLimitation : null]);
-  const primaryIds = new Set(primarySections.map((section) => section.sectionId));
-  const nextAction = answer.sections.find((section) => section.sectionId === "next-action" && hasContent(section)) ?? null;
-  const consumedIds = new Set([...primaryIds, "next-action"]);
+  const nextActionSource = answer.sections.find((section) => section.sectionId === "next-action" && hasContent(section)) ?? null;
+  const decisionSupport = meaningfulLimitation ? null : decisionSupportFor(answer);
+  const fallbackPrimary = meaningfulAnswer ?? fallback;
+  const primarySource = meaningfulLimitation ?? (decisionSupport ? null : fallbackPrimary);
+  const primarySections = uniqueSections([firstClause(primarySource)]);
+  const nextAction = firstClause(nextActionSource);
+  const analysisSections = mergeSections([
+    meaningfulLimitation ? meaningfulAnswer : null,
+    remainingClauses(primarySource),
+    decisionSupport ? meaningfulAnswer : null,
+    remainingClauses(nextActionSource),
+    answer.intentId === "morning-brief" && answer.tasks.length > 1
+      ? {
+          sectionId: "morning-brief",
+          clauses: [...answer.tasks]
+            .sort((left, right) => left.sourceOrder - right.sourceOrder)
+            .slice(1)
+            .map((task) => ({ clauseId: task.taskId, text: task.text, evidenceIds: task.evidenceIds })),
+        }
+      : null,
+  ]);
+  const consumedIds = new Set(["answer", "limitation", "next-action", ...primarySections.map((section) => section.sectionId)]);
   const facts = answer.sections.filter((section) => !consumedIds.has(section.sectionId) && FACT_SECTION_IDS.has(section.sectionId) && hasContent(section));
   const trend = answer.sections.filter((section) => !consumedIds.has(section.sectionId) && TREND_SECTION_IDS.has(section.sectionId) && hasContent(section));
   const knownIds = new Set([...consumedIds, ...facts.map((section) => section.sectionId), ...trend.map((section) => section.sectionId)]);
   const additional = answer.sections.filter((section) => !knownIds.has(section.sectionId) && hasContent(section));
   const groups = [
+    buildGroup(answer, "analysis", analysisSections),
     buildGroup(answer, "facts", facts),
     buildGroup(answer, "trend", trend, { chart: answer.chart }),
     buildGroup(answer, "risk", [], { churn: answer.churn }),
@@ -150,6 +235,7 @@ export function buildCopilotAnswerViewModel(answer: CopilotAnswerPacket): Copilo
     tasks: answer.tasks,
     freshness: answer.briefFreshness,
     headlineRisk: answer.churn?.derived.level ?? null,
+    decisionSupport,
     groups,
   };
 }
