@@ -197,6 +197,10 @@ function sharesEvidence(left: readonly string[], right: readonly string[]): bool
   return left.some((evidenceId) => rightIds.has(evidenceId));
 }
 
+function normalizedInstruction(text: string): string {
+  return text.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
 function groupItemCount(
   sections: readonly CopilotAnswerSection[],
   chart: CopilotChart | null,
@@ -262,7 +266,8 @@ export function buildCopilotAnswerViewModel(answer: CopilotAnswerPacket): Copilo
   const nextActionRepeatsPriority = Boolean(
     primaryTask
     && nextActionCandidate
-    && sharesEvidence(primaryTask.evidenceIds, nextActionCandidate.clauses[0]?.evidenceIds ?? []),
+    && sharesEvidence(primaryTask.evidenceIds, nextActionCandidate.clauses[0]?.evidenceIds ?? [])
+    && normalizedInstruction(primaryTask.text) === normalizedInstruction(nextActionCandidate.clauses[0]?.text ?? ""),
   );
   const nextAction = nextActionRepeatsPriority ? null : nextActionCandidate;
   const analysisSections = mergeSections([

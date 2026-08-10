@@ -280,6 +280,21 @@ describe("Copilot presentation view model", () => {
     ]);
   });
 
+  it("keeps a distinct morning next action even when it shares priority evidence", () => {
+    const morning = packet("answer:shared-evidence-action", {
+      intentId: "morning-brief",
+      sections: [
+        { sectionId: "answer", clauses: [{ clauseId: "brief", text: "Coach task: Recognize the completed travel session.", evidenceIds: ["evidence:travel"] }] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Check shoulder comfort before the next session.", evidenceIds: ["evidence:travel"] }] },
+      ],
+      tasks: [{ taskId: "task:first", taskType: "celebrate", actionId: "celebrate-progress", text: "Recognize the completed travel session.", evidenceIds: ["evidence:travel"], sourceOrder: 0 }],
+    });
+
+    const model = buildCopilotAnswerViewModel(morning);
+
+    expect(model.nextAction?.clauses[0]?.text).toBe("Check shoulder comfort before the next session.");
+  });
+
   it("uses the latest chart point for chart-backed intents and bounds fallback answers to one clause", () => {
     const adherence = packet("answer:adherence", {
       intentId: "adherence",
