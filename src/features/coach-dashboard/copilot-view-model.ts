@@ -185,8 +185,16 @@ function groupCountLabel(
 }
 
 function taskIsRepresented(task: CopilotMorningTask, sections: readonly CopilotAnswerSection[]): boolean {
-  const text = task.text.trim().toLocaleLowerCase();
-  return sections.some((section) => section.clauses.some((clause) => clause.text.trim().toLocaleLowerCase().includes(text)));
+  if (task.evidenceIds.length === 0) return false;
+  return sections.some((section) => section.clauses.some((clause) =>
+    task.evidenceIds.every((evidenceId) => clause.evidenceIds.includes(evidenceId)),
+  ));
+}
+
+function sharesEvidence(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length === 0 || right.length === 0) return false;
+  const rightIds = new Set(right);
+  return left.some((evidenceId) => rightIds.has(evidenceId));
 }
 
 function groupItemCount(
@@ -249,11 +257,19 @@ export function buildCopilotAnswerViewModel(answer: CopilotAnswerPacket): Copilo
   const fallbackPrimary = meaningfulAnswer ?? fallback;
   const primarySource = meaningfulLimitation ?? (decisionSupport || suppressRawPrimary ? null : fallbackPrimary);
   const primarySections = uniqueSections([firstClause(primarySource)]);
-  const nextAction = firstClause(nextActionSource);
+  const nextActionCandidate = firstClause(nextActionSource);
+  const primaryTask = answer.intentId === "morning-brief" ? orderedTasks[0] ?? null : null;
+  const nextActionRepeatsPriority = Boolean(
+    primaryTask
+    && nextActionCandidate
+    && sharesEvidence(primaryTask.evidenceIds, nextActionCandidate.clauses[0]?.evidenceIds ?? []),
+  );
+  const nextAction = nextActionRepeatsPriority ? null : nextActionCandidate;
   const analysisSections = mergeSections([
     meaningfulLimitation ? meaningfulAnswer : null,
     remainingClauses(primarySource),
     decisionSupport || suppressRawPrimary ? meaningfulAnswer : null,
+    nextActionRepeatsPriority ? nextActionCandidate : null,
     remainingClauses(nextActionSource),
     answer.intentId === "morning-brief" && orderedTasks.length > 1
       ? {

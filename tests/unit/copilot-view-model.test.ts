@@ -240,14 +240,14 @@ describe("Copilot presentation view model", () => {
       intentId: "morning-brief",
       sections: [
         { sectionId: "answer", clauses: [
-          { clauseId: "brief:one", text: "Coach task: Celebrate the completed session.", evidenceIds: ["evidence:answer"] },
-          { clauseId: "brief:two", text: "Coach task: Review the missed session.", evidenceIds: ["evidence:answer"] },
+          { clauseId: "brief:one", text: "Coach task: Celebrate the completed session.", evidenceIds: ["evidence:celebrate"] },
+          { clauseId: "brief:two", text: "Coach task: Review the missed session.", evidenceIds: ["evidence:risk"] },
         ] },
-        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Check in with the member.", evidenceIds: ["evidence:answer"] }] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Check in with the member.", evidenceIds: ["evidence:action"] }] },
       ],
       tasks: [
-        { taskId: "task:second", taskType: "review_risk", actionId: "review-churn-risk", text: "Review the missed session.", evidenceIds: ["evidence:answer"], sourceOrder: 1 },
-        { taskId: "task:first", taskType: "celebrate", actionId: "celebrate-progress", text: "Celebrate the completed session.", evidenceIds: ["evidence:answer"], sourceOrder: 0 },
+        { taskId: "task:second", taskType: "review_risk", actionId: "review-churn-risk", text: "Review the missed session.", evidenceIds: ["evidence:risk"], sourceOrder: 1 },
+        { taskId: "task:first", taskType: "celebrate", actionId: "celebrate-progress", text: "Celebrate the completed session.", evidenceIds: ["evidence:celebrate"], sourceOrder: 0 },
       ],
     });
 
@@ -258,6 +258,25 @@ describe("Copilot presentation view model", () => {
     expect(model.groups.find((group) => group.id === "analysis")?.sections.flatMap((section) => section.clauses.map((clause) => clause.text))).toEqual([
       "Coach task: Celebrate the completed session.",
       "Coach task: Review the missed session.",
+    ]);
+  });
+
+  it("omits a morning next action that repeats the priority task evidence", () => {
+    const morning = packet("answer:duplicate-action", {
+      intentId: "morning-brief",
+      sections: [
+        { sectionId: "answer", clauses: [{ clauseId: "brief", text: "Coach task: Celebrate the completed session.", evidenceIds: ["evidence:celebrate"] }] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Celebrate the completed session.", evidenceIds: ["evidence:celebrate"] }] },
+      ],
+      tasks: [{ taskId: "task:first", taskType: "celebrate", actionId: "celebrate-progress", text: "Celebrate the completed session.", evidenceIds: ["evidence:celebrate"], sourceOrder: 0 }],
+    });
+
+    const model = buildCopilotAnswerViewModel(morning);
+
+    expect(model.nextAction).toBeNull();
+    expect(model.groups.find((group) => group.id === "analysis")?.sections.flatMap((section) => section.clauses.map((clause) => clause.text))).toEqual([
+      "Coach task: Celebrate the completed session.",
+      "Celebrate the completed session.",
     ]);
   });
 

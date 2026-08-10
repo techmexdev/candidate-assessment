@@ -107,7 +107,7 @@ async function answer(body: RequestBody, answerId: string, revision = REVISION_O
         textSummary: options.allZeroChart ? "May 28: 0 percent. Jun 4: 0 percent." : "Jun 4: 50 percent.",
       } : null,
       citations: options.limitationOnly ? [] : [
-        { ...scope, citationId: `citation:${answerId}`, evidenceId, label: "Synthetic source", source, classification: "observation", temporal, unit: "percent" },
+        { ...scope, citationId: `citation:${answerId}`, evidenceId, label: intentId === "churn-risk" ? "/adherence/weekly_completion_pct/2026-06-04" : "Synthetic source", source, classification: "observation", temporal, unit: "percent" },
         ...conversationEvidence.map((atom) => ({ ...scope, citationId: `citation:${atom.evidenceId}`, evidenceId: atom.evidenceId, label: atom.evidenceKind === "message" ? "Member check-in" : "Home setup photo", source, classification: "source-statement" as const, temporal, unit: null })),
         ...taskEvidence.map((task) => ({ ...scope, citationId: `citation:${task.evidenceId}`, evidenceId: task.evidenceId, label: "Synthetic coach task", source, classification: "observation" as const, temporal, unit: null })),
       ],
@@ -319,7 +319,8 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   const churnRisk = page.locator('[data-answer-id="answer:5"]');
   const why = churnRisk.getByLabel("Why");
   await expect(why.getByText("Coach-entered cancellation concern.")).toBeVisible();
-  await expect(why.getByText("EVIDENCE · Synthetic source")).toBeVisible();
+  await expect(why.getByText("From Observation")).toBeVisible();
+  await expect(why.getByText("/adherence/weekly_completion_pct/2026-06-04")).toHaveCount(0);
   await expect(churnRisk.getByText("weekly-workout-completion: 100 percent.")).toBeHidden();
   await expect(churnRisk.getByText("Member message: Skipped Thursday because work was exhausting.")).toBeHidden();
   await expect(churnRisk.getByText("A source-provided risk reason is excluded because its basis is unsupported.")).toBeHidden();

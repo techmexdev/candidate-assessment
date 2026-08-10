@@ -1523,6 +1523,13 @@ function readableCopilotLabel(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function humanDecisionSourceLabel(answer: CopilotAnswerPacket, evidenceId: string): string | null {
+  const citationLabel = answer.citations.find((citation) => citation.evidenceId === evidenceId)?.label.trim();
+  if (citationLabel && !citationLabel.includes("/") && !citationLabel.includes("sha256:")) return citationLabel;
+  const atom = answer.evidence.atoms.find((candidate) => candidate.evidenceId === evidenceId);
+  return atom ? readableCopilotLabel(atom.evidenceKind) : null;
+}
+
 function CopilotPresentationSection({ section, primary = false }: { section: CopilotAnswerViewModel["primarySections"][number]; primary?: boolean }) {
   const label = section.sectionId === "answer" && primary
     ? "Decision"
@@ -1543,11 +1550,16 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
     ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
     : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
   const riskLabel = viewModel.headlineRisk ? readableCopilotLabel(viewModel.headlineRisk) : null;
-  const resolvedDecisionEvidenceLabels = viewModel.decisionSupport
-    ? [...new Set(viewModel.decisionSupport.evidenceIds.map((evidenceId) => answer.citations.find((citation) => citation.evidenceId === evidenceId)?.label ?? "Packet evidence"))]
+  const decisionSourceLabels = viewModel.decisionSupport
+    ? viewModel.decisionSupport.evidenceIds.map((evidenceId) => humanDecisionSourceLabel(answer, evidenceId))
     : [];
-  const decisionEvidenceLabels = resolvedDecisionEvidenceLabels.length > 0 ? resolvedDecisionEvidenceLabels : ["Packet evidence"];
-  const decisionSupportClass = viewModel.decisionSupport?.label === "Priority"
+  const visibleDecisionSupport = viewModel.decisionSupport
+    && viewModel.decisionSupport.evidenceIds.length > 0
+    && decisionSourceLabels.every((label): label is string => Boolean(label))
+      ? viewModel.decisionSupport
+      : null;
+  const uniqueDecisionSourceLabels = [...new Set(decisionSourceLabels.filter((label): label is string => Boolean(label)))];
+  const decisionSupportClass = visibleDecisionSupport?.label === "Priority"
     ? `${styles.copilotDecisionSupport} ${styles.copilotDecisionAction}`
     : `${styles.copilotDecisionSupport} ${styles.copilotDecisionSignal}`;
   return <article className={`${styles.copilotCard} ${styles.copilotWorkbenchCard}`} data-answer-id={answer.answerId} data-revision-id={answer.contextRevisionId} data-copilot-presentation="workbench">
@@ -1561,11 +1573,11 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
     <div className={styles.copilotPrimaryContent}>
       {riskLabel && <div className={styles.copilotRiskHeadline}><span className={styles.dataLabel}>Risk signal</span><strong>{riskLabel}</strong></div>}
       {viewModel.primarySections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} primary />)}
-      {viewModel.decisionSupport && <section className={decisionSupportClass} aria-label={viewModel.decisionSupport.label}>
-        <span className={styles.dataLabel}>{viewModel.decisionSupport.label}</span>
-        <p className={styles.bodyStrong}>{viewModel.decisionSupport.text}</p>
-        {viewModel.decisionSupport.meta && <span className={styles.micro}>{viewModel.decisionSupport.meta}</span>}
-        <span className={styles.source}>EVIDENCE · {decisionEvidenceLabels.join(" · ")}</span>
+      {visibleDecisionSupport && <section className={decisionSupportClass} aria-label={visibleDecisionSupport.label}>
+        <span className={styles.dataLabel}>{visibleDecisionSupport.label}</span>
+        <p className={styles.bodyStrong}>{visibleDecisionSupport.text}</p>
+        {visibleDecisionSupport.meta && <span className={styles.micro}>{visibleDecisionSupport.meta}</span>}
+        <span className={styles.subtle}>From {uniqueDecisionSourceLabels.join(" · ")}</span>
       </section>}
       {viewModel.nextAction && <CopilotPresentationSection section={viewModel.nextAction} />}
     </div>
