@@ -619,21 +619,18 @@
   gap: 4px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: var(--ax-signal-soft);
 }
 
-.copilotDecisionSupport {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
+.copilotRiskHeadline,
+.copilotDecisionSignal { background: var(--ax-signal-soft); }
 
-.copilotDecisionSupport p { margin: 0; }
-
+.copilotDecisionAction,
 .copilotNextAction {
   background: var(--ax-bg);
   border: 1px solid var(--ax-line-2);
 }
+
+.copilotDecisionSupport p { margin: 0; }
 
 .copilotDisclosure {
   min-width: 0;

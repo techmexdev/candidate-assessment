@@ -1508,7 +1508,7 @@ function CopilotAnswerCard({ answer, compact = false, actions = null, onOpenCont
 }
 
 const copilotSectionLabels: Readonly<Record<string, string>> = {
-  answer: "Summary",
+  answer: "Analysis",
   limitation: "Limitation",
   "next-action": "Next action",
   "recent-facts": "Recent facts",
@@ -1524,7 +1524,9 @@ function readableCopilotLabel(value: string): string {
 }
 
 function CopilotPresentationSection({ section, primary = false }: { section: CopilotAnswerViewModel["primarySections"][number]; primary?: boolean }) {
-  const label = copilotSectionLabels[section.sectionId] ?? readableCopilotLabel(section.sectionId);
+  const label = section.sectionId === "answer" && primary
+    ? "Decision"
+    : copilotSectionLabels[section.sectionId] ?? readableCopilotLabel(section.sectionId);
   return <section className={section.sectionId === "next-action" ? styles.copilotNextAction : styles.answerSection} data-copilot-section={section.sectionId} aria-label={label}>
     <div className={styles.dataLabel}>{label}</div>
     {section.clauses.map((clause) => <p className={primary && section.sectionId === "answer" ? styles.copilotTitle : styles.bodyCopy} key={clause.clauseId}>{clause.text}</p>)}
@@ -1541,6 +1543,13 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
     ? `${answer.briefFreshness.status === "latest-recorded" ? "Latest recorded" : "Requested date"} · ${formatCoachDate(answer.briefFreshness.generatedFor)}`
     : `Evidence as of ${new Date(answer.evidenceAsOf).toLocaleString("en-US", { timeZone: answer.memberTimezone })}`;
   const riskLabel = viewModel.headlineRisk ? readableCopilotLabel(viewModel.headlineRisk) : null;
+  const resolvedDecisionEvidenceLabels = viewModel.decisionSupport
+    ? [...new Set(viewModel.decisionSupport.evidenceIds.map((evidenceId) => answer.citations.find((citation) => citation.evidenceId === evidenceId)?.label ?? "Packet evidence"))]
+    : [];
+  const decisionEvidenceLabels = resolvedDecisionEvidenceLabels.length > 0 ? resolvedDecisionEvidenceLabels : ["Packet evidence"];
+  const decisionSupportClass = viewModel.decisionSupport?.label === "Priority"
+    ? `${styles.copilotDecisionSupport} ${styles.copilotDecisionAction}`
+    : `${styles.copilotDecisionSupport} ${styles.copilotDecisionSignal}`;
   return <article className={`${styles.copilotCard} ${styles.copilotWorkbenchCard}`} data-answer-id={answer.answerId} data-revision-id={answer.contextRevisionId} data-copilot-presentation="workbench">
     <div className={styles.cardTop}>
       <div className={styles.copilotPrimaryMeta}>
@@ -1552,9 +1561,11 @@ function CopilotWorkbenchAnswerCard({ answer, viewModel, actions, onOpenContext 
     <div className={styles.copilotPrimaryContent}>
       {riskLabel && <div className={styles.copilotRiskHeadline}><span className={styles.dataLabel}>Risk signal</span><strong>{riskLabel}</strong></div>}
       {viewModel.primarySections.map((section) => <CopilotPresentationSection key={section.sectionId} section={section} primary />)}
-      {viewModel.decisionSupport && <section className={styles.copilotDecisionSupport} aria-label={viewModel.decisionSupport.label}>
+      {viewModel.decisionSupport && <section className={decisionSupportClass} aria-label={viewModel.decisionSupport.label}>
         <span className={styles.dataLabel}>{viewModel.decisionSupport.label}</span>
         <p className={styles.bodyStrong}>{viewModel.decisionSupport.text}</p>
+        {viewModel.decisionSupport.meta && <span className={styles.micro}>{viewModel.decisionSupport.meta}</span>}
+        <span className={styles.source}>EVIDENCE · {decisionEvidenceLabels.join(" · ")}</span>
       </section>}
       {viewModel.nextAction && <CopilotPresentationSection section={viewModel.nextAction} />}
     </div>

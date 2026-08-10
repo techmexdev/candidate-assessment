@@ -317,7 +317,9 @@ test("brief, prompts, free text and follow-up use route packets and one pinned r
   }
 
   const churnRisk = page.locator('[data-answer-id="answer:5"]');
-  await expect(churnRisk.getByLabel("Why").getByText("Coach-entered cancellation concern.")).toBeVisible();
+  const why = churnRisk.getByLabel("Why");
+  await expect(why.getByText("Coach-entered cancellation concern.")).toBeVisible();
+  await expect(why.getByText("EVIDENCE · Synthetic source")).toBeVisible();
   await expect(churnRisk.getByText("weekly-workout-completion: 100 percent.")).toBeHidden();
   await expect(churnRisk.getByText("Member message: Skipped Thursday because work was exhausting.")).toBeHidden();
   await expect(churnRisk.getByText("A source-provided risk reason is excluded because its basis is unsupported.")).toBeHidden();

@@ -16,6 +16,7 @@ export type CopilotDecisionSupport = {
   readonly label: "Why" | "Priority" | "Latest";
   readonly text: string;
   readonly evidenceIds: readonly string[];
+  readonly meta: string | null;
 };
 
 export type CopilotPresentationRevision = {
@@ -111,15 +112,31 @@ function mergeSections(sections: readonly (CopilotAnswerSection | null)[]): read
   return [...merged.values()];
 }
 
-function decisionSupportFor(answer: CopilotAnswerPacket): CopilotDecisionSupport | null {
+function compactTrendCopy(text: string): string {
+  return text.replace(
+    /\bfrom\s+(-?\d+(?:\.\d+)?%?)\s+to\s+(-?\d+(?:\.\d+)?%?)/gi,
+    "$1 → $2",
+  );
+}
+
+function decisionSupportFor(
+  answer: CopilotAnswerPacket,
+  orderedTasks: readonly CopilotMorningTask[],
+): CopilotDecisionSupport | null {
   if (answer.intentId === "churn-risk") {
     const reason = answer.churn?.source?.reasons.find((candidate) => candidate.basisStatus === "supported");
-    return reason ? { label: "Why", text: reason.text, evidenceIds: reason.evidenceIds } : null;
+    return reason ? { label: "Why", text: compactTrendCopy(reason.text), evidenceIds: reason.evidenceIds, meta: null } : null;
   }
 
   if (answer.intentId === "morning-brief") {
-    const task = [...answer.tasks].sort((left, right) => left.sourceOrder - right.sourceOrder)[0];
-    return task ? { label: "Priority", text: task.text, evidenceIds: task.evidenceIds } : null;
+    const task = orderedTasks[0];
+    const remainingCount = Math.max(0, orderedTasks.length - 1);
+    return task ? {
+      label: "Priority",
+      text: task.text,
+      evidenceIds: task.evidenceIds,
+      meta: remainingCount > 0 ? `${remainingCount} more ${remainingCount === 1 ? "task" : "tasks"}` : null,
+    } : null;
   }
 
   if ((answer.intentId === "adherence" || answer.intentId === "sleep") && answer.chart) {
@@ -128,6 +145,7 @@ function decisionSupportFor(answer: CopilotAnswerPacket): CopilotDecisionSupport
       label: "Latest",
       text: `${latest.label} · ${answer.chart.unit === "percent" ? `${latest.value}%` : `${latest.value} ${answer.chart.unit}`}`,
       evidenceIds: latest.evidenceIds,
+      meta: null,
     };
   }
 
@@ -136,6 +154,39 @@ function decisionSupportFor(answer: CopilotAnswerPacket): CopilotDecisionSupport
 
 function analysisCountLabel(itemCount: number): string {
   return `${itemCount} ${itemCount === 1 ? "statement" : "statements"}`;
+}
+
+function groupCountLabel(
+  id: CopilotPresentationGroupId,
+  itemCount: number,
+  sections: readonly CopilotAnswerSection[],
+  chart: CopilotChart | null,
+  churn: CopilotChurnView | null,
+  citations: readonly CopilotCitation[],
+): string {
+  if (id === "analysis" || id === "additional") return analysisCountLabel(itemCount);
+  if (id === "facts") {
+    const count = sections.reduce((total, section) => total + section.clauses.length, 0);
+    return `${count} ${count === 1 ? "fact" : "facts"}`;
+  }
+  if (id === "trend") {
+    const count = chart?.points.length ?? sections.reduce((total, section) => total + section.clauses.length, 0);
+    return `${count} ${chart ? (count === 1 ? "data point" : "data points") : (count === 1 ? "statement" : "statements")}`;
+  }
+  if (id === "risk" && churn) {
+    const count = churn.derived.reasons.length + churn.derived.excludedSourceReasons.length + (churn.source?.reasons.length ?? 0);
+    return `${count} ${count === 1 ? "reason" : "reasons"}`;
+  }
+  if (id === "sources") {
+    if (citations.length === 0) return "Revision details";
+    return `${citations.length} ${citations.length === 1 ? "reference" : "references"}`;
+  }
+  return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+}
+
+function taskIsRepresented(task: CopilotMorningTask, sections: readonly CopilotAnswerSection[]): boolean {
+  const text = task.text.trim().toLocaleLowerCase();
+  return sections.some((section) => section.clauses.some((clause) => clause.text.trim().toLocaleLowerCase().includes(text)));
 }
 
 function groupItemCount(
@@ -183,9 +234,7 @@ function buildGroup(
       memberTimezone: answer.memberTimezone,
     },
     itemCount,
-    countLabel: id === "analysis"
-      ? analysisCountLabel(itemCount)
-      : `${itemCount} ${itemCount === 1 ? "item" : "items"}`,
+    countLabel: groupCountLabel(id, itemCount, sections, chart, churn, citations),
   };
 }
 
@@ -194,22 +243,24 @@ export function buildCopilotAnswerViewModel(answer: CopilotAnswerPacket): Copilo
   const meaningfulLimitation = answer.sections.find((section) => section.sectionId === "limitation" && hasContent(section)) ?? null;
   const fallback = firstMeaningfulSection(answer.sections, new Set(["next-action"]));
   const nextActionSource = answer.sections.find((section) => section.sectionId === "next-action" && hasContent(section)) ?? null;
-  const decisionSupport = meaningfulLimitation ? null : decisionSupportFor(answer);
+  const orderedTasks = [...answer.tasks].sort((left, right) => left.sourceOrder - right.sourceOrder);
+  const decisionSupport = meaningfulLimitation ? null : decisionSupportFor(answer, orderedTasks);
+  const suppressRawPrimary = !meaningfulLimitation && answer.intentId === "churn-risk";
   const fallbackPrimary = meaningfulAnswer ?? fallback;
-  const primarySource = meaningfulLimitation ?? (decisionSupport ? null : fallbackPrimary);
+  const primarySource = meaningfulLimitation ?? (decisionSupport || suppressRawPrimary ? null : fallbackPrimary);
   const primarySections = uniqueSections([firstClause(primarySource)]);
   const nextAction = firstClause(nextActionSource);
   const analysisSections = mergeSections([
     meaningfulLimitation ? meaningfulAnswer : null,
     remainingClauses(primarySource),
-    decisionSupport ? meaningfulAnswer : null,
+    decisionSupport || suppressRawPrimary ? meaningfulAnswer : null,
     remainingClauses(nextActionSource),
-    answer.intentId === "morning-brief" && answer.tasks.length > 1
+    answer.intentId === "morning-brief" && orderedTasks.length > 1
       ? {
           sectionId: "morning-brief",
-          clauses: [...answer.tasks]
-            .sort((left, right) => left.sourceOrder - right.sourceOrder)
+          clauses: orderedTasks
             .slice(1)
+            .filter((task) => !taskIsRepresented(task, answer.sections))
             .map((task) => ({ clauseId: task.taskId, text: task.text, evidenceIds: task.evidenceIds })),
         }
       : null,

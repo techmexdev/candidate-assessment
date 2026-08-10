@@ -151,8 +151,9 @@ describe("Copilot presentation view model", () => {
     expect(model.primarySections).toEqual([]);
     expect(model.decisionSupport).toEqual({
       label: "Why",
-      text: "Adherence fell from 100% to 50% over two weeks.",
+      text: "Adherence fell 100% → 50% over two weeks.",
       evidenceIds: ["evidence:answer"],
+      meta: null,
     });
     expect(model.nextAction?.clauses.map((clause) => clause.text)).toEqual([
       "Review the missed-session pattern with the member.",
@@ -166,6 +167,29 @@ describe("Copilot presentation view model", () => {
       "Consider a shorter session.",
     ]);
     expect(analysis?.countLabel).toBe("4 statements");
+  });
+
+  it("omits the churn why when no human-readable source reason is supported", () => {
+    const unsupportedOnly = packet("answer:unsupported-churn", {
+      intentId: "churn-risk",
+      sections: [
+        { sectionId: "answer", clauses: [{ clauseId: "answer:raw", text: "weekly-workout-completion: 50 percent.", evidenceIds: ["evidence:answer"] }] },
+        { sectionId: "next-action", clauses: [{ clauseId: "action", text: "Review risk with the member.", evidenceIds: ["evidence:answer"] }] },
+      ],
+      churn: {
+        ...churn,
+        source: {
+          ...churn.source!,
+          reasons: [{ text: "The member may cancel.", basisStatus: "unsupported-source", evidenceIds: ["evidence:answer"] }],
+        },
+      },
+    });
+
+    const model = buildCopilotAnswerViewModel(unsupportedOnly);
+
+    expect(model.decisionSupport).toBeNull();
+    expect(model.primarySections).toEqual([]);
+    expect(model.groups.find((group) => group.id === "analysis")?.sections[0]?.clauses[0]?.text).toBe("weekly-workout-completion: 50 percent.");
   });
 
   it("makes the newest answer primary and keeps complete supporting content grouped by meaning", () => {
@@ -185,9 +209,13 @@ describe("Copilot presentation view model", () => {
 
     expect(model.primary?.groups.map((group) => group.id)).toEqual(["analysis", "facts", "trend", "risk", "sources"]);
     expect(model.primary?.groups.find((group) => group.id === "analysis")?.sections.map((section) => section.sectionId)).toEqual(["answer"]);
+    expect(model.primary?.groups.find((group) => group.id === "facts")).toMatchObject({ countLabel: "1 fact" });
     expect(model.primary?.groups.find((group) => group.id === "facts")?.sections.map((section) => section.sectionId)).toEqual(["recent-facts"]);
+    expect(model.primary?.groups.find((group) => group.id === "trend")?.countLabel).toBe("2 data points");
     expect(model.primary?.groups.find((group) => group.id === "trend")?.chart).toBe(latest.chart);
+    expect(model.primary?.groups.find((group) => group.id === "risk")?.countLabel).toBe("2 reasons");
     expect(model.primary?.groups.find((group) => group.id === "risk")?.churn).toBe(latest.churn);
+    expect(model.primary?.groups.find((group) => group.id === "sources")?.countLabel).toBe("1 reference");
     expect(model.primary?.groups.find((group) => group.id === "sources")?.citations).toBe(latest.citations);
     expect(model.primary?.groups.find((group) => group.id === "sources")?.revision.contextRevisionId).toBe(latest.contextRevisionId);
   });
@@ -226,11 +254,10 @@ describe("Copilot presentation view model", () => {
     const model = buildCopilotAnswerViewModel(morning);
 
     expect(model.primarySections).toEqual([]);
-    expect(model.decisionSupport).toMatchObject({ label: "Priority", text: "Celebrate the completed session." });
+    expect(model.decisionSupport).toMatchObject({ label: "Priority", text: "Celebrate the completed session.", meta: "1 more task" });
     expect(model.groups.find((group) => group.id === "analysis")?.sections.flatMap((section) => section.clauses.map((clause) => clause.text))).toEqual([
       "Coach task: Celebrate the completed session.",
       "Coach task: Review the missed session.",
-      "Review the missed session.",
     ]);
   });
 

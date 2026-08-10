@@ -95,6 +95,8 @@ test("keeps the concise Copilot card and expanded evidence within supported widt
 
     const answer = page.locator('[data-copilot-presentation="workbench"]');
     await expect(answer).toBeVisible();
+    await expect(answer.getByText("Decision", { exact: true })).toBeVisible();
+    await expect(answer.getByText("Summary", { exact: true })).toHaveCount(0);
     await expect(answer.getByText(/member is progressing/i)).toBeVisible();
     const disclosures = answer.locator("details");
     await expect(disclosures).not.toHaveCount(0);
